@@ -10,6 +10,22 @@ fn allow_asset_dir(app: tauri::AppHandle, path: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Archivo pasado por línea de comandos (doble clic en un .md con la
+/// asociación de archivos, o `iureditor doc.md`). El frontend lo consulta
+/// al arrancar.
+#[tauri::command]
+fn get_cli_file() -> Option<String> {
+    let arg = std::env::args().nth(1)?;
+    let path = std::path::Path::new(&arg);
+    if path.is_file() {
+        path.canonicalize()
+            .ok()
+            .map(|p| p.to_string_lossy().into_owned())
+    } else {
+        None
+    }
+}
+
 /// Fallback de impresión: window.print() no es fiable en todos los webviews
 /// (WKWebView en macOS); este comando usa la API nativa de wry.
 #[tauri::command]
@@ -114,6 +130,7 @@ pub fn run() {
         )
         .invoke_handler(tauri::generate_handler![
             allow_asset_dir,
+            get_cli_file,
             print_webview,
             render_svg_png
         ])

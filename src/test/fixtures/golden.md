@@ -51,3 +51,5 @@ flowchart TD
 ---
 
 Texto final con imagen: ![logo](assets/logo.png)
+
+Imagen con guiones bajos: ![captura_de_pantalla](assets/captura_con_guiones_bajos_2.png) y un [enlace_con_guiones](https://example.com/ruta_con_guiones/pagina_final.html) en la misma línea.

@@ -224,10 +224,16 @@ export default function App() {
     };
   }, []);
 
-  // ---------- recientes iniciales ----------
+  // ---------- recientes iniciales + archivo pasado por CLI ----------
   useEffect(() => {
     if (!isTauri) return;
     void getRecentFiles().then(setRecentFiles);
+    void (async () => {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const cliFile = await invoke<string | null>('get_cli_file');
+      if (cliFile) await loadDocument(cliFile);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ---------- guard al cerrar ----------

@@ -110,6 +110,34 @@ export const markdownToHtml = (markdown: string): string => {
     return inlineCodePlaceholder(idx);
   });
 
+  // STEP 1c — Extract images and link TARGETS before inline formatting.
+  // Un nombre de archivo como `logo_con_guiones.png` dentro de
+  // ![alt](assets/logo_con_guiones.png) era destrozado por el regex de
+  // cursivas (`_..._` → <em>) y la ruta guardada dejaba de existir.
+  const inlineAtoms: string[] = [];
+  const atomPlaceholder = (i: number) => `<!--IUR-ATOM-${i}-->`;
+  // Imágenes completas (el alt es atributo: sin formato markdown dentro)
+  html = html.replace(
+    /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g,
+    (_m, alt, url, title) => {
+      const idx = inlineAtoms.length;
+      inlineAtoms.push(
+        `<img src="${url}" alt="${escapeHtmlAttr(alt || '')}"${title ? ` title="${escapeHtmlAttr(title)}"` : ''} />`
+      );
+      return atomPlaceholder(idx);
+    }
+  );
+  // Enlaces: se protege sólo la etiqueta de apertura (con la URL); el texto
+  // del enlace queda fuera para que negritas/cursivas sigan aplicando.
+  html = html.replace(
+    /\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g,
+    (_m, text, url, title) => {
+      const idx = inlineAtoms.length;
+      inlineAtoms.push(`<a href="${url}"${title ? ` title="${escapeHtmlAttr(title)}"` : ''}>`);
+      return `${atomPlaceholder(idx)}${text}</a>`;
+    }
+  );
+
   // STEP 2 — Headers (atx style). Must come before inline replacements so
   // the `#` characters at line start are consumed.
   html = html.replace(/^###### (.+)$/gm, '<h6>$1</h6>');
@@ -123,14 +151,10 @@ export const markdownToHtml = (markdown: string): string => {
   html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/(^|[^*])\*([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>');
-  html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
-  html = html.replace(/(^|[^_])_([^_\n]+?)_(?!_)/g, '$1<em>$2</em>');
-
-  // Links + images
-  html = html.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g,
-    (_m, alt, url, title) => `<img src="${url}" alt="${alt || ''}"${title ? ` title="${title}"` : ''} />`);
-  html = html.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g,
-    (_m, text, url, title) => `<a href="${url}"${title ? ` title="${title}"` : ''}>${text}</a>`);
+  // Guiones bajos: según CommonMark el énfasis con _ NO aplica dentro de
+  // palabra (snake_case, nombres_de_archivo quedan literales).
+  html = html.replace(/(^|[^\w])__([^_\n](?:.*?[^_\n])?)__(?!\w)/g, '$1<strong>$2</strong>');
+  html = html.replace(/(^|[^\w])_([^_\n]+?)_(?!\w)/g, '$1<em>$2</em>');
 
   // Horizontal rules
   html = html.replace(/^[ \t]*(?:---+|\*\*\*+|___+)[ \t]*$/gm, '<hr>');
@@ -258,7 +282,8 @@ export const markdownToHtml = (markdown: string): string => {
     return `<p>${trimmed}</p>`;
   }).join('\n');
 
-  // STEP 8 — Restore placeholders (inline code primero, luego bloques).
+  // STEP 8 — Restore placeholders (átomos e inline code, luego bloques).
+  html = html.replace(/<!--IUR-ATOM-(\d+)-->/g, (_m, i) => inlineAtoms[Number(i)] || '');
   html = html.replace(/<!--IUR-INLINECODE-(\d+)-->/g, (_m, i) => inlineCodes[Number(i)] || '');
   html = html.replace(/<!--IUR-CODEBLOCK-(\d+)-->/g, (_m, i) => codeBlocks[Number(i)] || '');
 

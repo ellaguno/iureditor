@@ -94,6 +94,18 @@ describe('round-trip markdown → HTML → markdown', () => {
     expect(out).toContain('`tabla_con_*asteriscos*`');
   });
 
+  it('no aplica cursivas dentro de URLs de imágenes y enlaces', () => {
+    const html = markdownToHtml(
+      '![captura_de_pantalla](assets/captura_con_guiones_2.png) y [liga_x](https://x.com/ruta_con_guiones.html)'
+    );
+    expect(html).toContain('src="assets/captura_con_guiones_2.png"');
+    expect(html).toContain('href="https://x.com/ruta_con_guiones.html"');
+    expect(html).not.toContain('<em>');
+    const out = roundTrip(fixture);
+    expect(out).toContain('![captura_de_pantalla](assets/captura_con_guiones_bajos_2.png)');
+    expect(out).toContain('[enlace_con_guiones](https://example.com/ruta_con_guiones/pagina_final.html)');
+  });
+
   it('markdownToHtml genera div mermaid con data-code', () => {
     const html = markdownToHtml('```mermaid\ngraph LR\nA-->B\n```');
     expect(html).toContain('data-type="mermaid"');
