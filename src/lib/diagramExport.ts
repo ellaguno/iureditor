@@ -1,9 +1,24 @@
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import { invoke } from '@tauri-apps/api/core';
 
 // Export de diagramas mermaid. Portado de MarkdownRenderer.tsx pero
 // refactorizado: en Tauri `<a download>` con blob URL no hace nada (no hay
 // download manager), así que todo se guarda vía dialog.save + plugin-fs.
+//
+// La rasterización SVG→PNG se hace en Rust (comando render_svg_png, resvg):
+// WebKitGTK contamina el canvas al dibujar SVGs y toBlob truena con
+// SecurityError ("The operation is insecure"). El canvas queda como
+// fallback para cuando la app corre fuera de Tauri.
+
+const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+const base64ToBytes = (b64: string): Uint8Array => {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+};
 
 export const svgToString = (svgElement: SVGElement): string =>
   new XMLSerializer().serializeToString(svgElement);
@@ -25,6 +40,20 @@ const svgDimensions = (svgElement: SVGElement): { width: number; height: number 
   return { width, height };
 };
 
+/** Serializa un clon del SVG con width/height explícitos (los SVG sin
+ *  tamaño intrínseco no se rasterizan bien ni en canvas ni en resvg). */
+const serializeWithSize = (svgElement: SVGElement): string => {
+  const { width, height } = svgDimensions(svgElement);
+  const clone = svgElement.cloneNode(true) as SVGElement;
+  clone.setAttribute('width', String(width));
+  clone.setAttribute('height', String(height));
+  return svgToString(clone);
+};
+
+/** Rasteriza vía comando Rust (resvg). Devuelve PNG en base64. */
+const rasterizeWithRust = (svgElement: SVGElement, scale: number): Promise<string> =>
+  invoke<string>('render_svg_png', { svg: serializeWithSize(svgElement), scale });
+
 /** Rasteriza un SVG a canvas y devuelve el Blob (png/jpeg). */
 const svgToRasterBlob = (
   svgElement: SVGElement,
@@ -34,13 +63,7 @@ const svgToRasterBlob = (
 ): Promise<Blob> =>
   new Promise((resolve, reject) => {
     const { width, height } = svgDimensions(svgElement);
-
-    // WebKit no dibuja en canvas SVGs sin tamaño intrínseco (width="100%"
-    // o sin atributos): serializa un clon con width/height explícitos.
-    const clone = svgElement.cloneNode(true) as SVGElement;
-    clone.setAttribute('width', String(width));
-    clone.setAttribute('height', String(height));
-    const svgData = svgToString(clone);
+    const svgData = serializeWithSize(svgElement);
 
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
@@ -83,12 +106,18 @@ const svgToRasterBlob = (
   });
 
 export const svgToPngBytes = async (svgElement: SVGElement, scale = 2): Promise<Uint8Array> => {
+  if (isTauri) {
+    return base64ToBytes(await rasterizeWithRust(svgElement, scale));
+  }
   const blob = await svgToRasterBlob(svgElement, 'image/png', scale);
   return new Uint8Array(await blob.arrayBuffer());
 };
 
 /** PNG como data URL — primitivo para incrustar diagramas en DOCX/HTML. */
 export const svgToPngDataUrl = async (svgElement: SVGElement, scale = 2): Promise<string> => {
+  if (isTauri) {
+    return `data:image/png;base64,${await rasterizeWithRust(svgElement, scale)}`;
+  }
   const blob = await svgToRasterBlob(svgElement, 'image/png', scale);
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
