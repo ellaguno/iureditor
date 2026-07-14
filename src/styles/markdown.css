@@ -1,0 +1,282 @@
+/* Markdown content styles */
+.markdown-content {
+  color: #374151;
+  line-height: 1.6;
+}
+
+.dark .markdown-content {
+  color: #e5e7eb;
+}
+
+.markdown-content pre {
+  background-color: #f3f4f6;
+  border-radius: 0.375rem;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+}
+
+.dark .markdown-content pre {
+  background-color: #1f2937;
+}
+
+.markdown-content pre code {
+  background-color: transparent;
+  padding: 0;
+  font-size: 0.875rem;
+  font-family: 'Courier New', Courier, monospace;
+  color: inherit;
+}
+
+.markdown-content code {
+  background-color: #f3f4f6;
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+  font-family: 'Courier New', Courier, monospace;
+  color: #1f2937;
+}
+
+.dark .markdown-content code {
+  background-color: #374151;
+  color: #e5e7eb;
+}
+
+.markdown-content a {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.dark .markdown-content a {
+  color: #60a5fa;
+}
+
+.markdown-content a:hover {
+  text-decoration: underline;
+}
+
+.markdown-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.375rem;
+  margin: 1rem 0;
+}
+
+.markdown-content hr {
+  border: 0;
+  border-top: 1px solid #e5e7eb;
+  margin: 1.5rem 0;
+}
+
+.dark .markdown-content hr {
+  border-top: 1px solid #4b5563;
+}
+
+/* Mermaid diagram styles */
+.mermaid-diagram {
+  margin: 1rem 0;
+  padding: 1rem;
+  background-color: #f9fafb;
+  border-radius: 0.5rem;
+  border: 1px solid #e5e7eb;
+  overflow-x: auto;
+}
+
+.dark .mermaid-diagram {
+  background-color: #1f2937;
+  border: 1px solid #4b5563;
+}
+
+.mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+}
+
+/* Hide Mermaid error icons (bombas) */
+[id*="error-icon"],
+.error-icon {
+  display: none !important;
+}
+
+/* Mermaid error message styles */
+.mermaid-error {
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  border-left: 4px solid #ef4444;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin: 1rem 0;
+}
+
+.mermaid-error-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.mermaid-error-icon {
+  width: 1.5rem;
+  height: 1.5rem;
+  color: #ef4444;
+  flex-shrink: 0;
+}
+
+.mermaid-error-title {
+  font-weight: 600;
+  color: #991b1b;
+  font-size: 1rem;
+}
+
+.mermaid-error-message {
+  color: #7f1d1d;
+  font-size: 0.875rem;
+  margin-bottom: 0.75rem;
+  line-height: 1.5;
+}
+
+.mermaid-error-details {
+  margin-top: 0.75rem;
+  cursor: pointer;
+}
+
+.mermaid-error-details summary {
+  color: #991b1b;
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 0.5rem;
+  background-color: #fee2e2;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.mermaid-error-details summary:hover {
+  background-color: #fecaca;
+}
+
+.mermaid-error-details[open] summary {
+  margin-bottom: 0.5rem;
+}
+
+.mermaid-error-code {
+  background-color: #1f2937;
+  color: #f3f4f6;
+  padding: 0.75rem;
+  border-radius: 0.375rem;
+  overflow-x: auto;
+  font-size: 0.8125rem;
+  font-family: 'Courier New', Courier, monospace;
+  margin: 0;
+}
+
+.mermaid-error-code code {
+  background-color: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.mermaid-error-hint {
+  margin-top: 0.75rem;
+  padding: 0.5rem;
+  background-color: #dbeafe;
+  border-left: 3px solid #3b82f6;
+  border-radius: 0.25rem;
+  color: #1e40af;
+  font-size: 0.8125rem;
+}
+
+/* Table styles */
+.markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+}
+
+.markdown-content table th,
+.markdown-content table td {
+  padding: 0.75rem;
+  border: 1px solid #e5e7eb;
+  text-align: left;
+}
+
+.dark .markdown-content table th,
+.dark .markdown-content table td {
+  border: 1px solid #4b5563;
+}
+
+.markdown-content table th {
+  background-color: #f9fafb;
+  font-weight: 600;
+}
+
+.dark .markdown-content table th {
+  background-color: #374151;
+}
+
+.markdown-content table tr:nth-child(even) {
+  background-color: #f9fafb;
+}
+
+.dark .markdown-content table tr:nth-child(even) {
+  background-color: #1f2937;
+}
+
+/* List styles */
+.markdown-content ul,
+.markdown-content ol {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+
+.markdown-content li {
+  margin: 0.25rem 0;
+}
+
+/* Blockquote styles */
+.markdown-content blockquote {
+  border-left: 4px solid #e5e7eb;
+  padding-left: 1rem;
+  margin: 1rem 0;
+  color: #6b7280;
+  font-style: italic;
+}
+
+.dark .markdown-content blockquote {
+  border-left: 4px solid #4b5563;
+  color: #9ca3af;
+}
+
+/* Heading spacing */
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.markdown-content h1:first-child,
+.markdown-content h2:first-child,
+.markdown-content h3:first-child {
+  margin-top: 0;
+}
+
+/* Paragraph spacing */
+.markdown-content p {
+  margin: 0.75rem 0;
+}
+
+.markdown-content p:first-child {
+  margin-top: 0;
+}
+
+.markdown-content p:last-child {
+  margin-bottom: 0;
+}

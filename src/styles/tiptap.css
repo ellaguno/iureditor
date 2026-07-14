@@ -1,0 +1,283 @@
+/* TipTap Editor Styles */
+
+/* Base editor container */
+.tiptap-editor {
+  @apply text-gray-900 dark:text-gray-100;
+}
+
+.tiptap-editor:focus {
+  @apply outline-none;
+}
+
+/* Placeholder */
+.tiptap-editor p.is-editor-empty:first-child::before {
+  @apply text-gray-400 dark:text-gray-500 float-left h-0 pointer-events-none;
+  content: attr(data-placeholder);
+}
+
+/* Headings */
+.tiptap-editor h1 {
+  @apply text-3xl font-bold mt-6 mb-4 text-gray-900 dark:text-gray-100;
+}
+
+.tiptap-editor h2 {
+  @apply text-2xl font-bold mt-5 mb-3 text-gray-900 dark:text-gray-100;
+}
+
+.tiptap-editor h3 {
+  @apply text-xl font-semibold mt-4 mb-2 text-gray-900 dark:text-gray-100;
+}
+
+.tiptap-editor h4 {
+  @apply text-lg font-semibold mt-4 mb-2 text-gray-900 dark:text-gray-100;
+}
+
+.tiptap-editor h5 {
+  @apply text-base font-semibold mt-3 mb-2 text-gray-900 dark:text-gray-100;
+}
+
+.tiptap-editor h6 {
+  @apply text-sm font-semibold mt-3 mb-2 text-gray-900 dark:text-gray-100;
+}
+
+/* Paragraphs */
+.tiptap-editor p {
+  @apply my-3 leading-relaxed;
+}
+
+/* Lists */
+.tiptap-editor ul {
+  @apply list-disc pl-6 my-3;
+}
+
+.tiptap-editor ol {
+  @apply list-decimal pl-6 my-3;
+}
+
+.tiptap-editor li {
+  @apply my-1;
+}
+
+.tiptap-editor li p {
+  @apply my-0;
+}
+
+/* Task Lists */
+.tiptap-editor ul[data-type="taskList"] {
+  @apply list-none pl-0;
+}
+
+.tiptap-editor ul[data-type="taskList"] li {
+  @apply flex items-start gap-2 my-1;
+}
+
+.tiptap-editor ul[data-type="taskList"] li > label {
+  @apply flex items-center justify-center;
+}
+
+.tiptap-editor ul[data-type="taskList"] li > label input[type="checkbox"] {
+  @apply w-4 h-4 rounded border-gray-300 dark:border-gray-600
+         text-primary-600 focus:ring-primary-500 cursor-pointer
+         bg-white dark:bg-gray-700;
+}
+
+.tiptap-editor ul[data-type="taskList"] li > div {
+  @apply flex-1;
+}
+
+.tiptap-editor ul[data-type="taskList"] li[data-checked="true"] > div {
+  @apply line-through text-gray-500 dark:text-gray-400;
+}
+
+/* Blockquotes */
+.tiptap-editor blockquote {
+  @apply border-l-4 border-gray-300 dark:border-gray-600 pl-4 my-4
+         italic text-gray-700 dark:text-gray-300;
+}
+
+.tiptap-editor blockquote p {
+  @apply my-2;
+}
+
+/* Horizontal Rule */
+.tiptap-editor hr {
+  @apply border-t border-gray-300 dark:border-gray-600 my-6;
+}
+
+/* Code (inline) */
+.tiptap-editor code {
+  @apply bg-gray-100 dark:bg-gray-800 text-pink-600 dark:text-pink-400
+         px-1.5 py-0.5 rounded text-sm font-mono;
+}
+
+/* Code Block */
+.tiptap-editor pre {
+  @apply bg-gray-900 dark:bg-gray-950 text-gray-100 p-4 rounded-lg
+         overflow-x-auto my-4 text-sm font-mono;
+}
+
+.tiptap-editor pre code {
+  @apply bg-transparent text-inherit p-0 rounded-none;
+}
+
+/* Syntax Highlighting (lowlight) */
+.tiptap-editor pre .hljs-comment,
+.tiptap-editor pre .hljs-quote {
+  @apply text-gray-500;
+}
+
+.tiptap-editor pre .hljs-variable,
+.tiptap-editor pre .hljs-template-variable,
+.tiptap-editor pre .hljs-attribute,
+.tiptap-editor pre .hljs-tag,
+.tiptap-editor pre .hljs-name,
+.tiptap-editor pre .hljs-regexp,
+.tiptap-editor pre .hljs-link,
+.tiptap-editor pre .hljs-selector-id,
+.tiptap-editor pre .hljs-selector-class {
+  @apply text-red-400;
+}
+
+.tiptap-editor pre .hljs-number,
+.tiptap-editor pre .hljs-meta,
+.tiptap-editor pre .hljs-built_in,
+.tiptap-editor pre .hljs-builtin-name,
+.tiptap-editor pre .hljs-literal,
+.tiptap-editor pre .hljs-type,
+.tiptap-editor pre .hljs-params {
+  @apply text-orange-400;
+}
+
+.tiptap-editor pre .hljs-string,
+.tiptap-editor pre .hljs-symbol,
+.tiptap-editor pre .hljs-bullet {
+  @apply text-green-400;
+}
+
+.tiptap-editor pre .hljs-title,
+.tiptap-editor pre .hljs-section {
+  @apply text-yellow-400;
+}
+
+.tiptap-editor pre .hljs-keyword,
+.tiptap-editor pre .hljs-selector-tag {
+  @apply text-purple-400;
+}
+
+.tiptap-editor pre .hljs-emphasis {
+  @apply italic;
+}
+
+.tiptap-editor pre .hljs-strong {
+  @apply font-bold;
+}
+
+/* Links */
+.tiptap-editor a {
+  @apply text-primary-600 dark:text-primary-400 underline cursor-pointer
+         hover:text-primary-700 dark:hover:text-primary-300;
+}
+
+/* Images */
+.tiptap-editor img {
+  @apply max-w-full h-auto rounded-lg my-4;
+}
+
+.tiptap-editor img.ProseMirror-selectednode {
+  @apply ring-2 ring-primary-500 ring-offset-2;
+}
+
+/* Tables */
+.tiptap-editor table {
+  @apply border-collapse w-full my-4;
+}
+
+.tiptap-editor table th {
+  @apply bg-gray-100 dark:bg-gray-800 font-semibold text-left
+         px-3 py-2 border border-gray-300 dark:border-gray-600;
+}
+
+.tiptap-editor table td {
+  @apply px-3 py-2 border border-gray-300 dark:border-gray-600;
+}
+
+.tiptap-editor table tr:nth-child(even) td {
+  @apply bg-gray-50 dark:bg-gray-800/50;
+}
+
+/* Selected table cells */
+.tiptap-editor .selectedCell {
+  @apply bg-primary-100 dark:bg-primary-900/30;
+}
+
+/* Table resize handle */
+.tiptap-editor .column-resize-handle {
+  @apply bg-primary-500 w-1 absolute top-0 bottom-0 right-[-2px]
+         pointer-events-auto cursor-col-resize;
+}
+
+.tiptap-editor .tableWrapper {
+  @apply overflow-x-auto my-4;
+}
+
+/* Text Alignment */
+.tiptap-editor [style*="text-align: center"] {
+  text-align: center;
+}
+
+.tiptap-editor [style*="text-align: right"] {
+  text-align: right;
+}
+
+.tiptap-editor [style*="text-align: justify"] {
+  text-align: justify;
+}
+
+/* Highlight */
+.tiptap-editor mark {
+  @apply rounded px-0.5;
+}
+
+/* Subscript & Superscript */
+.tiptap-editor sub {
+  @apply text-xs;
+}
+
+.tiptap-editor sup {
+  @apply text-xs;
+}
+
+/* Strikethrough */
+.tiptap-editor s {
+  @apply line-through text-gray-500 dark:text-gray-400;
+}
+
+/* Underline */
+.tiptap-editor u {
+  @apply underline;
+}
+
+/* Selection */
+.tiptap-editor ::selection {
+  @apply bg-primary-200 dark:bg-primary-800;
+}
+
+/* Gap cursor */
+.tiptap-editor .ProseMirror-gapcursor:after {
+  @apply border-t-2 border-gray-900 dark:border-gray-100;
+}
+
+/* Drop cursor */
+.tiptap-editor .ProseMirror-dropcursor {
+  @apply text-primary-500;
+}
+
+/* Focus visible on links */
+.tiptap-editor a:focus-visible {
+  @apply ring-2 ring-primary-500 ring-offset-2 outline-none rounded;
+}
+
+/* Typography smart quotes and dashes styling */
+.tiptap-editor {
+  font-feature-settings: "liga" 1, "calt" 1;
+}

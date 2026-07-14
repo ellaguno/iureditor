@@ -1,0 +1,51 @@
+# Documento de prueba
+
+Párrafo simple con **negritas**, *cursivas*, `código inline` y un [enlace](https://example.com).
+
+## Listas
+
+- Elemento uno
+- Elemento dos
+- Elemento tres
+
+1. Primero
+2. Segundo
+3. Tercero
+
+## Tareas
+
+- [ ] Tarea pendiente
+- [x] Tarea completada
+
+## Tabla
+
+| Columna A | Columna B | Columna C |
+| --- | --- | --- |
+| celda 1 | **negrita** | dato |
+| celda 2 | texto | 42 |
+
+## Código
+
+```python
+def hola(nombre):
+    # comentario con # y | y *
+    return f"Hola {nombre}"
+```
+
+## Diagrama
+
+```mermaid
+flowchart TD
+    A[Inicio] --> B{Decisión}
+    B -->|Sí| C[Fin]
+    B -->|No| A
+```
+
+## Cita
+
+> Una línea citada
+> otra línea citada
+
+---
+
+Texto final con imagen: ![logo](assets/logo.png)
