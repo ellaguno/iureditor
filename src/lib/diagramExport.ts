@@ -33,11 +33,18 @@ const svgToRasterBlob = (
   quality = 0.95
 ): Promise<Blob> =>
   new Promise((resolve, reject) => {
-    const svgData = svgToString(svgElement);
+    const { width, height } = svgDimensions(svgElement);
+
+    // WebKit no dibuja en canvas SVGs sin tamaño intrínseco (width="100%"
+    // o sin atributos): serializa un clon con width/height explícitos.
+    const clone = svgElement.cloneNode(true) as SVGElement;
+    clone.setAttribute('width', String(width));
+    clone.setAttribute('height', String(height));
+    const svgData = svgToString(clone);
+
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     const img = new Image();
-    const { width, height } = svgDimensions(svgElement);
 
     canvas.width = width * scale;
     canvas.height = height * scale;

@@ -127,19 +127,32 @@ export default function App() {
   );
 
   // ---------- exportar ----------
+  const reportExportError = useCallback(async (format: string, err: unknown) => {
+    console.error(`Export ${format} falló:`, err);
+    const { message } = await import('@tauri-apps/plugin-dialog');
+    const detail = err instanceof Error ? err.message : String(err);
+    await message(`No se pudo exportar a ${format}:\n${detail}`, {
+      title: 'iureditor',
+      kind: 'error',
+    });
+  }, []);
+
   const handleExportPdf = useCallback(() => {
     const editor = editorRef.current?.editor;
-    if (editor) void exportToPdf(editor, filePathRef.current);
-  }, []);
+    if (!editor) return;
+    exportToPdf(editor, filePathRef.current).catch((err) =>
+      reportExportError('PDF', err)
+    );
+  }, [reportExportError]);
 
   const handleExportDocx = useCallback(() => {
     const editor = editorRef.current?.editor;
     if (!editor) return;
     // Import perezoso: turbodocx pesa ~1MB y sólo se usa al exportar.
-    void import('./lib/exportDocx').then(({ exportToDocx }) =>
-      exportToDocx(editor, filePathRef.current)
-    );
-  }, []);
+    import('./lib/exportDocx')
+      .then(({ exportToDocx }) => exportToDocx(editor, filePathRef.current))
+      .catch((err) => reportExportError('DOCX', err));
+  }, [reportExportError]);
 
   const handleQuit = useCallback(() => {
     // close() dispara onCloseRequested, donde vive el guard de dirty.

@@ -9,6 +9,10 @@ const BASE_CONFIG = {
   theme: 'default' as const,
   securityLevel: 'strict' as const,
   fontFamily: 'inherit',
+  // Labels como <text> SVG (no <foreignObject>): el export PNG por diagrama
+  // rasteriza el SVG del editor en canvas y foreignObject lo contamina.
+  flowchart: { htmlLabels: false },
+  class: { htmlLabels: false },
 };
 
 export async function getMermaid() {
@@ -43,7 +47,7 @@ export async function renderFullSizeDiagram(code: string): Promise<string> {
 
   m.initialize({
     ...BASE_CONFIG,
-    flowchart: { useMaxWidth: false, htmlLabels: true, curve: 'basis' },
+    flowchart: { useMaxWidth: false, htmlLabels: false, curve: 'basis' },
     sequence: { useMaxWidth: false, width: 150, height: 65 },
     gantt: { useMaxWidth: false, fontSize: 12 },
   });
