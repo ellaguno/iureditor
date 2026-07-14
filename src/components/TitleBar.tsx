@@ -3,8 +3,9 @@ import type { ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getVersion } from '@tauri-apps/api/app';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { Minus, Square, X, ChevronDown } from 'lucide-react';
+import { Minus, Square, X, ChevronDown, Check } from 'lucide-react';
 import { basename } from '../lib/fileio';
+import type { Theme } from '../lib/prefs';
 
 const HELP_LINKS: { label: string; url: string }[] = [
   { label: 'Apps', url: 'https://iurefficient.com' },
@@ -29,6 +30,17 @@ export interface TitleBarActions {
   onUndo: () => void;
   onRedo: () => void;
   onSelectAll: () => void;
+  onFind: () => void;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onZoomReset: () => void;
+}
+
+export interface ViewPrefs {
+  theme: Theme;
+  onThemeChange: (theme: Theme) => void;
+  spellcheck: boolean;
+  onSpellcheckChange: (enabled: boolean) => void;
 }
 
 const MenuItem = ({
@@ -36,11 +48,14 @@ const MenuItem = ({
   shortcut,
   onClick,
   disabled = false,
+  checked,
 }: {
   label: string;
   shortcut?: string;
   onClick: () => void;
   disabled?: boolean;
+  /** undefined = sin indicador; true/false = item tipo radio/checkbox */
+  checked?: boolean;
 }) => (
   <button
     type="button"
@@ -48,7 +63,12 @@ const MenuItem = ({
     onClick={onClick}
     className="w-full px-3 py-1.5 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-default flex items-center justify-between gap-6"
   >
-    <span className="truncate">{label}</span>
+    <span className="truncate flex items-center gap-2">
+      {checked !== undefined && (
+        <Check className={`w-3.5 h-3.5 shrink-0 ${checked ? '' : 'invisible'}`} />
+      )}
+      {label}
+    </span>
     {shortcut && (
       <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">{shortcut}</span>
     )}
@@ -141,13 +161,15 @@ export const TitleBar = ({
   filePath,
   dirty,
   recentFiles,
+  viewPrefs,
 }: {
   actions: TitleBarActions;
   filePath: string | null;
   dirty: boolean;
   recentFiles: string[];
+  viewPrefs: ViewPrefs;
 }) => {
-  const [openMenu, setOpenMenu] = useState<'file' | 'edit' | 'help' | null>(null);
+  const [openMenu, setOpenMenu] = useState<'file' | 'edit' | 'view' | 'help' | null>(null);
   const [version, setVersion] = useState('');
 
   useEffect(() => {
@@ -222,10 +244,48 @@ export const TitleBar = ({
           <MenuItem label="Deshacer" shortcut="Ctrl+Z" onClick={closeAnd(actions.onUndo)} />
           <MenuItem label="Rehacer" shortcut="Ctrl+Shift+Z" onClick={closeAnd(actions.onRedo)} />
           <MenuSeparator />
+          <MenuItem label="Buscar y reemplazar…" shortcut="Ctrl+F" onClick={closeAnd(actions.onFind)} />
+          <MenuSeparator />
           <MenuItem
             label="Seleccionar todo"
             shortcut="Ctrl+A"
             onClick={closeAnd(actions.onSelectAll)}
+          />
+        </DropdownMenu>
+
+        <DropdownMenu
+          label="Ver"
+          isOpen={openMenu === 'view'}
+          onToggle={() => setOpenMenu(openMenu === 'view' ? null : 'view')}
+          onClose={() => setOpenMenu(null)}
+        >
+          <MenuItem label="Aumentar zoom" shortcut="Ctrl++" onClick={actions.onZoomIn} />
+          <MenuItem label="Reducir zoom" shortcut="Ctrl+-" onClick={actions.onZoomOut} />
+          <MenuItem label="Zoom normal" shortcut="Ctrl+0" onClick={actions.onZoomReset} />
+          <MenuSeparator />
+          <div className="px-3 py-1 text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
+            Tema
+          </div>
+          <MenuItem
+            label="Claro"
+            checked={viewPrefs.theme === 'light'}
+            onClick={() => viewPrefs.onThemeChange('light')}
+          />
+          <MenuItem
+            label="Oscuro"
+            checked={viewPrefs.theme === 'dark'}
+            onClick={() => viewPrefs.onThemeChange('dark')}
+          />
+          <MenuItem
+            label="Sistema"
+            checked={viewPrefs.theme === 'system'}
+            onClick={() => viewPrefs.onThemeChange('system')}
+          />
+          <MenuSeparator />
+          <MenuItem
+            label="Corrector ortográfico"
+            checked={viewPrefs.spellcheck}
+            onClick={() => viewPrefs.onSpellcheckChange(!viewPrefs.spellcheck)}
           />
         </DropdownMenu>
 

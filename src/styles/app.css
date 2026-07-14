@@ -21,3 +21,22 @@ body {
   user-select: none;
   -webkit-user-select: none;
 }
+
+/* Resaltado de resultados de búsqueda (Ctrl+F) */
+.iur-search-hit {
+  background-color: rgba(250, 204, 21, 0.45);
+  border-radius: 2px;
+}
+
+.iur-search-current {
+  background-color: rgba(249, 115, 22, 0.6);
+  outline: 1px solid rgb(234, 88, 12);
+}
+
+.dark .iur-search-hit {
+  background-color: rgba(202, 138, 4, 0.5);
+}
+
+.dark .iur-search-current {
+  background-color: rgba(234, 88, 12, 0.65);
+}

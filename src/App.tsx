@@ -6,6 +6,18 @@ import { Editor } from './components/Editor';
 import type { EditorHandle } from './components/Editor';
 import { TitleBar } from './components/TitleBar';
 import { ResizeHandles } from './components/ResizeHandles';
+import { StatusBar } from './components/StatusBar';
+import {
+  initTheme,
+  getTheme,
+  setTheme,
+  getZoom,
+  setZoom,
+  getSpellcheck,
+  setSpellcheck,
+  ZOOM_STEP,
+} from './lib/prefs';
+import type { Theme } from './lib/prefs';
 import { getMermaid } from './lib/mermaid';
 import {
   readDocument,
@@ -30,6 +42,10 @@ export default function App() {
   const [filePath, setFilePath] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [recentFiles, setRecentFiles] = useState<string[]>([]);
+  const [counts, setCounts] = useState({ words: 0, chars: 0 });
+  const [theme, setThemeState] = useState<Theme>(getTheme);
+  const [spellcheck, setSpellcheckState] = useState<boolean>(getSpellcheck);
+  const [zoom, setZoomState] = useState<number>(getZoom);
 
   // Refs espejo para handlers estables (menú nativo, listeners de ventana).
   const filePathRef = useRef(filePath);
@@ -45,10 +61,20 @@ export default function App() {
     void getCurrentWindow().setTitle(`${dirty ? '• ' : ''}${name} — iureditor`);
   }, [filePath, dirty]);
 
-  // ---------- cambios del editor → dirty ----------
-  const handleChange = useCallback((markdown: string) => {
-    setDirty(markdown !== savedMarkdownRef.current);
+  // ---------- contadores ----------
+  const updateCounts = useCallback((markdown: string) => {
+    const words = markdown.trim() ? markdown.trim().split(/\s+/).length : 0;
+    setCounts({ words, chars: markdown.length });
   }, []);
+
+  // ---------- cambios del editor → dirty ----------
+  const handleChange = useCallback(
+    (markdown: string) => {
+      setDirty(markdown !== savedMarkdownRef.current);
+      updateCounts(markdown);
+    },
+    [updateCounts]
+  );
 
   // ---------- abrir / nuevo ----------
   const loadDocument = useCallback(async (path: string) => {
@@ -57,10 +83,11 @@ export default function App() {
     // Canónico: el markdown tal como lo re-emite el editor. Evita marcar
     // dirty por diferencias de normalización (espacios, separadores).
     savedMarkdownRef.current = editorRef.current?.getMarkdown() ?? raw;
+    updateCounts(savedMarkdownRef.current);
     setFilePath(path);
     setDirty(false);
     setRecentFiles(await addRecentFile(path));
-  }, []);
+  }, [updateCounts]);
 
   const guardDirty = useCallback(async (): Promise<boolean> => {
     if (!dirtyRef.current) return true;
@@ -71,9 +98,10 @@ export default function App() {
     if (!(await guardDirty())) return;
     editorRef.current?.setMarkdown('');
     savedMarkdownRef.current = editorRef.current?.getMarkdown() ?? '';
+    updateCounts(savedMarkdownRef.current);
     setFilePath(null);
     setDirty(false);
-  }, [guardDirty]);
+  }, [guardDirty, updateCounts]);
 
   const handleOpen = useCallback(async () => {
     if (!(await guardDirty())) return;
@@ -181,6 +209,35 @@ export default function App() {
     void getCurrentWindow().close();
   }, []);
 
+  // ---------- preferencias de vista ----------
+  useEffect(() => {
+    initTheme();
+  }, []);
+
+  const handleThemeChange = useCallback((next: Theme) => {
+    setTheme(next);
+    setThemeState(next);
+  }, []);
+
+  const handleSpellcheckChange = useCallback((enabled: boolean) => {
+    setSpellcheck(enabled);
+    setSpellcheckState(enabled);
+    editorRef.current?.setSpellcheck(enabled);
+  }, []);
+
+  const applyZoom = useCallback((next: number) => {
+    const clamped = setZoom(next);
+    setZoomState(clamped);
+  }, []);
+
+  const handleZoomIn = useCallback(() => applyZoom(getZoom() + ZOOM_STEP), [applyZoom]);
+  const handleZoomOut = useCallback(() => applyZoom(getZoom() - ZOOM_STEP), [applyZoom]);
+  const handleZoomReset = useCallback(() => applyZoom(1), [applyZoom]);
+
+  const handleFind = useCallback(() => {
+    editorRef.current?.openSearch();
+  }, []);
+
   // ---------- atajos de teclado (los menús ya no son nativos) ----------
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -202,11 +259,34 @@ export default function App() {
       } else if (key === 'q' && !e.shiftKey) {
         e.preventDefault();
         handleQuit();
+      } else if (key === 'f' && !e.shiftKey) {
+        e.preventDefault();
+        handleFind();
+      } else if (key === '+' || key === '=') {
+        e.preventDefault();
+        handleZoomIn();
+      } else if (key === '-') {
+        e.preventDefault();
+        handleZoomOut();
+      } else if (key === '0') {
+        e.preventDefault();
+        handleZoomReset();
       }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [handleSave, handleSaveAs, handleOpen, handleNew, handleExportPdf, handleQuit]);
+  }, [
+    handleSave,
+    handleSaveAs,
+    handleOpen,
+    handleNew,
+    handleExportPdf,
+    handleQuit,
+    handleFind,
+    handleZoomIn,
+    handleZoomOut,
+    handleZoomReset,
+  ]);
 
   // ---------- precarga de mermaid en idle ----------
   // El primer diagrama tardaba: mermaid son ~2MB que se cargan bajo demanda.
@@ -298,10 +378,20 @@ export default function App() {
             onUndo: () => editorRef.current?.editor?.chain().focus().undo().run(),
             onRedo: () => editorRef.current?.editor?.chain().focus().redo().run(),
             onSelectAll: () => editorRef.current?.editor?.chain().focus().selectAll().run(),
+            onFind: handleFind,
+            onZoomIn: handleZoomIn,
+            onZoomOut: handleZoomOut,
+            onZoomReset: handleZoomReset,
+          }}
+          viewPrefs={{
+            theme,
+            onThemeChange: handleThemeChange,
+            spellcheck,
+            onSpellcheckChange: handleSpellcheckChange,
           }}
         />
       )}
-      <div className="flex-1 min-h-0 flex flex-col">
+      <div className="flex-1 min-h-0 flex flex-col" style={{ zoom }}>
         <Editor
           ref={editorRef}
           onChange={handleChange}
@@ -309,6 +399,13 @@ export default function App() {
           onBrowseImage={handleBrowseImage}
         />
       </div>
+      <StatusBar
+        words={counts.words}
+        chars={counts.chars}
+        dirty={dirty}
+        hasFile={!!filePath}
+        zoom={zoom}
+      />
     </div>
   );
 }

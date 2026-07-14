@@ -5,6 +5,7 @@ import {
   useImperativeHandle,
   useMemo,
   useRef,
+  useState,
 } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import type { Editor as TipTapEditor } from '@tiptap/react';
@@ -34,9 +35,12 @@ import {
   Highlighter,
 } from 'lucide-react';
 import { MenuBar } from './MenuBar';
+import { SearchBar } from './SearchBar';
 import { ToolbarButton } from './ToolbarButton';
 import { Mermaid } from '../extensions/mermaid';
 import { LocalImage } from '../extensions/localImage';
+import { SearchReplace } from '../extensions/searchReplace';
+import { getSpellcheck } from '../lib/prefs';
 import { prepareContent, buildTurndownService } from '../lib/markdown';
 import { markdownToHtml } from '../lib/markdown';
 import { t } from '../lib/i18n';
@@ -58,6 +62,10 @@ export interface EditorHandle {
   setMarkdown: (markdown: string) => void;
   /** Inserta una imagen en el cursor. */
   insertImage: (src: string, alt?: string) => void;
+  /** Abre la barra de búsqueda (Ctrl+F). */
+  openSearch: () => void;
+  /** Activa/desactiva el corrector ortográfico del contenteditable. */
+  setSpellcheck: (enabled: boolean) => void;
   focus: () => void;
   editor: TipTapEditor | null;
 }
@@ -77,6 +85,7 @@ interface EditorProps {
 export const Editor = forwardRef<EditorHandle, EditorProps>(
   ({ onChange, onInsertImageFile, onBrowseImage }, ref) => {
     const turndown = useMemo(() => buildTurndownService(), []);
+    const [showSearch, setShowSearch] = useState(false);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const onChangeRef = useRef(onChange);
     onChangeRef.current = onChange;
@@ -138,12 +147,14 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
         Typography,
         CodeBlockLowlight.configure({ lowlight }),
         Mermaid,
+        SearchReplace,
       ],
       content: '',
       editorProps: {
         attributes: {
           class:
             'tiptap-editor prose dark:prose-invert prose-sm sm:prose-base max-w-none focus:outline-none min-h-[300px] px-4 py-3',
+          spellcheck: String(getSpellcheck()),
         },
         handlePaste: (_view, event) => {
           // 1) Screenshot / archivo de imagen en el portapapeles
@@ -200,6 +211,10 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
         insertImage: (src: string, alt = '') => {
           editor?.chain().focus().setImage({ src, alt }).run();
         },
+        openSearch: () => setShowSearch(true),
+        setSpellcheck: (enabled: boolean) => {
+          editor?.view.dom.setAttribute('spellcheck', String(enabled));
+        },
         focus: () => editor?.commands.focus(),
         editor,
       }),
@@ -224,6 +239,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
     return (
       <div className="flex flex-col h-full bg-white dark:bg-gray-900 overflow-hidden">
         <MenuBar editor={editor} onBrowseImage={onBrowseImage} />
+        {showSearch && <SearchBar editor={editor} onClose={() => setShowSearch(false)} />}
 
         <BubbleMenu
           editor={editor}
