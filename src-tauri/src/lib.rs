@@ -32,13 +32,8 @@ fn font_database() -> std::sync::Arc<resvg::usvg::fontdb::Database> {
         .clone()
 }
 
-/// Rasteriza un SVG a PNG (devuelve base64). Se hace en Rust con resvg
-/// porque WebKitGTK contamina el canvas al dibujar SVGs (SecurityError en
-/// toBlob), lo que rompía el export de diagramas mermaid a PNG/DOCX.
-/// async: los comandos síncronos corren en el hilo principal y una
-/// rasterización grande congelaba la UI ("la aplicación no responde").
-#[tauri::command]
-async fn render_svg_png(svg: String, scale: f32) -> Result<String, String> {
+/// Lógica de rasterización, separada del comando para poder testearla.
+fn rasterize_svg(svg: &str, scale: f32) -> Result<String, String> {
     use base64::Engine as _;
     use resvg::{tiny_skia, usvg};
 
@@ -47,7 +42,7 @@ async fn render_svg_png(svg: String, scale: f32) -> Result<String, String> {
         ..usvg::Options::default()
     };
 
-    let tree = usvg::Tree::from_str(&svg, &opt).map_err(|e| e.to_string())?;
+    let tree = usvg::Tree::from_str(svg, &opt).map_err(|e| e.to_string())?;
     let size = tree.size();
     let scale = if scale > 0.0 { scale } else { 2.0 };
     let w = (size.width() * scale).ceil().max(1.0) as u32;
@@ -67,6 +62,35 @@ async fn render_svg_png(svg: String, scale: f32) -> Result<String, String> {
 
     let png = pixmap.encode_png().map_err(|e| e.to_string())?;
     Ok(base64::engine::general_purpose::STANDARD.encode(png))
+}
+
+/// Rasteriza un SVG a PNG (devuelve base64). Se hace en Rust con resvg
+/// porque WebKitGTK contamina el canvas al dibujar SVGs (SecurityError en
+/// toBlob), lo que rompía el export de diagramas mermaid a PNG/DOCX.
+/// async: los comandos síncronos corren en el hilo principal y una
+/// rasterización grande congelaba la UI ("la aplicación no responde").
+#[tauri::command]
+async fn render_svg_png(svg: String, scale: f32) -> Result<String, String> {
+    rasterize_svg(&svg, scale)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn rasteriza_svg_de_mermaid() {
+        let path = std::env::var("IUR_TEST_SVG")
+            .unwrap_or_else(|_| "../src/test/fixtures/diagram.svg".to_string());
+        let svg = std::fs::read_to_string(&path).expect("no se pudo leer el SVG de prueba");
+        let b64 = super::rasterize_svg(&svg, 2.0).expect("rasterización falló");
+        assert!(b64.len() > 1000, "PNG sospechosamente pequeño");
+        if let Ok(out) = std::env::var("IUR_TEST_PNG_OUT") {
+            use base64::Engine as _;
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(&b64)
+                .unwrap();
+            std::fs::write(out, bytes).unwrap();
+        }
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

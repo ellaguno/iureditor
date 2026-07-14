@@ -9,8 +9,11 @@ const BASE_CONFIG = {
   theme: 'default' as const,
   securityLevel: 'strict' as const,
   fontFamily: 'inherit',
-  // Labels como <text> SVG (no <foreignObject>): el export PNG por diagrama
-  // rasteriza el SVG del editor en canvas y foreignObject lo contamina.
+  // Labels como <text> SVG (no <foreignObject>): resvg (export PNG/DOCX)
+  // omite foreignObject en silencio y los nodos salían como cajas vacías.
+  // OJO: mermaid 11 sólo respeta htmlLabels:false en el NIVEL SUPERIOR de
+  // la config; flowchart.htmlLabels por sí solo no aplica a los nodos.
+  htmlLabels: false,
   flowchart: { htmlLabels: false },
   class: { htmlLabels: false },
 };
