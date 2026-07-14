@@ -17,19 +17,33 @@ fn print_webview(webview: tauri::WebviewWindow) -> Result<(), String> {
     webview.print().map_err(|e| e.to_string())
 }
 
+/// Fuentes del sistema cacheadas: load_system_fonts() tarda y se usaba en
+/// cada rasterización.
+fn font_database() -> std::sync::Arc<resvg::usvg::fontdb::Database> {
+    static FONTDB: std::sync::OnceLock<std::sync::Arc<resvg::usvg::fontdb::Database>> =
+        std::sync::OnceLock::new();
+    FONTDB
+        .get_or_init(|| {
+            let mut fontdb = resvg::usvg::fontdb::Database::new();
+            fontdb.load_system_fonts();
+            fontdb.set_sans_serif_family("DejaVu Sans");
+            std::sync::Arc::new(fontdb)
+        })
+        .clone()
+}
+
 /// Rasteriza un SVG a PNG (devuelve base64). Se hace en Rust con resvg
 /// porque WebKitGTK contamina el canvas al dibujar SVGs (SecurityError en
 /// toBlob), lo que rompía el export de diagramas mermaid a PNG/DOCX.
+/// async: los comandos síncronos corren en el hilo principal y una
+/// rasterización grande congelaba la UI ("la aplicación no responde").
 #[tauri::command]
-fn render_svg_png(svg: String, scale: f32) -> Result<String, String> {
+async fn render_svg_png(svg: String, scale: f32) -> Result<String, String> {
     use base64::Engine as _;
     use resvg::{tiny_skia, usvg};
 
-    let mut fontdb = usvg::fontdb::Database::new();
-    fontdb.load_system_fonts();
-    fontdb.set_sans_serif_family("DejaVu Sans");
     let opt = usvg::Options {
-        fontdb: std::sync::Arc::new(fontdb),
+        fontdb: font_database(),
         ..usvg::Options::default()
     };
 
