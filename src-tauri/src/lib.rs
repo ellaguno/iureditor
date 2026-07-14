@@ -24,7 +24,18 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            // Restaurar sólo tamaño/posición/maximizado: si restaurase
+            // DECORATIONS, el estado guardado de una sesión anterior (con
+            // barra nativa) pisaría el decorations:false del config.
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+                )
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![allow_asset_dir, print_webview])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
