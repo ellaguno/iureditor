@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { Minus, Square, X, ChevronDown } from 'lucide-react';
 import { basename } from '../lib/fileio';
+
+const HELP_LINKS: { label: string; url: string }[] = [
+  { label: 'Apps', url: 'https://iurefficient.com' },
+  { label: 'Blog', url: 'https://blog.iurefficient.com' },
+  { label: 'Videos Iurefficient', url: 'https://youtube.com/@iurefficient' },
+  { label: 'Demo', url: 'https://demo.iurefficient.com' },
+];
 
 // Barra de título propia estilo GNOME (headerbar): menús, título y botones
 // de ventana en una sola barra. La ventana corre con decorations: false.
@@ -138,7 +146,7 @@ export const TitleBar = ({
   dirty: boolean;
   recentFiles: string[];
 }) => {
-  const [openMenu, setOpenMenu] = useState<'file' | 'edit' | null>(null);
+  const [openMenu, setOpenMenu] = useState<'file' | 'edit' | 'help' | null>(null);
 
   const closeAnd = (fn: () => void) => () => {
     setOpenMenu(null);
@@ -213,6 +221,21 @@ export const TitleBar = ({
             shortcut="Ctrl+A"
             onClick={closeAnd(actions.onSelectAll)}
           />
+        </DropdownMenu>
+
+        <DropdownMenu
+          label="Ayuda"
+          isOpen={openMenu === 'help'}
+          onToggle={() => setOpenMenu(openMenu === 'help' ? null : 'help')}
+          onClose={() => setOpenMenu(null)}
+        >
+          {HELP_LINKS.map(({ label, url }) => (
+            <MenuItem
+              key={url}
+              label={label}
+              onClick={closeAnd(() => void openUrl(url))}
+            />
+          ))}
         </DropdownMenu>
       </div>
 
