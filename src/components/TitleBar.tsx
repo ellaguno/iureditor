@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { getVersion } from '@tauri-apps/api/app';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { Minus, Square, X, ChevronDown } from 'lucide-react';
 import { basename } from '../lib/fileio';
@@ -147,6 +148,11 @@ export const TitleBar = ({
   recentFiles: string[];
 }) => {
   const [openMenu, setOpenMenu] = useState<'file' | 'edit' | 'help' | null>(null);
+  const [version, setVersion] = useState('');
+
+  useEffect(() => {
+    getVersion().then(setVersion).catch(() => setVersion(''));
+  }, []);
 
   const closeAnd = (fn: () => void) => () => {
     setOpenMenu(null);
@@ -236,6 +242,14 @@ export const TitleBar = ({
               onClick={closeAnd(() => void openUrl(url))}
             />
           ))}
+          {version && (
+            <>
+              <MenuSeparator />
+              <div className="px-3 py-1.5 text-xs text-gray-400 dark:text-gray-500 select-none">
+                Versión {version}
+              </div>
+            </>
+          )}
         </DropdownMenu>
       </div>
 
