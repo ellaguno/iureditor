@@ -50,6 +50,16 @@ export const pickOpenPath = async (): Promise<string | null> => {
   return typeof selected === 'string' ? selected : null;
 };
 
+export const pickImagePath = async (): Promise<string | null> => {
+  const selected = await open({
+    multiple: false,
+    filters: [
+      { name: 'Imágenes', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] },
+    ],
+  });
+  return typeof selected === 'string' ? selected : null;
+};
+
 export const pickSavePath = async (suggestedName = 'documento.md'): Promise<string | null> => {
   const path = await save({ defaultPath: suggestedName, filters: MD_FILTERS });
   if (!path) return null;

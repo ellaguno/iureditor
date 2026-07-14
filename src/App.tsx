@@ -11,6 +11,7 @@ import {
   writeDocument,
   pickOpenPath,
   pickSavePath,
+  pickImagePath,
   confirmDiscard,
   saveImageToAssets,
   allowDocumentDir,
@@ -125,6 +126,18 @@ export default function App() {
     },
     [doSave]
   );
+
+  // ---------- imagen vía diálogo nativo (botón Examinar del modal) ----------
+  const handleBrowseImage = useCallback(async (): Promise<string | null> => {
+    const imgPath = await pickImagePath();
+    if (!imgPath) return null;
+    const bytes = await readFile(imgPath);
+    const ext = imgPath.split('.').pop()!.toLowerCase();
+    const mime = ext === 'svg' ? 'image/svg+xml' : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+    const file = new File([new Uint8Array(bytes)], basename(imgPath), { type: mime });
+    // Copia a assets/ junto al documento (pide guardar primero si es nuevo)
+    return handleInsertImageFile(file);
+  }, [handleInsertImageFile]);
 
   // ---------- exportar ----------
   const reportExportError = useCallback(async (format: string, err: unknown) => {
@@ -281,7 +294,12 @@ export default function App() {
         />
       )}
       <div className="flex-1 min-h-0 flex flex-col">
-        <Editor ref={editorRef} onChange={handleChange} onInsertImageFile={handleInsertImageFile} />
+        <Editor
+          ref={editorRef}
+          onChange={handleChange}
+          onInsertImageFile={handleInsertImageFile}
+          onBrowseImage={handleBrowseImage}
+        />
       </div>
     </div>
   );

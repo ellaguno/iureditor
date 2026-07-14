@@ -70,10 +70,12 @@ interface EditorProps {
    * devuelve el src a insertar (ruta relativa), o null para cancelar.
    */
   onInsertImageFile?: (file: File) => Promise<string | null>;
+  /** Diálogo nativo de selección de imagen (botón Examinar del modal). */
+  onBrowseImage?: () => Promise<string | null>;
 }
 
 export const Editor = forwardRef<EditorHandle, EditorProps>(
-  ({ onChange, onInsertImageFile }, ref) => {
+  ({ onChange, onInsertImageFile, onBrowseImage }, ref) => {
     const turndown = useMemo(() => buildTurndownService(), []);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const onChangeRef = useRef(onChange);
@@ -221,7 +223,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
 
     return (
       <div className="flex flex-col h-full bg-white dark:bg-gray-900 overflow-hidden">
-        <MenuBar editor={editor} />
+        <MenuBar editor={editor} onBrowseImage={onBrowseImage} />
 
         <BubbleMenu
           editor={editor}

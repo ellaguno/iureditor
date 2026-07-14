@@ -38,7 +38,13 @@ import { TableMenu } from './TableMenu';
 import { ColorPicker } from './ColorPicker';
 import { t } from '../lib/i18n';
 
-export const MenuBar = ({ editor }: { editor: Editor | null }) => {
+export const MenuBar = ({
+  editor,
+  onBrowseImage,
+}: {
+  editor: Editor | null;
+  onBrowseImage?: () => Promise<string | null>;
+}) => {
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
   const [showTableMenu, setShowTableMenu] = useState(false);
@@ -352,6 +358,7 @@ export const MenuBar = ({ editor }: { editor: Editor | null }) => {
         isOpen={showImageModal}
         onClose={() => setShowImageModal(false)}
         onSubmit={addImage}
+        onBrowse={onBrowseImage}
       />
     </>
   );
