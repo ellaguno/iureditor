@@ -149,11 +149,10 @@ export const TitleBar = ({
 
   return (
     <div
+      // data-tauri-drag-region ya incluye doble-clic → maximizar/restaurar;
+      // no añadir onDoubleClick propio o el toggle se ejecuta dos veces.
       className="h-10 flex items-center bg-gray-100 dark:bg-gray-800 border-b border-gray-300 dark:border-gray-700 select-none no-select shrink-0"
       data-tauri-drag-region
-      onDoubleClick={(e) => {
-        if (e.target === e.currentTarget) void appWindow.toggleMaximize();
-      }}
     >
       {/* Menús */}
       <div className="flex items-center gap-0.5 px-2">
@@ -219,7 +218,6 @@ export const TitleBar = ({
       <div
         className="flex-1 h-full flex items-center justify-center text-sm font-medium text-gray-700 dark:text-gray-200 truncate px-2"
         data-tauri-drag-region
-        onDoubleClick={() => void appWindow.toggleMaximize()}
       >
         <span className="truncate pointer-events-none">
           {dirty ? '• ' : ''}
