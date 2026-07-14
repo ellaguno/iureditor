@@ -5,6 +5,7 @@ import { readFile } from '@tauri-apps/plugin-fs';
 import { Editor } from './components/Editor';
 import type { EditorHandle } from './components/Editor';
 import { TitleBar } from './components/TitleBar';
+import { ResizeHandles } from './components/ResizeHandles';
 import { getMermaid } from './lib/mermaid';
 import {
   readDocument,
@@ -278,6 +279,7 @@ export default function App() {
 
   return (
     <div className="h-full flex flex-col">
+      {isTauri && <ResizeHandles />}
       {isTauri && (
         <TitleBar
           filePath={filePath}
