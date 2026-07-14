@@ -26,12 +26,14 @@ import {
   pickSavePath,
   pickImagePath,
   confirmDiscard,
+  confirmRecoverDraft,
   saveImageToAssets,
   allowDocumentDir,
   getRecentFiles,
   addRecentFile,
   basename,
 } from './lib/fileio';
+import { saveDraft, loadDraft, clearDraft } from './lib/autosave';
 import { exportToPdf } from './lib/exportPdf';
 import { t } from './lib/i18n';
 
@@ -67,13 +69,29 @@ export default function App() {
     setCounts({ words, chars: markdown.length });
   }, []);
 
-  // ---------- cambios del editor → dirty ----------
+  // ---------- cambios del editor → dirty + borrador de autoguardado ----------
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const handleChange = useCallback(
     (markdown: string) => {
-      setDirty(markdown !== savedMarkdownRef.current);
+      const isDirty = markdown !== savedMarkdownRef.current;
+      setDirty(isDirty);
       updateCounts(markdown);
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+      if (isDirty) {
+        draftTimerRef.current = setTimeout(() => {
+          void saveDraft(filePathRef.current, markdown);
+        }, 2500);
+      }
     },
     [updateCounts]
+  );
+
+  useEffect(
+    () => () => {
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    },
+    []
   );
 
   // ---------- abrir / nuevo ----------
@@ -91,7 +109,13 @@ export default function App() {
 
   const guardDirty = useCallback(async (): Promise<boolean> => {
     if (!dirtyRef.current) return true;
-    return confirmDiscard();
+    const discard = await confirmDiscard();
+    if (discard) {
+      // Descarte explícito: el borrador de autoguardado también se va.
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+      void clearDraft();
+    }
+    return discard;
   }, []);
 
   const handleNew = useCallback(async () => {
@@ -135,6 +159,9 @@ export default function App() {
     setFilePath(path);
     setDirty(false);
     setRecentFiles(await addRecentFile(path));
+    // Guardado exitoso: el borrador de recuperación ya no aplica.
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    void clearDraft();
     return path;
   }, []);
 
@@ -305,11 +332,43 @@ export default function App() {
     };
   }, []);
 
-  // ---------- recientes iniciales + archivo pasado por CLI ----------
+  // ---------- arranque: recientes, recuperación de borrador y CLI ----------
   useEffect(() => {
     if (!isTauri) return;
     void getRecentFiles().then(setRecentFiles);
     void (async () => {
+      // 1) ¿Quedó un borrador de una sesión que terminó mal?
+      const draft = await loadDraft();
+      if (draft) {
+        const docName = draft.path ? basename(draft.path) : t('app.untitled');
+        if (await confirmRecoverDraft(docName, draft.savedAt)) {
+          if (draft.path) {
+            try {
+              // Contenido guardado en disco = referencia para dirty.
+              const raw = await readDocument(draft.path);
+              editorRef.current?.setMarkdown(raw);
+              savedMarkdownRef.current = editorRef.current?.getMarkdown() ?? raw;
+              setFilePath(draft.path);
+              setRecentFiles(await addRecentFile(draft.path));
+            } catch {
+              savedMarkdownRef.current = '';
+              setFilePath(null);
+            }
+          } else {
+            savedMarkdownRef.current = '';
+            setFilePath(null);
+          }
+          editorRef.current?.setMarkdown(draft.markdown);
+          updateCounts(draft.markdown);
+          setDirty(true);
+          // El borrador sigue en disco hasta que el usuario guarde o
+          // descarte — si la app vuelve a morir, no se pierde nada.
+          return;
+        }
+        await clearDraft();
+      }
+
+      // 2) Archivo pasado por línea de comandos
       const { invoke } = await import('@tauri-apps/api/core');
       const cliFile = await invoke<string | null>('get_cli_file');
       if (cliFile) await loadDocument(cliFile);
@@ -321,7 +380,12 @@ export default function App() {
   useEffect(() => {
     if (!isTauri) return;
     const unlisten = getCurrentWindow().onCloseRequested(async (event) => {
-      if (dirtyRef.current && !(await confirmDiscard())) {
+      if (!dirtyRef.current) return;
+      if (await confirmDiscard()) {
+        // Cierre con descarte explícito: sin borrador huérfano.
+        if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+        await clearDraft();
+      } else {
         event.preventDefault();
       }
     });

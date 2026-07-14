@@ -75,6 +75,17 @@ export const confirmDiscard = async (): Promise<boolean> =>
     cancelLabel: 'Cancelar',
   });
 
+export const confirmRecoverDraft = async (docName: string, savedAt: number): Promise<boolean> =>
+  ask(
+    `Se encontró un borrador sin guardar de «${docName}» (${new Date(savedAt).toLocaleString()}).\n¿Quieres recuperarlo?`,
+    {
+      title: 'iureditor — Recuperar borrador',
+      kind: 'info',
+      okLabel: 'Recuperar',
+      cancelLabel: 'Descartar borrador',
+    }
+  );
+
 /**
  * Guarda los bytes de una imagen pegada/soltada en `<dir-del-doc>/assets/` y
  * devuelve la ruta relativa a insertar en el documento.
