@@ -4,7 +4,8 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { Editor } from './components/Editor';
 import type { EditorHandle } from './components/Editor';
-import { buildAppMenu } from './lib/menu';
+import { TitleBar } from './components/TitleBar';
+import { getMermaid } from './lib/mermaid';
 import {
   readDocument,
   writeDocument,
@@ -145,33 +146,49 @@ export default function App() {
     void getCurrentWindow().close();
   }, []);
 
-  // ---------- menú nativo ----------
+  // ---------- atajos de teclado (los menús ya no son nativos) ----------
   useEffect(() => {
-    if (!isTauri) return;
-    void buildAppMenu(
-      {
-        onNew: () => void handleNew(),
-        onOpen: () => void handleOpen(),
-        onOpenRecent: (path) => void handleOpenRecent(path),
-        onSave: handleSave,
-        onSaveAs: handleSaveAs,
-        onExportPdf: handleExportPdf,
-        onExportDocx: handleExportDocx,
-        onQuit: handleQuit,
-      },
-      recentFiles
-    );
-  }, [
-    recentFiles,
-    handleNew,
-    handleOpen,
-    handleOpenRecent,
-    handleSave,
-    handleSaveAs,
-    handleExportPdf,
-    handleExportDocx,
-    handleQuit,
-  ]);
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const key = e.key.toLowerCase();
+      if (key === 's') {
+        e.preventDefault();
+        if (e.shiftKey) handleSaveAs();
+        else handleSave();
+      } else if (key === 'o' && !e.shiftKey) {
+        e.preventDefault();
+        void handleOpen();
+      } else if (key === 'n' && !e.shiftKey) {
+        e.preventDefault();
+        void handleNew();
+      } else if (key === 'p' && !e.shiftKey) {
+        e.preventDefault();
+        handleExportPdf();
+      } else if (key === 'q' && !e.shiftKey) {
+        e.preventDefault();
+        handleQuit();
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [handleSave, handleSaveAs, handleOpen, handleNew, handleExportPdf, handleQuit]);
+
+  // ---------- precarga de mermaid en idle ----------
+  // El primer diagrama tardaba: mermaid son ~2MB que se cargan bajo demanda.
+  // Precargarlo tras el arranque oculta esa latencia sin frenar el inicio.
+  useEffect(() => {
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    const id = w.requestIdleCallback
+      ? w.requestIdleCallback(() => void getMermaid())
+      : window.setTimeout(() => void getMermaid(), 1500);
+    return () => {
+      if (w.cancelIdleCallback) w.cancelIdleCallback(id);
+      else window.clearTimeout(id);
+    };
+  }, []);
 
   // ---------- recientes iniciales ----------
   useEffect(() => {
@@ -221,7 +238,29 @@ export default function App() {
 
   return (
     <div className="h-full flex flex-col">
-      <Editor ref={editorRef} onChange={handleChange} onInsertImageFile={handleInsertImageFile} />
+      {isTauri && (
+        <TitleBar
+          filePath={filePath}
+          dirty={dirty}
+          recentFiles={recentFiles}
+          actions={{
+            onNew: () => void handleNew(),
+            onOpen: () => void handleOpen(),
+            onOpenRecent: (path) => void handleOpenRecent(path),
+            onSave: handleSave,
+            onSaveAs: handleSaveAs,
+            onExportPdf: handleExportPdf,
+            onExportDocx: handleExportDocx,
+            onQuit: handleQuit,
+            onUndo: () => editorRef.current?.editor?.chain().focus().undo().run(),
+            onRedo: () => editorRef.current?.editor?.chain().focus().redo().run(),
+            onSelectAll: () => editorRef.current?.editor?.chain().focus().selectAll().run(),
+          }}
+        />
+      )}
+      <div className="flex-1 min-h-0 flex flex-col">
+        <Editor ref={editorRef} onChange={handleChange} onInsertImageFile={handleInsertImageFile} />
+      </div>
     </div>
   );
 }
