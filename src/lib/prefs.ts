@@ -52,6 +52,16 @@ export const setZoom = (zoom: number): number => {
   return clamped;
 };
 
+// ---------- panel de esquema ----------
+
+const OUTLINE_KEY = 'iur-outline';
+
+export const getOutlineVisible = (): boolean => localStorage.getItem(OUTLINE_KEY) === 'true';
+
+export const setOutlineVisible = (visible: boolean): void => {
+  localStorage.setItem(OUTLINE_KEY, String(visible));
+};
+
 // ---------- corrector ortográfico ----------
 
 export const getSpellcheck = (): boolean => localStorage.getItem(SPELL_KEY) !== 'false';

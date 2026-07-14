@@ -7,6 +7,9 @@ import type { EditorHandle } from './components/Editor';
 import { TitleBar } from './components/TitleBar';
 import { ResizeHandles } from './components/ResizeHandles';
 import { StatusBar } from './components/StatusBar';
+import { SourceView } from './components/SourceView';
+import { OutlinePanel } from './components/OutlinePanel';
+import type { HeadingInfo } from './lib/outline';
 import {
   initTheme,
   getTheme,
@@ -15,6 +18,8 @@ import {
   setZoom,
   getSpellcheck,
   setSpellcheck,
+  getOutlineVisible,
+  setOutlineVisible,
   ZOOM_STEP,
 } from './lib/prefs';
 import type { Theme } from './lib/prefs';
@@ -48,12 +53,20 @@ export default function App() {
   const [theme, setThemeState] = useState<Theme>(getTheme);
   const [spellcheck, setSpellcheckState] = useState<boolean>(getSpellcheck);
   const [zoom, setZoomState] = useState<number>(getZoom);
+  const [showOutline, setShowOutline] = useState<boolean>(getOutlineVisible);
+  const [headings, setHeadings] = useState<HeadingInfo[]>([]);
+  const [sourceMode, setSourceMode] = useState(false);
+  const [sourceText, setSourceText] = useState('');
 
   // Refs espejo para handlers estables (menú nativo, listeners de ventana).
   const filePathRef = useRef(filePath);
   filePathRef.current = filePath;
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
+  const sourceModeRef = useRef(sourceMode);
+  sourceModeRef.current = sourceMode;
+  const sourceTextRef = useRef(sourceText);
+  sourceTextRef.current = sourceText;
   const savedMarkdownRef = useRef('');
 
   // ---------- título de ventana ----------
@@ -94,6 +107,57 @@ export default function App() {
     []
   );
 
+  // ---------- vista de código fuente ----------
+  // En modo fuente el editor WYSIWYG sigue montado (oculto); el texto crudo
+  // se le aplica al volver, al guardar o antes de exportar.
+  const syncSourceToEditor = useCallback(() => {
+    if (!sourceModeRef.current || !editorRef.current) return;
+    editorRef.current.setMarkdown(sourceTextRef.current);
+  }, []);
+
+  const handleSourceChange = useCallback(
+    (markdown: string) => {
+      setSourceText(markdown);
+      handleChange(markdown);
+    },
+    [handleChange]
+  );
+
+  const handleToggleSource = useCallback(() => {
+    if (sourceModeRef.current) {
+      if (editorRef.current) {
+        editorRef.current.setMarkdown(sourceTextRef.current);
+        // Canónico: lo que el editor re-emite, para no dejar dirty espurio.
+        handleChange(editorRef.current.getMarkdown());
+      }
+      setSourceMode(false);
+    } else {
+      setSourceText(editorRef.current?.getMarkdown() ?? '');
+      setSourceMode(true);
+    }
+  }, [handleChange]);
+
+  // ---------- esquema del documento ----------
+  const handleToggleOutline = useCallback(() => {
+    setShowOutline((prev) => {
+      setOutlineVisible(!prev);
+      return !prev;
+    });
+  }, []);
+
+  const handleOutlineSelect = useCallback((heading: HeadingInfo) => {
+    const editor = editorRef.current?.editor;
+    if (!editor) return;
+    const pos = Math.min(heading.pos, editor.state.doc.content.size - 1);
+    editor.chain().focus().setTextSelection(pos + 1).run();
+    const dom = editor.view.nodeDOM(pos);
+    if (dom instanceof HTMLElement) {
+      dom.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    } else {
+      editor.commands.scrollIntoView();
+    }
+  }, []);
+
   // ---------- abrir / nuevo ----------
   const loadDocument = useCallback(async (path: string) => {
     const raw = await readDocument(path);
@@ -102,6 +166,7 @@ export default function App() {
     // dirty por diferencias de normalización (espacios, separadores).
     savedMarkdownRef.current = editorRef.current?.getMarkdown() ?? raw;
     updateCounts(savedMarkdownRef.current);
+    setSourceText(savedMarkdownRef.current);
     setFilePath(path);
     setDirty(false);
     setRecentFiles(await addRecentFile(path));
@@ -123,6 +188,7 @@ export default function App() {
     editorRef.current?.setMarkdown('');
     savedMarkdownRef.current = editorRef.current?.getMarkdown() ?? '';
     updateCounts(savedMarkdownRef.current);
+    setSourceText(savedMarkdownRef.current);
     setFilePath(null);
     setDirty(false);
   }, [guardDirty, updateCounts]);
@@ -147,6 +213,7 @@ export default function App() {
 
   // ---------- guardar ----------
   const doSave = useCallback(async (as: boolean): Promise<string | null> => {
+    syncSourceToEditor();
     const md = editorRef.current?.getMarkdown() ?? '';
     let path = filePathRef.current;
     if (as || !path) {
@@ -156,6 +223,8 @@ export default function App() {
     }
     await writeDocument(path, md);
     savedMarkdownRef.current = md;
+    // En modo fuente, el textarea pasa a mostrar el markdown canónico guardado.
+    if (sourceModeRef.current) setSourceText(md);
     setFilePath(path);
     setDirty(false);
     setRecentFiles(await addRecentFile(path));
@@ -163,7 +232,7 @@ export default function App() {
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     void clearDraft();
     return path;
-  }, []);
+  }, [syncSourceToEditor]);
 
   const handleSave = useCallback(() => void doSave(false), [doSave]);
   const handleSaveAs = useCallback(() => void doSave(true), [doSave]);
@@ -207,29 +276,32 @@ export default function App() {
   }, []);
 
   const handleExportPdf = useCallback(() => {
+    syncSourceToEditor();
     const editor = editorRef.current?.editor;
     if (!editor) return;
     exportToPdf(editor, filePathRef.current).catch((err) =>
       reportExportError('PDF', err)
     );
-  }, [reportExportError]);
+  }, [reportExportError, syncSourceToEditor]);
 
   const handleExportDocx = useCallback(() => {
+    syncSourceToEditor();
     const editor = editorRef.current?.editor;
     if (!editor) return;
     // Import perezoso: turbodocx pesa ~1MB y sólo se usa al exportar.
     import('./lib/exportDocx')
       .then(({ exportToDocx }) => exportToDocx(editor, filePathRef.current))
       .catch((err) => reportExportError('DOCX', err));
-  }, [reportExportError]);
+  }, [reportExportError, syncSourceToEditor]);
 
   const handleExportHtml = useCallback(() => {
+    syncSourceToEditor();
     const editor = editorRef.current?.editor;
     if (!editor) return;
     import('./lib/exportHtmlFile')
       .then(({ exportToHtmlFile }) => exportToHtmlFile(editor, filePathRef.current))
       .catch((err) => reportExportError('HTML', err));
-  }, [reportExportError]);
+  }, [reportExportError, syncSourceToEditor]);
 
   const handleQuit = useCallback(() => {
     // close() dispara onCloseRequested, donde vive el guard de dirty.
@@ -262,6 +334,8 @@ export default function App() {
   const handleZoomReset = useCallback(() => applyZoom(1), [applyZoom]);
 
   const handleFind = useCallback(() => {
+    // La búsqueda opera sobre el editor WYSIWYG; en modo fuente no aplica.
+    if (sourceModeRef.current) return;
     editorRef.current?.openSearch();
   }, []);
 
@@ -274,6 +348,12 @@ export default function App() {
         e.preventDefault();
         if (e.shiftKey) handleSaveAs();
         else handleSave();
+      } else if (key === 'o' && e.shiftKey) {
+        e.preventDefault();
+        handleToggleOutline();
+      } else if (key === 'm' && e.shiftKey) {
+        e.preventDefault();
+        handleToggleSource();
       } else if (key === 'o' && !e.shiftKey) {
         e.preventDefault();
         void handleOpen();
@@ -313,6 +393,8 @@ export default function App() {
     handleZoomIn,
     handleZoomOut,
     handleZoomReset,
+    handleToggleOutline,
+    handleToggleSource,
   ]);
 
   // ---------- precarga de mermaid en idle ----------
@@ -452,16 +534,37 @@ export default function App() {
             onThemeChange: handleThemeChange,
             spellcheck,
             onSpellcheckChange: handleSpellcheckChange,
+            outline: showOutline,
+            onOutlineToggle: handleToggleOutline,
+            sourceMode,
+            onSourceModeToggle: handleToggleSource,
           }}
         />
       )}
-      <div className="flex-1 min-h-0 flex flex-col" style={{ zoom }}>
-        <Editor
-          ref={editorRef}
-          onChange={handleChange}
-          onInsertImageFile={handleInsertImageFile}
-          onBrowseImage={handleBrowseImage}
-        />
+      <div className="flex-1 min-h-0 flex">
+        {showOutline && !sourceMode && (
+          <OutlinePanel headings={headings} onSelect={handleOutlineSelect} />
+        )}
+        <div className="flex-1 min-w-0 flex flex-col" style={{ zoom }}>
+          {/* El editor queda montado (oculto) en modo fuente: conserva
+              historial de undo y evita re-renderizar mermaid al volver. */}
+          <div className={`flex-1 min-h-0 flex flex-col ${sourceMode ? 'hidden' : ''}`}>
+            <Editor
+              ref={editorRef}
+              onChange={handleChange}
+              onHeadingsChange={setHeadings}
+              onInsertImageFile={handleInsertImageFile}
+              onBrowseImage={handleBrowseImage}
+            />
+          </div>
+          {sourceMode && (
+            <SourceView
+              value={sourceText}
+              onChange={handleSourceChange}
+              spellcheck={spellcheck}
+            />
+          )}
+        </div>
       </div>
       <StatusBar
         words={counts.words}

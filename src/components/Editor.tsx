@@ -43,6 +43,8 @@ import { SearchReplace } from '../extensions/searchReplace';
 import { getSpellcheck } from '../lib/prefs';
 import { prepareContent, buildTurndownService } from '../lib/markdown';
 import { markdownToHtml } from '../lib/markdown';
+import { collectHeadings } from '../lib/outline';
+import type { HeadingInfo } from '../lib/outline';
 import { t } from '../lib/i18n';
 
 const lowlight = createLowlight(common);
@@ -73,6 +75,8 @@ export interface EditorHandle {
 interface EditorProps {
   /** Cambio de contenido, debounced 250ms, en markdown. Para dirty-tracking. */
   onChange?: (markdown: string) => void;
+  /** Encabezados del documento (mismo debounce que onChange, y al cargar). */
+  onHeadingsChange?: (headings: HeadingInfo[]) => void;
   /**
    * Imagen pegada/soltada: la app la persiste (assets/ junto al .md) y
    * devuelve el src a insertar (ruta relativa), o null para cancelar.
@@ -83,12 +87,14 @@ interface EditorProps {
 }
 
 export const Editor = forwardRef<EditorHandle, EditorProps>(
-  ({ onChange, onInsertImageFile, onBrowseImage }, ref) => {
+  ({ onChange, onHeadingsChange, onInsertImageFile, onBrowseImage }, ref) => {
     const turndown = useMemo(() => buildTurndownService(), []);
     const [showSearch, setShowSearch] = useState(false);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const onChangeRef = useRef(onChange);
     onChangeRef.current = onChange;
+    const onHeadingsRef = useRef(onHeadingsChange);
+    onHeadingsRef.current = onHeadingsChange;
     const insertFileRef = useRef(onInsertImageFile);
     insertFileRef.current = onInsertImageFile;
     const editorRef = useRef<TipTapEditor | null>(null);
@@ -96,6 +102,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
     const emit = useCallback(
       (instance: TipTapEditor) => {
         onChangeRef.current?.(turndown.turndown(instance.getHTML()));
+        onHeadingsRef.current?.(collectHeadings(instance.state.doc));
       },
       [turndown]
     );
@@ -206,7 +213,9 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
           if (!editor) return;
           editor.commands.setContent(prepareContent(markdown));
           // Nuevo documento: el historial de undo no debe cruzar archivos
-          // (setContent con emitUpdate false no dispara onUpdate).
+          // (setContent con emitUpdate false no dispara onUpdate), pero el
+          // esquema sí debe reflejar el contenido recién cargado.
+          onHeadingsRef.current?.(collectHeadings(editor.state.doc));
         },
         insertImage: (src: string, alt = '') => {
           editor?.chain().focus().setImage({ src, alt }).run();

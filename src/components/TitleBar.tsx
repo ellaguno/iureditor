@@ -41,6 +41,10 @@ export interface ViewPrefs {
   onThemeChange: (theme: Theme) => void;
   spellcheck: boolean;
   onSpellcheckChange: (enabled: boolean) => void;
+  outline: boolean;
+  onOutlineToggle: () => void;
+  sourceMode: boolean;
+  onSourceModeToggle: () => void;
 }
 
 const MenuItem = ({
@@ -259,6 +263,19 @@ export const TitleBar = ({
           onToggle={() => setOpenMenu(openMenu === 'view' ? null : 'view')}
           onClose={() => setOpenMenu(null)}
         >
+          <MenuItem
+            label="Esquema del documento"
+            shortcut="Ctrl+Shift+O"
+            checked={viewPrefs.outline}
+            onClick={viewPrefs.onOutlineToggle}
+          />
+          <MenuItem
+            label="Código fuente"
+            shortcut="Ctrl+Shift+M"
+            checked={viewPrefs.sourceMode}
+            onClick={viewPrefs.onSourceModeToggle}
+          />
+          <MenuSeparator />
           <MenuItem label="Aumentar zoom" shortcut="Ctrl++" onClick={actions.onZoomIn} />
           <MenuItem label="Reducir zoom" shortcut="Ctrl+-" onClick={actions.onZoomOut} />
           <MenuItem label="Zoom normal" shortcut="Ctrl+0" onClick={actions.onZoomReset} />

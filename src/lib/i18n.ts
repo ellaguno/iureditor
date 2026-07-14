@@ -72,6 +72,8 @@ const STRINGS = {
     'status.chars': 'caracteres',
     'status.saved': 'Guardado',
     'status.unsaved': 'Sin guardar',
+    'outline.title': 'Esquema',
+    'outline.empty': 'Sin encabezados',
   },
   en: {
     'editor.placeholder': 'Write your document…',
@@ -141,6 +143,8 @@ const STRINGS = {
     'status.chars': 'characters',
     'status.saved': 'Saved',
     'status.unsaved': 'Unsaved',
+    'outline.title': 'Outline',
+    'outline.empty': 'No headings',
   },
 } as const;
 
