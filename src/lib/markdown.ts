@@ -98,6 +98,18 @@ export const markdownToHtml = (markdown: string): string => {
 
   let html = withoutCodeBlocks;
 
+  // STEP 1b — Extract inline code spans BEFORE any inline formatting.
+  // Without this, `mcgenera_posicion_k` first became
+  // `mcgenera<em>posicion</em>k` (italic regex) and the <em> quedaba como
+  // texto literal escapado dentro del <code>.
+  const inlineCodes: string[] = [];
+  const inlineCodePlaceholder = (i: number) => `<!--IUR-INLINECODE-${i}-->`;
+  html = html.replace(/`([^`\n]+)`/g, (_m, c) => {
+    const idx = inlineCodes.length;
+    inlineCodes.push(`<code>${escapeHtmlForCode(c)}</code>`);
+    return inlineCodePlaceholder(idx);
+  });
+
   // STEP 2 — Headers (atx style). Must come before inline replacements so
   // the `#` characters at line start are consumed.
   html = html.replace(/^###### (.+)$/gm, '<h6>$1</h6>');
@@ -113,9 +125,6 @@ export const markdownToHtml = (markdown: string): string => {
   html = html.replace(/(^|[^*])\*([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>');
   html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
   html = html.replace(/(^|[^_])_([^_\n]+?)_(?!_)/g, '$1<em>$2</em>');
-
-  // Inline code (single backtick). Already escaped fenced blocks above.
-  html = html.replace(/`([^`\n]+)`/g, (_m, c) => `<code>${escapeHtmlForCode(c)}</code>`);
 
   // Links + images
   html = html.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g,
@@ -249,7 +258,8 @@ export const markdownToHtml = (markdown: string): string => {
     return `<p>${trimmed}</p>`;
   }).join('\n');
 
-  // STEP 8 — Restore code block placeholders.
+  // STEP 8 — Restore placeholders (inline code primero, luego bloques).
+  html = html.replace(/<!--IUR-INLINECODE-(\d+)-->/g, (_m, i) => inlineCodes[Number(i)] || '');
   html = html.replace(/<!--IUR-CODEBLOCK-(\d+)-->/g, (_m, i) => codeBlocks[Number(i)] || '');
 
   return html;

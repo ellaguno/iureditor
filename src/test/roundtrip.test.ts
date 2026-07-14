@@ -84,6 +84,16 @@ describe('round-trip markdown → HTML → markdown', () => {
     expect(html).not.toContain('\\\\');
   });
 
+  it('no aplica cursivas/negritas dentro de código inline', () => {
+    const html = markdownToHtml('Usa `mcgenera_posicion_k` y `con_*asteriscos*`.');
+    expect(html).toContain('<code>mcgenera_posicion_k</code>');
+    expect(html).toContain('<code>con_*asteriscos*</code>');
+    expect(html).not.toContain('<em>');
+    const out = roundTrip(fixture);
+    expect(out).toContain('`mcgenera_posicion_k`');
+    expect(out).toContain('`tabla_con_*asteriscos*`');
+  });
+
   it('markdownToHtml genera div mermaid con data-code', () => {
     const html = markdownToHtml('```mermaid\ngraph LR\nA-->B\n```');
     expect(html).toContain('data-type="mermaid"');

@@ -2,6 +2,8 @@
 
 Párrafo simple con **negritas**, *cursivas*, `código inline` y un [enlace](https://example.com).
 
+Identificadores con metacaracteres dentro de código: `mcgenera_posicion_k`, `tabla_con_*asteriscos*` y `c_tipo_val`.
+
 ## Listas
 
 - Elemento uno
