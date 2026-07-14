@@ -1,4 +1,5 @@
 import { t } from '../lib/i18n';
+import { useDropdownClamp } from '../lib/useDropdownClamp';
 
 export const ColorPicker = ({
   isOpen,
@@ -9,6 +10,7 @@ export const ColorPicker = ({
   onClose: () => void;
   onSelect: (color: string) => void;
 }) => {
+  const { ref, alignClass } = useDropdownClamp(isOpen);
   const colors = [
     '#000000', '#434343', '#666666', '#999999', '#B7B7B7', '#CCCCCC', '#D9D9D9', '#EFEFEF', '#F3F3F3', '#FFFFFF',
     '#980000', '#FF0000', '#FF9900', '#FFFF00', '#00FF00', '#00FFFF', '#4A86E8', '#0000FF', '#9900FF', '#FF00FF',
@@ -18,7 +20,10 @@ export const ColorPicker = ({
   if (!isOpen) return null;
 
   return (
-    <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 p-2">
+    <div
+      ref={ref}
+      className={`absolute top-full ${alignClass} mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 p-2`}
+    >
       <div className="grid grid-cols-10 gap-1">
         {colors.map((color) => (
           <button

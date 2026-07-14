@@ -1,6 +1,7 @@
 import type { Editor } from '@tiptap/react';
 import { Table as TableIcon, Columns, RowsIcon, X, Trash2 } from 'lucide-react';
 import { t } from '../lib/i18n';
+import { useDropdownClamp } from '../lib/useDropdownClamp';
 
 const ITEM =
   'w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2';
@@ -14,6 +15,8 @@ export const TableMenu = ({
   isOpen: boolean;
   onClose: () => void;
 }) => {
+  const { ref, alignClass } = useDropdownClamp(isOpen);
+
   if (!isOpen || !editor) return null;
 
   const insertTable = () => {
@@ -22,7 +25,10 @@ export const TableMenu = ({
   };
 
   return (
-    <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1 min-w-[180px]">
+    <div
+      ref={ref}
+      className={`absolute top-full ${alignClass} mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1 min-w-[180px]`}
+    >
       <button onClick={insertTable} className={ITEM}>
         <TableIcon className="w-4 h-4" />
         {t('editor.insertTable')}
