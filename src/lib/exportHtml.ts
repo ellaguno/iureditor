@@ -65,8 +65,16 @@ export const buildExportHtml = async (
     const wrapper = document.createElement('div');
     wrapper.className = 'mermaid-diagram';
     if (code.trim()) {
+      let svg: string | null = null;
       try {
-        const svg = await renderFullSizeDiagram(code);
+        svg = await renderFullSizeDiagram(code);
+      } catch {
+        // Diagrama inválido: va como bloque de código para no perderlo.
+        const pre = document.createElement('pre');
+        pre.textContent = code;
+        wrapper.appendChild(pre);
+      }
+      if (svg !== null) {
         if (mermaidAs === 'svg') {
           wrapper.innerHTML = svg;
           const svgEl = wrapper.querySelector('svg');
@@ -75,16 +83,18 @@ export const buildExportHtml = async (
             svgEl.style.height = 'auto';
           }
         } else {
-          const img = document.createElement('img');
-          img.src = await svgStringToPngDataUrl(svg);
-          img.alt = 'diagrama';
-          wrapper.appendChild(img);
+          try {
+            const img = document.createElement('img');
+            img.src = await svgStringToPngDataUrl(svg);
+            img.alt = 'diagrama';
+            wrapper.appendChild(img);
+          } catch (err) {
+            // La rasterización es el paso frágil (taint de canvas, SVG sin
+            // tamaño). Propagar con contexto para el diálogo de error.
+            const detail = err instanceof Error ? err.message : String(err);
+            throw new Error(`al rasterizar un diagrama mermaid a PNG: ${detail}`);
+          }
         }
-      } catch {
-        // Diagrama inválido: va como bloque de código para no perderlo.
-        const pre = document.createElement('pre');
-        pre.textContent = code;
-        wrapper.appendChild(pre);
       }
     }
     node.replaceWith(wrapper);

@@ -55,15 +55,22 @@ const svgToRasterBlob = (
     img.onload = () => {
       URL.revokeObjectURL(url);
       if (!ctx) return reject(new Error('canvas 2d context unavailable'));
-      ctx.scale(scale, scale);
-      ctx.fillStyle = 'white';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0);
-      canvas.toBlob(
-        (blob) => (blob ? resolve(blob) : reject(new Error('toBlob returned null'))),
-        type,
-        quality
-      );
+      // toBlob lanza SecurityError SÍNCRONO si el canvas quedó contaminado
+      // (p. ej. SVG con foreignObject); sin el try/catch la promesa jamás
+      // se resolvería y el export se colgaría en silencio.
+      try {
+        ctx.scale(scale, scale);
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+        canvas.toBlob(
+          (blob) => (blob ? resolve(blob) : reject(new Error('toBlob returned null'))),
+          type,
+          quality
+        );
+      } catch (err) {
+        reject(err);
+      }
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);

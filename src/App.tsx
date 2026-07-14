@@ -154,6 +154,14 @@ export default function App() {
       .catch((err) => reportExportError('DOCX', err));
   }, [reportExportError]);
 
+  const handleExportHtml = useCallback(() => {
+    const editor = editorRef.current?.editor;
+    if (!editor) return;
+    import('./lib/exportHtmlFile')
+      .then(({ exportToHtmlFile }) => exportToHtmlFile(editor, filePathRef.current))
+      .catch((err) => reportExportError('HTML', err));
+  }, [reportExportError]);
+
   const handleQuit = useCallback(() => {
     // close() dispara onCloseRequested, donde vive el guard de dirty.
     void getCurrentWindow().close();
@@ -264,6 +272,7 @@ export default function App() {
             onSaveAs: handleSaveAs,
             onExportPdf: handleExportPdf,
             onExportDocx: handleExportDocx,
+            onExportHtml: handleExportHtml,
             onQuit: handleQuit,
             onUndo: () => editorRef.current?.editor?.chain().focus().undo().run(),
             onRedo: () => editorRef.current?.editor?.chain().focus().redo().run(),

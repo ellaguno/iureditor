@@ -15,6 +15,7 @@ export interface TitleBarActions {
   onSaveAs: () => void;
   onExportPdf: () => void;
   onExportDocx: () => void;
+  onExportHtml: () => void;
   onQuit: () => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -193,6 +194,7 @@ export const TitleBar = ({
             onClick={closeAnd(actions.onExportPdf)}
           />
           <MenuItem label="Exportar a DOCX…" onClick={closeAnd(actions.onExportDocx)} />
+          <MenuItem label="Exportar a HTML…" onClick={closeAnd(actions.onExportHtml)} />
           <MenuSeparator />
           <MenuItem label="Salir" shortcut="Ctrl+Q" onClick={closeAnd(actions.onQuit)} />
         </DropdownMenu>
