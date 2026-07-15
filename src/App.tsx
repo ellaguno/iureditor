@@ -45,6 +45,13 @@ import {
   confirmOverwriteExternal,
 } from './lib/fileio';
 import { saveDrafts, loadDrafts, clearDrafts } from './lib/autosave';
+import { saveSession, loadSession } from './lib/session';
+import {
+  ensureStarterTemplates,
+  listTemplates,
+  readTemplate,
+  openTemplatesFolder,
+} from './lib/templates';
 import { exportToPdf } from './lib/exportPdf';
 import { t } from './lib/i18n';
 
@@ -81,6 +88,7 @@ export default function App() {
   const nextTabId = useRef(1);
 
   const [recentFiles, setRecentFiles] = useState<string[]>([]);
+  const [templates, setTemplates] = useState<string[]>([]);
   const [counts, setCounts] = useState({ words: 0, chars: 0 });
   const [theme, setThemeState] = useState<Theme>(getTheme);
   const [spellcheck, setSpellcheckState] = useState<boolean>(getSpellcheck);
@@ -470,6 +478,31 @@ export default function App() {
     createTab();
   }, [createTab]);
 
+  // ---------- plantillas ----------
+  const refreshTemplates = useCallback(() => {
+    void listTemplates().then(setTemplates);
+  }, []);
+
+  const handleNewFromTemplate = useCallback(
+    async (name: string) => {
+      try {
+        const content = await readTemplate(name);
+        // Pestaña sin título con la plantilla aplicada: baseline '' → nace
+        // sucia, obligando a "Guardar como" (la plantilla no se toca).
+        createTab({ content, baseline: '' });
+      } catch (err) {
+        console.error(`No se pudo cargar la plantilla «${name}»:`, err);
+      }
+    },
+    [createTab]
+  );
+
+  const handleOpenTemplatesFolder = useCallback(() => {
+    void openTemplatesFolder().catch((err) =>
+      console.error('No se pudo abrir la carpeta de plantillas:', err)
+    );
+  }, []);
+
   const handleOpen = useCallback(async () => {
     const path = await pickOpenPath();
     if (path) await loadDocument(path);
@@ -685,6 +718,29 @@ export default function App() {
     setActiveId(next.id);
   }, []);
 
+  const reorderTabs = useCallback((from: number, to: number) => {
+    setTabs((prev) => {
+      if (from === to || from < 0 || to < 0 || from >= prev.length || to >= prev.length) {
+        return prev;
+      }
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+  }, []);
+
+  const moveActiveTab = useCallback(
+    (delta: number) => {
+      const list = tabsRef.current;
+      const idx = list.findIndex((tab) => tab.id === activeIdRef.current);
+      const to = idx + delta;
+      if (idx < 0 || to < 0 || to >= list.length) return;
+      reorderTabs(idx, to);
+    },
+    [reorderTabs]
+  );
+
   // ---------- atajos de teclado (los menús no son nativos) ----------
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -693,6 +749,11 @@ export default function App() {
       if (key === 'tab') {
         e.preventDefault();
         cycleTab(e.shiftKey ? -1 : 1);
+        return;
+      }
+      if (e.shiftKey && (key === 'pageup' || key === 'pagedown')) {
+        e.preventDefault();
+        moveActiveTab(key === 'pageup' ? -1 : 1);
         return;
       }
       if (key === 's') {
@@ -751,6 +812,7 @@ export default function App() {
     handleToggleOutline,
     handleToggleSource,
     cycleTab,
+    moveActiveTab,
   ]);
 
   // ---------- precarga de mermaid en idle ----------
@@ -770,19 +832,56 @@ export default function App() {
     };
   }, []);
 
-  // ---------- arranque: recientes, recuperación de borradores y CLI ----------
+  // ---------- arranque: sesión, borradores, recientes y CLI ----------
+  const sessionReady = useRef(false);
+
   useEffect(() => {
     if (!isTauri) return;
     void getRecentFiles().then(setRecentFiles);
+    void ensureStarterTemplates().then(() => listTemplates().then(setTemplates));
     void (async () => {
-      // 1) ¿Quedaron borradores de una sesión que terminó mal?
-      const drafts = await loadDrafts();
-      if (drafts.length) {
-        const names = drafts.map((d) => (d.path ? basename(d.path) : t('app.untitled')));
-        const newest = Math.max(...drafts.map((d) => d.savedAt || 0));
-        if (await confirmRecoverDrafts(names, newest)) {
-          let firstId: number | null = null;
+      try {
+        // 1) ¿Quedaron borradores de una sesión que terminó mal?
+        const drafts = await loadDrafts();
+        let recovered = false;
+        if (drafts.length) {
+          const names = drafts.map((d) => (d.path ? basename(d.path) : t('app.untitled')));
+          const newest = Math.max(...drafts.map((d) => d.savedAt || 0));
+          recovered = await confirmRecoverDrafts(names, newest);
+          if (!recovered) await clearDrafts();
+        }
+        const draftByPath = new Map(
+          recovered ? drafts.filter((d) => d.path).map((d) => [d.path!, d] as const) : []
+        );
+
+        // 2) Pestañas de la sesión anterior (en su orden), aplicando encima
+        //    el borrador si lo hay para esa ruta.
+        const session = await loadSession();
+        const openedByPath = new Map<string, number>();
+        for (const path of session?.paths ?? []) {
+          if (openedByPath.has(path)) continue;
+          try {
+            const raw = await readDocument(path);
+            const plain = !isMarkdownPath(path);
+            const draft = draftByPath.get(path);
+            const id = createTab(
+              draft
+                ? { content: draft.markdown, baseline: raw, plain }
+                : { content: raw, baseline: null, plain },
+              path
+            );
+            const m = await getMtime(path);
+            if (m !== null) diskMtime.current.set(id, m);
+            openedByPath.set(path, id);
+          } catch {
+            // El archivo ya no existe: la pestaña no se restaura.
+          }
+        }
+
+        // 3) Borradores fuera de la sesión (sin título, o ruta desaparecida).
+        if (recovered) {
           for (const draft of drafts) {
+            if (draft.path && openedByPath.has(draft.path)) continue;
             let baseline = '';
             if (draft.path) {
               try {
@@ -796,24 +895,41 @@ export default function App() {
             if (draft.path) {
               const m = await getMtime(draft.path);
               if (m !== null) diskMtime.current.set(id, m);
+              openedByPath.set(draft.path, id);
             }
-            if (firstId === null) firstId = id;
           }
-          if (firstId !== null) setActiveId(firstId);
-          // Los borradores siguen en disco hasta que el usuario guarde o
-          // descarte — si la app vuelve a morir, no se pierde nada.
-          return;
         }
-        await clearDrafts();
-      }
 
-      // 2) Archivo pasado por línea de comandos
-      const { invoke } = await import('@tauri-apps/api/core');
-      const cliFile = await invoke<string | null>('get_cli_file');
-      if (cliFile) await loadDocument(cliFile);
+        // 4) La pestaña vacía inicial sobra si se restauró algo.
+        if (openedByPath.size > 0 || (recovered && drafts.length)) {
+          setTabs((prev) => (prev.length > 1 ? prev.filter((tb) => tb.id !== 0) : prev));
+          const activeRestored = session?.activePath
+            ? openedByPath.get(session.activePath)
+            : undefined;
+          if (activeRestored !== undefined) setActiveId(activeRestored);
+        }
+
+        // 5) Archivo pasado por línea de comandos (dedupe vía loadDocument).
+        const { invoke } = await import('@tauri-apps/api/core');
+        const cliFile = await invoke<string | null>('get_cli_file');
+        if (cliFile) await loadDocument(cliFile);
+      } finally {
+        sessionReady.current = true;
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ---------- persistencia de la sesión de pestañas ----------
+  useEffect(() => {
+    if (!isTauri || !sessionReady.current) return;
+    const timer = setTimeout(() => {
+      const paths = tabs.filter((tb) => tb.path).map((tb) => tb.path!);
+      const activePath = tabs.find((tb) => tb.id === activeId)?.path ?? null;
+      void saveSession({ paths, activePath });
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [tabs, activeId]);
 
   // ---------- guard al cerrar ----------
   useEffect(() => {
@@ -880,9 +996,14 @@ export default function App() {
           activeTabId={activeId}
           onSelectTab={setActiveId}
           onCloseTab={(id) => void handleCloseTab(id)}
+          onReorderTab={reorderTabs}
           recentFiles={recentFiles}
+          templates={templates}
           actions={{
             onNew: handleNew,
+            onNewFromTemplate: (name) => void handleNewFromTemplate(name),
+            onOpenTemplatesFolder: handleOpenTemplatesFolder,
+            onTemplatesRefresh: refreshTemplates,
             onOpen: () => void handleOpen(),
             onOpenRecent: (path) => void handleOpenRecent(path),
             onSave: handleSave,

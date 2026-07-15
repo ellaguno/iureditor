@@ -29,6 +29,9 @@ const HELP_LINKS: { label: string; url: string }[] = [
 
 export interface TitleBarActions {
   onNew: () => void;
+  onNewFromTemplate: (name: string) => void;
+  onOpenTemplatesFolder: () => void;
+  onTemplatesRefresh: () => void;
   onOpen: () => void;
   onOpenRecent: (path: string) => void;
   onSave: () => void;
@@ -158,22 +161,33 @@ const WindowButton = ({
 );
 
 const Tab = ({
+  id,
   title,
   dirty,
   active,
+  dragging,
   onSelect,
   onClose,
+  onDragStart,
 }: {
+  id: number;
   title: string;
   dirty: boolean;
   active: boolean;
+  dragging: boolean;
   onSelect: () => void;
   onClose: () => void;
+  onDragStart: (e: React.MouseEvent) => void;
 }) => (
   <div
     role="tab"
     aria-selected={active}
-    onClick={onSelect}
+    data-tab-id={id}
+    onMouseDown={(e) => {
+      if (e.button !== 0) return;
+      onSelect();
+      onDragStart(e);
+    }}
     onAuxClick={(e) => {
       if (e.button === 1) onClose(); // clic central cierra, como en navegadores
     }}
@@ -182,13 +196,14 @@ const Tab = ({
       active
         ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
         : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200/70 dark:hover:bg-gray-700/60'
-    }`}
+    } ${dragging ? 'opacity-70 ring-2 ring-primary-400' : ''}`}
   >
     {dirty && <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-primary-500" />}
     <span className="truncate">{title}</span>
     <button
       type="button"
       title="Cerrar pestaña"
+      onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => {
         e.stopPropagation();
         onClose();
@@ -208,7 +223,9 @@ export const TitleBar = ({
   activeTabId,
   onSelectTab,
   onCloseTab,
+  onReorderTab,
   recentFiles,
+  templates,
   viewPrefs,
 }: {
   actions: TitleBarActions;
@@ -216,7 +233,9 @@ export const TitleBar = ({
   activeTabId: number;
   onSelectTab: (id: number) => void;
   onCloseTab: (id: number) => void;
+  onReorderTab: (from: number, to: number) => void;
   recentFiles: string[];
+  templates: string[];
   viewPrefs: ViewPrefs;
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -224,9 +243,68 @@ export const TitleBar = ({
   const [version, setVersion] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // Reorden de pestañas arrastrando. HTML5 drag&drop no funciona dentro de
+  // la webview de Tauri (el runtime intercepta los drops), así que se hace
+  // a mano con eventos de puntero sobre la tira de pestañas.
+  const stripRef = useRef<HTMLDivElement>(null);
+  const [draggingId, setDraggingId] = useState<number | null>(null);
+  const dragRef = useRef<{ id: number; startX: number; started: boolean } | null>(null);
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const reorderRef = useRef(onReorderTab);
+  reorderRef.current = onReorderTab;
+
+  const handleTabDragStart = (id: number) => (e: React.MouseEvent) => {
+    dragRef.current = { id, startX: e.clientX, started: false };
+  };
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      if (!drag.started) {
+        if (Math.abs(e.clientX - drag.startX) < 5) return; // umbral anti-clic
+        drag.started = true;
+        setDraggingId(drag.id);
+      }
+      const strip = stripRef.current;
+      if (!strip) return;
+      const els = Array.from(strip.querySelectorAll<HTMLElement>('[data-tab-id]'));
+      const from = tabsRef.current.findIndex((tb) => tb.id === drag.id);
+      if (from < 0) return;
+      // Índice destino: cuántos centros de pestaña quedan a la izquierda
+      // del puntero.
+      let to = 0;
+      for (const el of els) {
+        if (Number(el.dataset.tabId) === drag.id) continue;
+        const rect = el.getBoundingClientRect();
+        if (e.clientX > rect.left + rect.width / 2) to++;
+      }
+      if (to !== from) reorderRef.current(from, to);
+    };
+    const onUp = () => {
+      dragRef.current = null;
+      setDraggingId(null);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+  }, []);
+
   useEffect(() => {
     getVersion().then(setVersion).catch(() => setVersion(''));
   }, []);
+
+  // Al abrir el menú, refresca la lista de plantillas (el usuario puede
+  // haber añadido archivos a la carpeta mientras la app corre).
+  const refreshRef = useRef(actions.onTemplatesRefresh);
+  refreshRef.current = actions.onTemplatesRefresh;
+  useEffect(() => {
+    if (menuOpen) refreshRef.current();
+  }, [menuOpen]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -279,6 +357,25 @@ export const TitleBar = ({
             <MenuSection label="Archivo" expanded={section === 'file'} onToggle={toggleSection('file')}>
               <MenuItem label="Nuevo" shortcut="Ctrl+N" onClick={closeAnd(actions.onNew)} />
               <MenuItem label="Abrir…" shortcut="Ctrl+O" onClick={closeAnd(actions.onOpen)} />
+              {templates.length > 0 && (
+                <>
+                  <MenuSeparator />
+                  <div className="px-3 py-1 text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                    Nueva desde plantilla
+                  </div>
+                  {templates.map((name) => (
+                    <MenuItem
+                      key={name}
+                      label={name}
+                      onClick={closeAnd(() => actions.onNewFromTemplate(name))}
+                    />
+                  ))}
+                  <MenuItem
+                    label="Abrir carpeta de plantillas…"
+                    onClick={closeAnd(actions.onOpenTemplatesFolder)}
+                  />
+                </>
+              )}
               {recentFiles.length > 0 && (
                 <>
                   <MenuSeparator />
@@ -401,15 +498,21 @@ export const TitleBar = ({
 
       {/* Pestañas de documentos */}
       <div className="flex-1 min-w-0 h-full flex items-center">
-        <div className="flex items-center gap-1 overflow-x-auto max-w-full py-1 scrollbar-thin">
+        <div
+          ref={stripRef}
+          className="flex items-center gap-1 overflow-x-auto max-w-full py-1 scrollbar-thin"
+        >
           {tabs.map((tab) => (
             <Tab
               key={tab.id}
+              id={tab.id}
               title={tab.path ? basename(tab.path) : 'Sin título'}
               dirty={tab.dirty}
               active={tab.id === activeTabId}
+              dragging={tab.id === draggingId}
               onSelect={() => onSelectTab(tab.id)}
               onClose={() => onCloseTab(tab.id)}
+              onDragStart={handleTabDragStart(tab.id)}
             />
           ))}
           <button
