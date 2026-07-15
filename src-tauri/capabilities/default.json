@@ -21,6 +21,8 @@
     "core:menu:default",
     "opener:default",
     "dialog:default",
+    "updater:default",
+    "process:allow-restart",
     "store:default",
     "window-state:default",
     "fs:default",

@@ -52,6 +52,7 @@ import {
   readTemplate,
   openTemplatesFolder,
 } from './lib/templates';
+import { checkForUpdates } from './lib/updater';
 import { exportToPdf } from './lib/exportPdf';
 import { t } from './lib/i18n';
 
@@ -920,6 +921,13 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ---------- chequeo de actualizaciones (silencioso, tras el arranque) ----------
+  useEffect(() => {
+    if (!isTauri) return;
+    const timer = setTimeout(() => void checkForUpdates(true), 6000);
+    return () => clearTimeout(timer);
+  }, []);
+
   // ---------- persistencia de la sesión de pestañas ----------
   useEffect(() => {
     if (!isTauri || !sessionReady.current) return;
@@ -1020,6 +1028,7 @@ export default function App() {
             onZoomIn: handleZoomIn,
             onZoomOut: handleZoomOut,
             onZoomReset: handleZoomReset,
+            onCheckUpdates: () => void checkForUpdates(false),
           }}
           viewPrefs={{
             theme,

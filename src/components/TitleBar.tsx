@@ -48,6 +48,7 @@ export interface TitleBarActions {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onZoomReset: () => void;
+  onCheckUpdates: () => void;
 }
 
 export interface ViewPrefs {
@@ -483,6 +484,11 @@ export const TitleBar = ({
               {HELP_LINKS.map(({ label, url }) => (
                 <MenuItem key={url} label={label} onClick={closeAnd(() => void openUrl(url))} />
               ))}
+              <MenuSeparator />
+              <MenuItem
+                label="Buscar actualizaciones…"
+                onClick={closeAnd(actions.onCheckUpdates)}
+              />
               {version && (
                 <>
                   <MenuSeparator />

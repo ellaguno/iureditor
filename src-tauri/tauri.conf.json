@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "iureditor",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "identifier": "com.ellaguno.iureditor",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -12,6 +12,12 @@
   "plugins": {
     "fs": {
       "requireLiteralLeadingDot": false
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhGMUI0OEUxNjg1NjE1MjUKUldRbEZWWm80VWdiajlpRzB5WFRKY0RFZ01VVGN0TVMrV01LQjZWTUNTa3JsV0VoMFRWQTlmbmUK",
+      "endpoints": [
+        "https://github.com/ellaguno/iureditor/releases/latest/download/latest.json"
+      ]
     }
   },
   "app": {
@@ -35,6 +41,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["appimage", "deb", "nsis", "dmg"],
     "category": "Productivity",
     "shortDescription": "Editor WYSIWYG de Markdown",
