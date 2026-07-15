@@ -38,6 +38,8 @@ import {
   getRecentFiles,
   addRecentFile,
   basename,
+  isMarkdownPath,
+  isTextPath,
 } from './lib/fileio';
 import { saveDrafts, loadDrafts, clearDrafts } from './lib/autosave';
 import { exportToPdf } from './lib/exportPdf';
@@ -53,6 +55,9 @@ interface DocTab {
   path: string | null;
   dirty: boolean;
   sourceMode: boolean;
+  /** Texto plano (.txt, .env…): sólo vista fuente, sin pipeline markdown —
+   *  convertirlo corrompería el archivo (p. ej. `# comentario` → <h1>). */
+  plain: boolean;
 }
 
 /** Contenido pendiente de cargar en el editor de una pestaña recién creada
@@ -62,11 +67,12 @@ interface PendingLoad {
   /** null = el contenido ES el estado guardado (abrir archivo limpio);
    *  string = markdown guardado en disco (recuperación de borrador sucio). */
   baseline: string | null;
+  plain?: boolean;
 }
 
 export default function App() {
   const [tabs, setTabs] = useState<DocTab[]>([
-    { id: 0, path: null, dirty: false, sourceMode: false },
+    { id: 0, path: null, dirty: false, sourceMode: false, plain: false },
   ]);
   const [activeId, setActiveId] = useState(0);
   const nextTabId = useRef(1);
@@ -127,7 +133,9 @@ export default function App() {
         .filter((tab) => tab.dirty)
         .map((tab) => ({
           path: tab.path,
-          markdown: editorHandles.current.get(tab.id)?.getMarkdown() ?? '',
+          markdown: tab.plain
+            ? sourceTexts.current.get(tab.id) ?? ''
+            : editorHandles.current.get(tab.id)?.getMarkdown() ?? '',
           savedAt: Date.now(),
         }))
         .filter((d) => d.markdown.trim());
@@ -158,8 +166,22 @@ export default function App() {
   useEffect(() => {
     for (const tab of tabs) {
       const pending = pendingLoads.current.get(tab.id);
+      if (!pending) continue;
+      if (pending.plain) {
+        // Texto plano: sin editor de por medio, directo a la vista fuente.
+        pendingLoads.current.delete(tab.id);
+        savedMd.current.set(tab.id, pending.baseline ?? pending.content);
+        sourceTexts.current.set(tab.id, pending.content);
+        if (pending.baseline !== null) updateTab(tab.id, { dirty: true });
+        if (tab.id === activeIdRef.current) {
+          setSourceText(pending.content);
+          updateCounts(pending.content);
+          setHeadings([]);
+        }
+        continue;
+      }
       const handle = editorHandles.current.get(tab.id);
-      if (!pending || !handle) continue;
+      if (!handle) continue;
       pendingLoads.current.delete(tab.id);
       if (pending.baseline !== null) {
         // Borrador recuperado: el baseline (disco) define el estado limpio.
@@ -183,6 +205,14 @@ export default function App() {
 
   // ---------- cambio de pestaña activa: refrescar vistas derivadas ----------
   useEffect(() => {
+    const tab = tabsRef.current.find((tb) => tb.id === activeId);
+    if (tab?.plain) {
+      const text = sourceTexts.current.get(activeId) ?? '';
+      setSourceText(text);
+      updateCounts(text);
+      setHeadings([]);
+      return;
+    }
     const handle = editorHandles.current.get(activeId);
     if (!handle) return;
     const md = handle.getMarkdown();
@@ -190,8 +220,7 @@ export default function App() {
     setSourceText(sourceTexts.current.get(activeId) ?? md);
     if (handle.editor) setHeadings(collectHeadings(handle.editor.state.doc));
     // Las imágenes relativas se resuelven contra el directorio del doc activo.
-    const path = tabsRef.current.find((tab) => tab.id === activeId)?.path;
-    if (path) void allowDocumentDir(path);
+    if (tab?.path) void allowDocumentDir(tab.path);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId]);
 
@@ -216,6 +245,8 @@ export default function App() {
     const tab = tabsRef.current.find((tb) => tb.id === id);
     const handle = activeHandle();
     if (!tab || !handle) return;
+    // Un archivo de texto plano vive siempre en la vista fuente.
+    if (tab.plain) return;
     if (tab.sourceMode) {
       handle.setMarkdown(sourceTextRef.current);
       // Canónico: lo que el editor re-emite, para no dejar dirty espurio.
@@ -256,15 +287,16 @@ export default function App() {
   // ---------- pestañas ----------
   const createTab = useCallback((load?: PendingLoad, path: string | null = null): number => {
     const id = nextTabId.current++;
+    const plain = !!load?.plain;
     if (load) pendingLoads.current.set(id, load);
-    setTabs((prev) => [...prev, { id, path, dirty: false, sourceMode: false }]);
+    setTabs((prev) => [...prev, { id, path, dirty: false, sourceMode: plain, plain }]);
     setActiveId(id);
     return id;
   }, []);
 
   /** ¿La pestaña está "prístina"? (sin archivo, sin cambios, vacía) */
   const isPristine = useCallback((tab: DocTab): boolean => {
-    if (tab.path || tab.dirty) return false;
+    if (tab.path || tab.dirty || tab.plain) return false;
     const handle = editorHandles.current.get(tab.id);
     return !handle || !handle.getMarkdown().trim();
   }, []);
@@ -281,7 +313,7 @@ export default function App() {
         // Siempre queda al menos una pestaña.
         const freshId = nextTabId.current++;
         setActiveId(freshId);
-        return [{ id: freshId, path: null, dirty: false, sourceMode: false }];
+        return [{ id: freshId, path: null, dirty: false, sourceMode: false, plain: false }];
       }
       if (activeIdRef.current === id) {
         const neighbor = rest[Math.min(idx, rest.length - 1)];
@@ -313,9 +345,20 @@ export default function App() {
       }
       const raw = await readDocument(path);
       setRecentFiles(await addRecentFile(path));
+      const plain = !isMarkdownPath(path);
 
       const active = tabsRef.current.find((tab) => tab.id === activeIdRef.current);
       if (active && isPristine(active)) {
+        if (plain) {
+          // La pestaña vacía se convierte en pestaña de texto plano.
+          savedMd.current.set(active.id, raw);
+          sourceTexts.current.set(active.id, raw);
+          setSourceText(raw);
+          updateCounts(raw);
+          setHeadings([]);
+          updateTab(active.id, { path, dirty: false, plain: true, sourceMode: true });
+          return;
+        }
         // Reutiliza la pestaña vacía actual (comportamiento clásico).
         const handle = editorHandles.current.get(active.id);
         if (handle) {
@@ -332,7 +375,7 @@ export default function App() {
         updateTab(active.id, { path, dirty: false });
         return;
       }
-      createTab({ content: raw, baseline: null }, path);
+      createTab({ content: raw, baseline: null, plain }, path);
     },
     [createTab, isPristine, updateCounts, updateTab]
   );
@@ -360,17 +403,26 @@ export default function App() {
   // ---------- guardar ----------
   const doSave = useCallback(
     async (as: boolean): Promise<string | null> => {
-      syncSourceToEditor();
       const id = activeIdRef.current;
-      const handle = editorHandles.current.get(id);
-      if (!handle) return null;
-      const md = handle.getMarkdown();
       const tab = tabsRef.current.find((tb) => tb.id === id);
+      let md: string;
+      if (tab?.plain) {
+        // Texto plano: lo que está en la vista fuente, byte a byte.
+        md = sourceTextRef.current;
+      } else {
+        syncSourceToEditor();
+        const handle = editorHandles.current.get(id);
+        if (!handle) return null;
+        md = handle.getMarkdown();
+      }
       let path = tab?.path ?? null;
       if (as || !path) {
-        path = await pickSavePath(path ? basename(path) : 'documento.md');
+        path = await pickSavePath(
+          path ? basename(path) : 'documento.md',
+          !tab?.plain
+        );
         if (!path) return null;
-        await allowDocumentDir(path);
+        if (!tab?.plain) await allowDocumentDir(path);
       }
       await writeDocument(path, md);
       savedMd.current.set(id, md);
@@ -434,7 +486,21 @@ export default function App() {
     []
   );
 
+  /** Los exports operan sobre el documento markdown; en texto plano avisa. */
+  const guardPlainExport = useCallback((): boolean => {
+    const tab = tabsRef.current.find((tb) => tb.id === activeIdRef.current);
+    if (!tab?.plain) return true;
+    void import('@tauri-apps/plugin-dialog').then(({ message }) =>
+      message('La exportación está disponible para documentos Markdown.', {
+        title: 'iureditor',
+        kind: 'info',
+      })
+    );
+    return false;
+  }, []);
+
   const handleExportPdf = useCallback(() => {
+    if (!guardPlainExport()) return;
     syncSourceToEditor();
     const handle = activeHandle();
     const editor = handle?.editor;
@@ -442,9 +508,10 @@ export default function App() {
     exportToPdf(editor, activePath(), handle?.getFrontMatter() ?? '').catch((err) =>
       reportExportError('PDF', err)
     );
-  }, [reportExportError, syncSourceToEditor, activeHandle, activePath]);
+  }, [reportExportError, syncSourceToEditor, activeHandle, activePath, guardPlainExport]);
 
   const handleExportDocx = useCallback(() => {
+    if (!guardPlainExport()) return;
     syncSourceToEditor();
     const editor = activeHandle()?.editor;
     if (!editor) return;
@@ -452,16 +519,17 @@ export default function App() {
     import('./lib/exportDocx')
       .then(({ exportToDocx }) => exportToDocx(editor, activePath()))
       .catch((err) => reportExportError('DOCX', err));
-  }, [reportExportError, syncSourceToEditor, activeHandle, activePath]);
+  }, [reportExportError, syncSourceToEditor, activeHandle, activePath, guardPlainExport]);
 
   const handleExportHtml = useCallback(() => {
+    if (!guardPlainExport()) return;
     syncSourceToEditor();
     const editor = activeHandle()?.editor;
     if (!editor) return;
     import('./lib/exportHtmlFile')
       .then(({ exportToHtmlFile }) => exportToHtmlFile(editor, activePath()))
       .catch((err) => reportExportError('HTML', err));
-  }, [reportExportError, syncSourceToEditor, activeHandle, activePath]);
+  }, [reportExportError, syncSourceToEditor, activeHandle, activePath, guardPlainExport]);
 
   const handleQuit = useCallback(() => {
     // close() dispara onCloseRequested, donde vive el guard de dirty.
@@ -625,7 +693,8 @@ export default function App() {
                 baseline = '';
               }
             }
-            const id = createTab({ content: draft.markdown, baseline }, draft.path);
+            const plain = draft.path ? !isMarkdownPath(draft.path) : false;
+            const id = createTab({ content: draft.markdown, baseline, plain }, draft.path);
             if (firstId === null) firstId = id;
           }
           if (firstId !== null) setActiveId(firstId);
@@ -672,6 +741,14 @@ export default function App() {
       for (const p of paths) {
         if (/\.(md|markdown)$/i.test(p)) {
           await loadDocument(p);
+          return;
+        }
+        if (isTextPath(p)) {
+          try {
+            await loadDocument(p);
+          } catch (err) {
+            console.error('No se pudo abrir como texto:', err);
+          }
           return;
         }
         if (/\.(png|jpe?g|gif|webp|svg)$/i.test(p)) {

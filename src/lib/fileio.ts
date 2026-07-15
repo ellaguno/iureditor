@@ -12,6 +12,34 @@ import { setImageBaseDir } from '../extensions/localImage';
 
 export const MD_FILTERS = [{ name: 'Markdown', extensions: ['md', 'markdown'] }];
 
+// Extensiones de texto plano que la app abre en modo fuente (sin pipeline
+// markdown). El glob *.env también captura dotfiles como ".env".
+const TEXT_EXTENSIONS = [
+  'txt', 'text', 'env', 'ini', 'conf', 'cfg', 'log', 'json', 'yaml', 'yml',
+  'toml', 'csv', 'tsv', 'xml', 'properties', 'gitignore', 'editorconfig',
+];
+
+export const OPEN_FILTERS = [
+  {
+    name: 'Documentos compatibles',
+    extensions: ['md', 'markdown', ...TEXT_EXTENSIONS],
+  },
+  ...MD_FILTERS,
+  { name: 'Texto', extensions: TEXT_EXTENSIONS },
+  { name: 'Todos los archivos', extensions: ['*'] },
+];
+
+/** ¿El archivo se edita como markdown (WYSIWYG)? Lo demás va como texto
+ *  plano en la vista de código fuente. */
+export const isMarkdownPath = (path: string): boolean =>
+  /\.(md|markdown)$/i.test(path);
+
+/** ¿Extensión de texto editable? (para drag & drop de archivos sueltos) */
+export const isTextPath = (path: string): boolean => {
+  const name = basename(path).toLowerCase();
+  return TEXT_EXTENSIONS.some((ext) => name.endsWith(`.${ext}`)) || !name.includes('.');
+};
+
 const dirname = (path: string): string => {
   const idx = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
   return idx > 0 ? path.slice(0, idx) : path;
@@ -46,7 +74,7 @@ export const writeDocument = async (path: string, markdown: string): Promise<voi
 };
 
 export const pickOpenPath = async (): Promise<string | null> => {
-  const selected = await open({ multiple: false, filters: MD_FILTERS });
+  const selected = await open({ multiple: false, filters: OPEN_FILTERS });
   return typeof selected === 'string' ? selected : null;
 };
 
@@ -60,11 +88,19 @@ export const pickImagePath = async (): Promise<string | null> => {
   return typeof selected === 'string' ? selected : null;
 };
 
-export const pickSavePath = async (suggestedName = 'documento.md'): Promise<string | null> => {
-  const path = await save({ defaultPath: suggestedName, filters: MD_FILTERS });
+export const pickSavePath = async (
+  suggestedName = 'documento.md',
+  forceMd = true
+): Promise<string | null> => {
+  const path = await save({
+    defaultPath: suggestedName,
+    filters: forceMd ? MD_FILTERS : [{ name: 'Todos los archivos', extensions: ['*'] }],
+  });
   if (!path) return null;
-  // Asegura extensión .md
-  return /\.(md|markdown)$/i.test(path) ? path : `${path}.md`;
+  // Asegura extensión .md sólo para documentos markdown; un .env/.txt
+  // conserva su nombre tal cual.
+  if (forceMd && !/\.(md|markdown)$/i.test(path)) return `${path}.md`;
+  return path;
 };
 
 export const confirmDiscard = async (): Promise<boolean> =>

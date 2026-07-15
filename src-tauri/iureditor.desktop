@@ -6,5 +6,5 @@ Exec={{exec}} %f
 Icon={{icon}}
 Terminal=false
 Categories=Office;TextEditor;
-MimeType=text/markdown;text/x-markdown;
+MimeType=text/markdown;text/x-markdown;text/plain;
 StartupWMClass=iureditor
