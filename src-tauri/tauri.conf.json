@@ -42,7 +42,7 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
-    "targets": ["appimage", "deb", "nsis", "dmg"],
+    "targets": ["appimage", "deb", "nsis", "app", "dmg"],
     "category": "Productivity",
     "shortDescription": "Editor WYSIWYG de Markdown",
     "longDescription": "Editor WYSIWYG de Markdown con diagramas Mermaid en vivo y exportación a PDF y DOCX.",
