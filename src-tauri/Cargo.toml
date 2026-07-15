@@ -1,6 +1,6 @@
 [package]
 name = "iureditor"
-version = "1.3.0"
+version = "1.4.0"
 description = "Editor WYSIWYG de Markdown con Mermaid y export a PDF/DOCX"
 authors = ["Eduardo Llaguno"]
 license = "MIT"
