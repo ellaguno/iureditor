@@ -53,6 +53,17 @@ const EXPORT_CSS = `
   ul[data-type="taskList"] li { display: flex; gap: 0.5em; align-items: baseline; }
   .mermaid-diagram { display: flex; justify-content: center; margin: 1.5em 0; overflow-x: auto; }
   .mermaid-diagram svg { max-width: 100%; height: auto; }
+  sup[data-fn-ref] { color: #0369a1; font-weight: 600; }
+  sup[data-fn-ref]::before { content: '['; }
+  sup[data-fn-ref]::after { content: ']'; }
+  div[data-fn-def] { font-size: 0.875em; color: #4b5563; margin-top: 0.25em; }
+  :not(div[data-fn-def]) + div[data-fn-def] {
+    border-top: 1px solid #e5e7eb;
+    margin-top: 2.5em;
+    padding-top: 0.75em;
+  }
+  div[data-fn-def]::before { content: '[' attr(data-fn-def) '] '; color: #0369a1; font-weight: 600; }
+  .math-block { text-align: center; margin: 1em 0; font-size: 1.15em; }
   @media print {
     body { max-width: none; padding: 0; }
     pre, table, .mermaid-diagram, img { break-inside: avoid; }

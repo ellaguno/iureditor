@@ -98,6 +98,24 @@ export const markdownToHtml = (markdown: string): string => {
 
   let html = withoutCodeBlocks;
 
+  // STEP 1a-bis — Math en bloque ($$…$$). Reutiliza el mecanismo de
+  // placeholders de codeBlocks (comentario HTML inerte + restauración final).
+  // Multilínea primero; luego la forma de una sola línea.
+  const pushMathBlock = (latex: string): string => {
+    const idx = codeBlocks.length;
+    codeBlocks.push(
+      `<div data-math-block="true" data-latex="${escapeHtmlAttr(latex)}">${escapeHtmlForCode(latex)}</div>`
+    );
+    return codeBlockPlaceholder(idx);
+  };
+  html = html.replace(
+    /^[ \t]*\$\$[ \t]*\n([\s\S]*?)\n[ \t]*\$\$[ \t]*$/gm,
+    (_m, latex) => pushMathBlock(latex)
+  );
+  html = html.replace(/^[ \t]*\$\$([^\n$]+?)\$\$[ \t]*$/gm, (_m, latex) =>
+    pushMathBlock(latex.trim())
+  );
+
   // STEP 1b — Extract inline code spans BEFORE any inline formatting.
   // Without this, `mcgenera_posicion_k` first became
   // `mcgenera<em>posicion</em>k` (italic regex) and the <em> quedaba como
@@ -110,12 +128,44 @@ export const markdownToHtml = (markdown: string): string => {
     return inlineCodePlaceholder(idx);
   });
 
+  // STEP 1b-bis — Footnote DEFINITIONS (línea completa `[^x]: texto`) antes
+  // que las referencias, para que el regex de refs no se coma la etiqueta.
+  // El texto interno queda expuesto al formato inline posterior.
+  html = html.replace(
+    /^\[\^([^\]\s]+)\]:[ \t]?(.*)$/gm,
+    (_m, label, text) => `<div data-fn-def="${escapeHtmlAttr(label)}">${text}</div>`
+  );
+
   // STEP 1c — Extract images and link TARGETS before inline formatting.
   // Un nombre de archivo como `logo_con_guiones.png` dentro de
   // ![alt](assets/logo_con_guiones.png) era destrozado por el regex de
   // cursivas (`_..._` → <em>) y la ruta guardada dejaba de existir.
   const inlineAtoms: string[] = [];
   const atomPlaceholder = (i: number) => `<!--IUR-ATOM-${i}-->`;
+  // Math inline `$…$`. Heurísticas anti-falso-positivo (importes en pesos):
+  // sin espacio tras el $ de apertura ni antes del de cierre, el cierre no va
+  // seguido de dígito, y un `\$` escapado no abre fórmula.
+  html = html.replace(
+    /\$(?!\s)((?:\\.|[^$\n\\])+?)\$(?!\d)/g,
+    (m, latex: string, offset: number, s: string) => {
+      if (/\s$/.test(latex)) return m;
+      if (offset > 0 && s[offset - 1] === '\\') return m;
+      const idx = inlineAtoms.length;
+      inlineAtoms.push(
+        `<span data-math-inline="true" data-latex="${escapeHtmlAttr(latex)}">${escapeHtmlForCode(latex)}</span>`
+      );
+      return atomPlaceholder(idx);
+    }
+  );
+  // Referencias de nota al pie `[^x]` (sin dos puntos: las definiciones ya
+  // fueron consumidas arriba).
+  html = html.replace(/\[\^([^\]\s]+)\]/g, (_m, label) => {
+    const idx = inlineAtoms.length;
+    inlineAtoms.push(
+      `<sup data-fn-ref="${escapeHtmlAttr(label)}">${escapeHtmlForCode(label)}</sup>`
+    );
+    return atomPlaceholder(idx);
+  });
   // Imágenes completas (el alt es atributo: sin formato markdown dentro)
   html = html.replace(
     /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g,
@@ -187,54 +237,95 @@ export const markdownToHtml = (markdown: string): string => {
     html = out.join('\n');
   }
 
-  // STEP 5 — Lists. Group consecutive bullet/ordered/task lines into a
-  // single <ul>/<ol>.
+  // STEP 5 — Lists. Group consecutive bullet/ordered/task lines and build
+  // nested <ul>/<ol> according to indentation (2+ espacios o tab = un nivel
+  // más profundo; Turndown emite 4 espacios al guardar).
   {
+    type ListKind = 'ul' | 'ol' | 'task';
+    interface ListItem {
+      kind: ListKind;
+      indent: number;
+      li: string; // <li> SIN cerrar — las sublistas van dentro
+    }
+
+    const openTag = (kind: ListKind) =>
+      kind === 'task' ? '<ul data-type="taskList">' : kind === 'ol' ? '<ol>' : '<ul>';
+    const closeTag = (kind: ListKind) => (kind === 'ol' ? '</ol>' : '</ul>');
+
+    const buildList = (items: ListItem[]): string => {
+      const out: string[] = [];
+      const stack: { kind: ListKind; indent: number }[] = [];
+      for (const item of items) {
+        if (stack.length === 0) {
+          out.push(openTag(item.kind));
+          stack.push({ kind: item.kind, indent: item.indent });
+        } else if (item.indent > stack[stack.length - 1].indent) {
+          // Sublista: se abre dentro del <li> aún sin cerrar.
+          out.push(openTag(item.kind));
+          stack.push({ kind: item.kind, indent: item.indent });
+        } else {
+          out.push('</li>');
+          while (stack.length > 1 && item.indent < stack[stack.length - 1].indent) {
+            out.push(closeTag(stack.pop()!.kind), '</li>');
+          }
+          if (item.kind !== stack[stack.length - 1].kind) {
+            out.push(closeTag(stack.pop()!.kind));
+            out.push(openTag(item.kind));
+            stack.push({ kind: item.kind, indent: item.indent });
+          }
+        }
+        out.push(item.li);
+      }
+      out.push('</li>');
+      while (stack.length) {
+        out.push(closeTag(stack.pop()!.kind));
+        if (stack.length) out.push('</li>');
+      }
+      return out.join('');
+    };
+
+    const indentOf = (ws: string): number =>
+      ws.replace(/\t/g, '    ').length;
+
     const lines = html.split('\n');
     const out: string[] = [];
-    type ListKind = 'ul' | 'ol' | 'task';
-    let listBuffer: string[] = [];
-    let listKind: ListKind | null = null;
+    let buffer: ListItem[] = [];
 
-    const flushList = () => {
-      if (listBuffer.length === 0) return;
-      if (listKind === 'task') {
-        out.push(`<ul data-type="taskList">${listBuffer.join('')}</ul>`);
-      } else if (listKind === 'ol') {
-        out.push(`<ol>${listBuffer.join('')}</ol>`);
-      } else {
-        out.push(`<ul>${listBuffer.join('')}</ul>`);
-      }
-      listBuffer = [];
-      listKind = null;
+    const flush = () => {
+      if (buffer.length) out.push(buildList(buffer));
+      buffer = [];
     };
 
     for (const line of lines) {
-      const taskMatch = /^[ \t]*[-*+] \[([ xX])\] (.*)$/.exec(line);
-      const bulletMatch = /^[ \t]*[-*+] (.*)$/.exec(line);
-      const orderedMatch = /^[ \t]*(\d+)[.)] (.*)$/.exec(line);
+      const taskMatch = /^([ \t]*)[-*+] \[([ xX])\] (.*)$/.exec(line);
+      const bulletMatch = /^([ \t]*)[-*+] (.*)$/.exec(line);
+      const orderedMatch = /^([ \t]*)(\d+)[.)] (.*)$/.exec(line);
 
       if (taskMatch) {
-        if (listKind && listKind !== 'task') flushList();
-        listKind = 'task';
-        const checked = taskMatch[1].toLowerCase() === 'x';
-        listBuffer.push(
-          `<li data-type="taskItem" data-checked="${checked}"><p>${taskMatch[2]}</p></li>`
-        );
-      } else if (bulletMatch && !taskMatch) {
-        if (listKind && listKind !== 'ul') flushList();
-        listKind = 'ul';
-        listBuffer.push(`<li>${bulletMatch[1]}</li>`);
+        const checked = taskMatch[2].toLowerCase() === 'x';
+        buffer.push({
+          kind: 'task',
+          indent: indentOf(taskMatch[1]),
+          li: `<li data-type="taskItem" data-checked="${checked}"><p>${taskMatch[3]}</p>`,
+        });
+      } else if (bulletMatch) {
+        buffer.push({
+          kind: 'ul',
+          indent: indentOf(bulletMatch[1]),
+          li: `<li>${bulletMatch[2]}`,
+        });
       } else if (orderedMatch) {
-        if (listKind && listKind !== 'ol') flushList();
-        listKind = 'ol';
-        listBuffer.push(`<li>${orderedMatch[2]}</li>`);
+        buffer.push({
+          kind: 'ol',
+          indent: indentOf(orderedMatch[1]),
+          li: `<li>${orderedMatch[3]}`,
+        });
       } else {
-        if (listKind) flushList();
+        flush();
         out.push(line);
       }
     }
-    if (listKind) flushList();
+    flush();
     html = out.join('\n');
   }
 
@@ -334,6 +425,44 @@ export const buildTurndownService = (): TurndownService => {
     },
   });
 
+  // Fórmulas KaTeX → sintaxis $ / $$
+  service.addRule('mathInline', {
+    filter: (node) =>
+      node.nodeName === 'SPAN' && node.getAttribute('data-math-inline') !== null,
+    replacement: (_content, node) => {
+      const el = node as HTMLElement;
+      const latex = el.getAttribute('data-latex') || el.textContent || '';
+      return latex ? `$${latex}$` : '';
+    },
+  });
+
+  service.addRule('mathBlock', {
+    filter: (node) =>
+      node.nodeName === 'DIV' && node.getAttribute('data-math-block') !== null,
+    replacement: (_content, node) => {
+      const el = node as HTMLElement;
+      const latex = el.getAttribute('data-latex') || el.textContent || '';
+      return latex ? `\n\n$$\n${latex}\n$$\n\n` : '';
+    },
+  });
+
+  // Notas al pie: referencia inline y definición de bloque → sintaxis [^x]
+  service.addRule('footnoteRef', {
+    filter: (node) =>
+      node.nodeName === 'SUP' && node.getAttribute('data-fn-ref') !== null,
+    replacement: (_content, node) =>
+      `[^${(node as HTMLElement).getAttribute('data-fn-ref')}]`,
+  });
+
+  service.addRule('footnoteDef', {
+    filter: (node) =>
+      node.nodeName === 'DIV' && node.getAttribute('data-fn-def') !== null,
+    replacement: (content, node) => {
+      const label = (node as HTMLElement).getAttribute('data-fn-def') || '';
+      return `\n\n[^${label}]: ${content.trim()}\n\n`;
+    },
+  });
+
   // Add custom rules for task lists
   service.addRule('taskListItem', {
     filter: (node) => {
@@ -418,6 +547,37 @@ export const buildTurndownService = (): TurndownService => {
 // bare character. Single `\#` is left alone (could be an intentional literal).
 export const healEscapedMarkdown = (markdown: string): string =>
   markdown.replace(/^(\\){2,}([#\-*+>|])/gm, '$2');
+
+// ---------- Front matter YAML ----------
+// Un documento puede empezar con un bloque de metadatos YAML delimitado por
+// `---` (convención de Jekyll/Obsidian/pandoc). No se renderiza en el editor:
+// se separa al cargar y se antepone verbatim al guardar.
+
+export interface FrontMatterSplit {
+  /** Bloque completo con sus delimitadores, sin salto final. '' si no hay. */
+  frontMatter: string;
+  /** El resto del documento. */
+  body: string;
+}
+
+export const splitFrontMatter = (raw: string): FrontMatterSplit => {
+  // Debe empezar en el byte 0 (BOM aparte); el cierre puede ser `---` o `...`.
+  const m = /^﻿?---[ \t]*\n([\s\S]*?\n)?(?:---|\.\.\.)[ \t]*(?:\n|$)/.exec(raw);
+  if (!m) return { frontMatter: '', body: raw };
+  // Anti-falso-positivo: un doc que empieza con `---` como regla horizontal.
+  // El bloque debe parecer YAML: al menos una línea `clave:` (o estar vacío).
+  const inner = m[1] ?? '';
+  if (inner.trim() && !/^[ \t]*[\w.-]+[ \t]*:/m.test(inner)) {
+    return { frontMatter: '', body: raw };
+  }
+  return {
+    frontMatter: m[0].replace(/\n+$/, ''),
+    body: raw.slice(m[0].length).replace(/^\n+/, ''),
+  };
+};
+
+export const joinFrontMatter = (frontMatter: string, body: string): string =>
+  frontMatter ? `${frontMatter}\n\n${body}` : body;
 
 // Prepara el contenido de un archivo para cargarlo en el editor.
 export const prepareContent = (raw: string): string => {

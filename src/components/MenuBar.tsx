@@ -30,6 +30,9 @@ import {
   Superscript as SuperscriptIcon,
   Palette,
   Workflow,
+  Asterisk,
+  Sigma,
+  SquareSigma,
 } from 'lucide-react';
 import { ToolbarButton, ToolbarDivider } from './ToolbarButton';
 import { LinkModal } from './LinkModal';
@@ -303,6 +306,26 @@ export const MenuBar = ({
             title={t('editor.insertMermaid')}
           >
             <Workflow className="w-4 h-4" />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().insertFootnote().run()}
+            title={t('editor.insertFootnote')}
+          >
+            <Asterisk className="w-4 h-4" />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().insertMathInline().run()}
+            isActive={editor.isActive('mathInline')}
+            title={t('editor.insertMathInline')}
+          >
+            <Sigma className="w-4 h-4" />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().insertMathBlock().run()}
+            isActive={editor.isActive('mathBlock')}
+            title={t('editor.insertMathBlock')}
+          >
+            <SquareSigma className="w-4 h-4" />
           </ToolbarButton>
 
           <ToolbarDivider />

@@ -281,3 +281,30 @@
 .tiptap-editor {
   font-feature-settings: "liga" 1, "calt" 1;
 }
+
+/* Notas al pie */
+.tiptap-editor sup[data-fn-ref] {
+  @apply text-primary-600 dark:text-primary-400 font-semibold cursor-default select-none;
+}
+
+.tiptap-editor sup[data-fn-ref]::before {
+  content: '[';
+}
+
+.tiptap-editor sup[data-fn-ref]::after {
+  content: ']';
+}
+
+.tiptap-editor div[data-fn-def] {
+  @apply text-sm text-gray-600 dark:text-gray-400 mt-1;
+}
+
+/* La primera definición abre la sección de notas con una línea separadora */
+.tiptap-editor :not(div[data-fn-def]) + div[data-fn-def] {
+  @apply border-t border-gray-200 dark:border-gray-700 mt-6 pt-2;
+}
+
+.tiptap-editor div[data-fn-def]::before {
+  content: '[' attr(data-fn-def) '] ';
+  @apply text-primary-600 dark:text-primary-400 font-semibold;
+}

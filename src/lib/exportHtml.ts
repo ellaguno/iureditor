@@ -3,6 +3,7 @@ import { readFile } from '@tauri-apps/plugin-fs';
 import { renderFullSizeDiagram } from './mermaid';
 import { svgToPngDataUrl } from './diagramExport';
 import { basename } from './fileio';
+import { uniqueSlugs } from './outline';
 
 // Construye el HTML autosuficiente del documento para exportar:
 // - diagramas mermaid pre-renderizados (SVG vectorial para PDF, PNG para DOCX)
@@ -100,6 +101,27 @@ export const buildExportHtml = async (
     node.replaceWith(wrapper);
   }
 
+  // 1b) Fórmulas KaTeX → MathML nativo (WebKit lo renderiza sin el CSS ni
+  //     las fuentes de KaTeX: el HTML exportado sigue siendo autosuficiente).
+  const mathEls = Array.from(
+    container.querySelectorAll('span[data-math-inline], div[data-math-block]')
+  );
+  if (mathEls.length) {
+    const { renderMathMathml } = await import('./katex');
+    for (const el of mathEls) {
+      const latex = el.getAttribute('data-latex') || el.textContent || '';
+      const display = el.hasAttribute('data-math-block');
+      const holder = document.createElement(display ? 'div' : 'span');
+      holder.className = display ? 'math-block' : 'math-inline';
+      try {
+        holder.innerHTML = await renderMathMathml(latex, display);
+      } catch {
+        holder.textContent = display ? `$$${latex}$$` : `$${latex}$`;
+      }
+      el.replaceWith(holder);
+    }
+  }
+
   // 2) Imágenes locales → data URLs
   const docDir = filePath ? dirnameOf(filePath) : null;
   for (const img of Array.from(container.querySelectorAll('img'))) {
@@ -119,6 +141,14 @@ export const buildExportHtml = async (
       console.error(`No se pudo incrustar la imagen ${orig}:`, err);
     }
   }
+
+  // 3) IDs en encabezados: anclas para el índice insertado en el documento.
+  //    Mismo algoritmo de slugs que buildTocHtml → los enlaces coinciden.
+  const headingEls = Array.from(container.querySelectorAll('h1, h2, h3, h4, h5, h6'));
+  const slugs = uniqueSlugs(headingEls.map((h) => h.textContent || ''));
+  headingEls.forEach((h, i) => {
+    if (!h.id) h.id = slugs[i];
+  });
 
   const title = filePath ? basename(filePath).replace(/\.(md|markdown)$/i, '') : 'documento';
   return { html: container.innerHTML, title };

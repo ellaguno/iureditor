@@ -75,16 +75,22 @@ export const confirmDiscard = async (): Promise<boolean> =>
     cancelLabel: 'Cancelar',
   });
 
-export const confirmRecoverDraft = async (docName: string, savedAt: number): Promise<boolean> =>
-  ask(
-    `Se encontró un borrador sin guardar de «${docName}» (${new Date(savedAt).toLocaleString()}).\n¿Quieres recuperarlo?`,
-    {
-      title: 'iureditor — Recuperar borrador',
-      kind: 'info',
-      okLabel: 'Recuperar',
-      cancelLabel: 'Descartar borrador',
-    }
-  );
+export const confirmRecoverDrafts = async (
+  docNames: string[],
+  savedAt: number
+): Promise<boolean> => {
+  const list = docNames.map((n) => `• ${n}`).join('\n');
+  const msg =
+    docNames.length === 1
+      ? `Se encontró un borrador sin guardar de «${docNames[0]}» (${new Date(savedAt).toLocaleString()}).\n¿Quieres recuperarlo?`
+      : `Se encontraron ${docNames.length} borradores sin guardar (${new Date(savedAt).toLocaleString()}):\n${list}\n¿Quieres recuperarlos?`;
+  return ask(msg, {
+    title: 'iureditor — Recuperar borradores',
+    kind: 'info',
+    okLabel: 'Recuperar',
+    cancelLabel: 'Descartar borradores',
+  });
+};
 
 /**
  * Guarda los bytes de una imagen pegada/soltada en `<dir-del-doc>/assets/` y

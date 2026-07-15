@@ -38,11 +38,18 @@ import { MenuBar } from './MenuBar';
 import { SearchBar } from './SearchBar';
 import { ToolbarButton } from './ToolbarButton';
 import { Mermaid } from '../extensions/mermaid';
+import { FootnoteRef, FootnoteDef } from '../extensions/footnote';
+import { MathInline, MathBlock } from '../extensions/math';
 import { LocalImage } from '../extensions/localImage';
 import { SearchReplace } from '../extensions/searchReplace';
 import { getSpellcheck } from '../lib/prefs';
-import { prepareContent, buildTurndownService } from '../lib/markdown';
-import { markdownToHtml } from '../lib/markdown';
+import {
+  prepareContent,
+  buildTurndownService,
+  markdownToHtml,
+  splitFrontMatter,
+  joinFrontMatter,
+} from '../lib/markdown';
 import { collectHeadings } from '../lib/outline';
 import type { HeadingInfo } from '../lib/outline';
 import { t } from '../lib/i18n';
@@ -98,10 +105,15 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
     const insertFileRef = useRef(onInsertImageFile);
     insertFileRef.current = onInsertImageFile;
     const editorRef = useRef<TipTapEditor | null>(null);
+    // Front matter YAML del documento actual: no se renderiza en el editor,
+    // pero debe sobrevivir el round-trip (se antepone al markdown emitido).
+    const frontMatterRef = useRef('');
 
     const emit = useCallback(
       (instance: TipTapEditor) => {
-        onChangeRef.current?.(turndown.turndown(instance.getHTML()));
+        onChangeRef.current?.(
+          joinFrontMatter(frontMatterRef.current, turndown.turndown(instance.getHTML()))
+        );
         onHeadingsRef.current?.(collectHeadings(instance.state.doc));
       },
       [turndown]
@@ -154,6 +166,10 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
         Typography,
         CodeBlockLowlight.configure({ lowlight }),
         Mermaid,
+        FootnoteRef,
+        FootnoteDef,
+        MathInline,
+        MathBlock,
         SearchReplace,
       ],
       content: '',
@@ -207,11 +223,13 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
         getMarkdown: () => {
           if (!editor) return '';
           if (debounceRef.current) clearTimeout(debounceRef.current);
-          return turndown.turndown(editor.getHTML());
+          return joinFrontMatter(frontMatterRef.current, turndown.turndown(editor.getHTML()));
         },
         setMarkdown: (markdown: string) => {
           if (!editor) return;
-          editor.commands.setContent(prepareContent(markdown));
+          const { frontMatter, body } = splitFrontMatter(markdown);
+          frontMatterRef.current = frontMatter;
+          editor.commands.setContent(prepareContent(body));
           // Nuevo documento: el historial de undo no debe cruzar archivos
           // (setContent con emitUpdate false no dispara onUpdate), pero el
           // esquema sí debe reflejar el contenido recién cargado.

@@ -124,4 +124,40 @@ describe('export DOCX (mapper ProseMirror → docx)', () => {
     // Hipervínculo externo
     expect(xml).toContain('<w:hyperlink');
   });
+
+  it('convierte notas al pie en footnotes reales de Word', async () => {
+    const doc = await buildDocxDocument(
+      {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: 'Texto con nota' },
+              { type: 'footnoteRef', attrs: { label: '1' } },
+              { type: 'text', text: '.' },
+            ],
+          },
+          {
+            type: 'footnoteDef',
+            attrs: { label: '1' },
+            content: [{ type: 'text', text: 'Contenido de la nota.' }],
+          },
+        ],
+      },
+      null,
+      'test'
+    );
+    const blob = await Packer.toBlob(doc);
+    const { default: JSZip } = await import('jszip');
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+
+    const xml = await zip.file('word/document.xml')!.async('string');
+    expect(xml).toContain('<w:footnoteReference');
+    // La definición NO va como párrafo del cuerpo
+    expect(xml).not.toContain('Contenido de la nota.');
+
+    const fnXml = await zip.file('word/footnotes.xml')!.async('string');
+    expect(fnXml).toContain('Contenido de la nota.');
+  });
 });

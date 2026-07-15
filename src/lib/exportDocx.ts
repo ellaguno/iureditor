@@ -7,9 +7,12 @@ import {
   BorderStyle,
   Document,
   ExternalHyperlink,
+  FootnoteReferenceRun,
   HeadingLevel,
   ImageRun,
   LevelFormat,
+  Math as DocxMath,
+  MathRun,
   Packer,
   Paragraph,
   ShadingType,
@@ -123,12 +126,32 @@ const headingFor = (level: number) =>
     HeadingLevel.HEADING_6,
   ][Math.min(Math.max(level, 1), 6) - 1];
 
+type InlineRun = TextRun | ExternalHyperlink | FootnoteReferenceRun | DocxMath;
+
 /** Marcas de un nodo de texto → opciones de TextRun. */
-const runsFromInline = (nodes: PMNode[] | undefined): (TextRun | ExternalHyperlink)[] => {
-  const out: (TextRun | ExternalHyperlink)[] = [];
+const runsFromInline = (
+  nodes: PMNode[] | undefined,
+  fnIds?: Map<string, number>
+): InlineRun[] => {
+  const out: InlineRun[] = [];
   for (const node of nodes ?? []) {
     if (node.type === 'hardBreak') {
       out.push(new TextRun({ text: '', break: 1 }));
+      continue;
+    }
+    if (node.type === 'mathInline') {
+      // v1: el LaTeX va como ecuación de Word con el texto fuente (sin
+      // conversión LaTeX→OMML; Word lo muestra en fuente matemática).
+      const latex = String(node.attrs?.latex ?? '');
+      out.push(new DocxMath({ children: [new MathRun(latex)] }));
+      continue;
+    }
+    if (node.type === 'footnoteRef') {
+      const label = String(node.attrs?.label ?? '');
+      const id = fnIds?.get(label);
+      // Siempre emite UN run (el índice ri del caso paragraph cuenta 1:1);
+      // si la nota no tiene definición, va la etiqueta literal.
+      out.push(id ? new FootnoteReferenceRun(id) : new TextRun({ text: `[${label}]` }));
       continue;
     }
     if (node.type !== 'text' || !node.text) continue;
@@ -175,6 +198,8 @@ const runsFromInline = (nodes: PMNode[] | undefined): (TextRun | ExternalHyperli
 interface Ctx {
   docDir: string | null;
   nextOlInstance: () => number;
+  /** Etiqueta de nota al pie → id numérico OOXML. */
+  fnIds: Map<string, number>;
 }
 
 const sep = (dir: string) => (dir.includes('\\') ? '\\' : '/');
@@ -239,16 +264,21 @@ const blockToDocx = async (
 ): Promise<FileChild[]> => {
   switch (node.type) {
     case 'paragraph': {
-      const runs = runsFromInline(node.content);
+      const runs = runsFromInline(node.content, ctx.fnIds);
       // Imágenes inline dentro del párrafo
-      const children: (TextRun | ExternalHyperlink | ImageRun)[] = [];
+      const children: (InlineRun | ImageRun)[] = [];
       let ri = 0;
       for (const child of node.content ?? []) {
         if (child.type === 'image') {
           const src = (child.attrs?.src as string) || '';
           const img = await loadLocalImage(src, ctx);
           if (img) children.push(await imageRunFor(img.bytes, img.type, img.mime));
-        } else if (child.type === 'text' || child.type === 'hardBreak') {
+        } else if (
+          child.type === 'text' ||
+          child.type === 'hardBreak' ||
+          child.type === 'footnoteRef' ||
+          child.type === 'mathInline'
+        ) {
           if (runs[ri]) children.push(runs[ri]);
           ri++;
         }
@@ -275,7 +305,7 @@ const blockToDocx = async (
       const level = (node.attrs?.level as number) || 1;
       return [
         new Paragraph({
-          children: runsFromInline(node.content),
+          children: runsFromInline(node.content, ctx.fnIds),
           heading: headingFor(level),
           alignment: alignFor(node.attrs),
           spacing: { before: 240, after: 120 },
@@ -337,13 +367,25 @@ const blockToDocx = async (
       }
     }
 
+    case 'mathBlock': {
+      const latex = String(node.attrs?.latex ?? '').trim();
+      if (!latex) return [];
+      return [
+        new Paragraph({
+          children: [new DocxMath({ children: [new MathRun(latex)] })],
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 120, after: 120 },
+        }),
+      ];
+    }
+
     case 'blockquote': {
       const out: FileChild[] = [];
       for (const child of node.content ?? []) {
         if (child.type === 'paragraph') {
           out.push(
             new Paragraph({
-              children: runsFromInline(child.content),
+              children: runsFromInline(child.content, ctx.fnIds),
               indent: { left: 480 },
               border: {
                 left: { style: BorderStyle.SINGLE, size: 18, color: BORDER_GRAY, space: 8 },
@@ -434,18 +476,46 @@ export const buildDocxDocument = async (
   title: string
 ): Promise<Document> => {
   let olCounter = 0;
+
+  // Pre-pass: definiciones de notas al pie → ids OOXML en orden de aparición.
+  const fnDefs: PMNode[] = [];
+  const collectDefs = (node: PMNode) => {
+    if (node.type === 'footnoteDef') fnDefs.push(node);
+    node.content?.forEach(collectDefs);
+  };
+  (json.content ?? []).forEach(collectDefs);
+  const fnIds = new Map<string, number>();
+  fnDefs.forEach((def, i) => {
+    const label = String(def.attrs?.label ?? '');
+    if (!fnIds.has(label)) fnIds.set(label, i + 1);
+  });
+
   const ctx: Ctx = {
     docDir,
     nextOlInstance: () => ++olCounter,
+    fnIds,
   };
+
+  // Contenido de cada nota (el texto de la definición, con sus marcas).
+  const footnotes: Record<number, { children: Paragraph[] }> = {};
+  for (const def of fnDefs) {
+    const id = fnIds.get(String(def.attrs?.label ?? ''))!;
+    if (footnotes[id]) continue;
+    footnotes[id] = {
+      children: [new Paragraph({ children: runsFromInline(def.content, fnIds) })],
+    };
+  }
 
   const children: FileChild[] = [];
   for (const node of json.content ?? []) {
+    // Las definiciones no van en el cuerpo: Word las coloca al pie de página.
+    if (node.type === 'footnoteDef') continue;
     children.push(...(await blockToDocx(node, ctx)));
   }
 
   return new Document({
     title,
+    footnotes,
     numbering: {
       config: [
         {

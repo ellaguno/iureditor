@@ -10,6 +10,7 @@ import { StatusBar } from './components/StatusBar';
 import { SourceView } from './components/SourceView';
 import { OutlinePanel } from './components/OutlinePanel';
 import type { HeadingInfo } from './lib/outline';
+import { collectHeadings, buildTocHtml } from './lib/outline';
 import {
   initTheme,
   getTheme,
@@ -31,23 +32,45 @@ import {
   pickSavePath,
   pickImagePath,
   confirmDiscard,
-  confirmRecoverDraft,
+  confirmRecoverDrafts,
   saveImageToAssets,
   allowDocumentDir,
   getRecentFiles,
   addRecentFile,
   basename,
 } from './lib/fileio';
-import { saveDraft, loadDraft, clearDraft } from './lib/autosave';
+import { saveDrafts, loadDrafts, clearDrafts } from './lib/autosave';
 import { exportToPdf } from './lib/exportPdf';
 import { t } from './lib/i18n';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
+// Un documento abierto = una pestaña. Cada pestaña monta su propio <Editor>
+// (oculto si no está activa): así conserva su historial de undo, cursor y
+// diagramas renderizados al cambiar de pestaña.
+interface DocTab {
+  id: number;
+  path: string | null;
+  dirty: boolean;
+  sourceMode: boolean;
+}
+
+/** Contenido pendiente de cargar en el editor de una pestaña recién creada
+ *  (el handle no existe hasta que React monta el componente). */
+interface PendingLoad {
+  content: string;
+  /** null = el contenido ES el estado guardado (abrir archivo limpio);
+   *  string = markdown guardado en disco (recuperación de borrador sucio). */
+  baseline: string | null;
+}
+
 export default function App() {
-  const editorRef = useRef<EditorHandle>(null);
-  const [filePath, setFilePath] = useState<string | null>(null);
-  const [dirty, setDirty] = useState(false);
+  const [tabs, setTabs] = useState<DocTab[]>([
+    { id: 0, path: null, dirty: false, sourceMode: false },
+  ]);
+  const [activeId, setActiveId] = useState(0);
+  const nextTabId = useRef(1);
+
   const [recentFiles, setRecentFiles] = useState<string[]>([]);
   const [counts, setCounts] = useState({ words: 0, chars: 0 });
   const [theme, setThemeState] = useState<Theme>(getTheme);
@@ -55,26 +78,38 @@ export default function App() {
   const [zoom, setZoomState] = useState<number>(getZoom);
   const [showOutline, setShowOutline] = useState<boolean>(getOutlineVisible);
   const [headings, setHeadings] = useState<HeadingInfo[]>([]);
-  const [sourceMode, setSourceMode] = useState(false);
   const [sourceText, setSourceText] = useState('');
 
-  // Refs espejo para handlers estables (menú nativo, listeners de ventana).
-  const filePathRef = useRef(filePath);
-  filePathRef.current = filePath;
-  const dirtyRef = useRef(dirty);
-  dirtyRef.current = dirty;
-  const sourceModeRef = useRef(sourceMode);
-  sourceModeRef.current = sourceMode;
+  // Estado por pestaña que vive fuera de React (mapas por id).
+  const editorHandles = useRef(new Map<number, EditorHandle | null>());
+  const savedMd = useRef(new Map<number, string>());
+  const sourceTexts = useRef(new Map<number, string>());
+  const pendingLoads = useRef(new Map<number, PendingLoad>());
+
+  // Refs espejo para handlers estables (listeners de ventana, atajos).
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
   const sourceTextRef = useRef(sourceText);
   sourceTextRef.current = sourceText;
-  const savedMarkdownRef = useRef('');
+
+  const activeTab = tabs.find((tab) => tab.id === activeId) ?? tabs[0];
+  const activeHandle = useCallback(
+    () => editorHandles.current.get(activeIdRef.current) ?? null,
+    []
+  );
+
+  const updateTab = useCallback((id: number, patch: Partial<DocTab>) => {
+    setTabs((prev) => prev.map((tab) => (tab.id === id ? { ...tab, ...patch } : tab)));
+  }, []);
 
   // ---------- título de ventana ----------
   useEffect(() => {
     if (!isTauri) return;
-    const name = filePath ? basename(filePath) : t('app.untitled');
-    void getCurrentWindow().setTitle(`${dirty ? '• ' : ''}${name} — iureditor`);
-  }, [filePath, dirty]);
+    const name = activeTab?.path ? basename(activeTab.path) : t('app.untitled');
+    void getCurrentWindow().setTitle(`${activeTab?.dirty ? '• ' : ''}${name} — iureditor`);
+  }, [activeTab?.path, activeTab?.dirty]);
 
   // ---------- contadores ----------
   const updateCounts = useCallback((markdown: string) => {
@@ -82,23 +117,23 @@ export default function App() {
     setCounts({ words, chars: markdown.length });
   }, []);
 
-  // ---------- cambios del editor → dirty + borrador de autoguardado ----------
+  // ---------- borradores (autoguardado de todas las pestañas sucias) ----------
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleChange = useCallback(
-    (markdown: string) => {
-      const isDirty = markdown !== savedMarkdownRef.current;
-      setDirty(isDirty);
-      updateCounts(markdown);
-      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
-      if (isDirty) {
-        draftTimerRef.current = setTimeout(() => {
-          void saveDraft(filePathRef.current, markdown);
-        }, 2500);
-      }
-    },
-    [updateCounts]
-  );
+  const scheduleDraftSave = useCallback(() => {
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = setTimeout(() => {
+      const drafts = tabsRef.current
+        .filter((tab) => tab.dirty)
+        .map((tab) => ({
+          path: tab.path,
+          markdown: editorHandles.current.get(tab.id)?.getMarkdown() ?? '',
+          savedAt: Date.now(),
+        }))
+        .filter((d) => d.markdown.trim());
+      void saveDrafts(drafts);
+    }, 2500);
+  }, []);
 
   useEffect(
     () => () => {
@@ -107,35 +142,92 @@ export default function App() {
     []
   );
 
-  // ---------- vista de código fuente ----------
-  // En modo fuente el editor WYSIWYG sigue montado (oculto); el texto crudo
-  // se le aplica al volver, al guardar o antes de exportar.
+  // ---------- cambios del editor → dirty + borradores ----------
+  const handleChangeFor = useCallback(
+    (tabId: number, markdown: string) => {
+      const isDirty = markdown !== (savedMd.current.get(tabId) ?? '');
+      const tab = tabsRef.current.find((tb) => tb.id === tabId);
+      if (tab && tab.dirty !== isDirty) updateTab(tabId, { dirty: isDirty });
+      if (tabId === activeIdRef.current) updateCounts(markdown);
+      scheduleDraftSave();
+    },
+    [updateCounts, updateTab, scheduleDraftSave]
+  );
+
+  // ---------- cargas pendientes (pestañas recién montadas) ----------
+  useEffect(() => {
+    for (const tab of tabs) {
+      const pending = pendingLoads.current.get(tab.id);
+      const handle = editorHandles.current.get(tab.id);
+      if (!pending || !handle) continue;
+      pendingLoads.current.delete(tab.id);
+      if (pending.baseline !== null) {
+        // Borrador recuperado: el baseline (disco) define el estado limpio.
+        handle.setMarkdown(pending.baseline);
+        savedMd.current.set(tab.id, handle.getMarkdown());
+        handle.setMarkdown(pending.content);
+        updateTab(tab.id, { dirty: true });
+      } else {
+        handle.setMarkdown(pending.content);
+        savedMd.current.set(tab.id, handle.getMarkdown());
+      }
+      if (tab.id === activeIdRef.current) {
+        const md = handle.getMarkdown();
+        updateCounts(md);
+        setSourceText(md);
+        sourceTexts.current.set(tab.id, md);
+        if (handle.editor) setHeadings(collectHeadings(handle.editor.state.doc));
+      }
+    }
+  });
+
+  // ---------- cambio de pestaña activa: refrescar vistas derivadas ----------
+  useEffect(() => {
+    const handle = editorHandles.current.get(activeId);
+    if (!handle) return;
+    const md = handle.getMarkdown();
+    updateCounts(md);
+    setSourceText(sourceTexts.current.get(activeId) ?? md);
+    if (handle.editor) setHeadings(collectHeadings(handle.editor.state.doc));
+    // Las imágenes relativas se resuelven contra el directorio del doc activo.
+    const path = tabsRef.current.find((tab) => tab.id === activeId)?.path;
+    if (path) void allowDocumentDir(path);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId]);
+
+  // ---------- vista de código fuente (por pestaña) ----------
   const syncSourceToEditor = useCallback(() => {
-    if (!sourceModeRef.current || !editorRef.current) return;
-    editorRef.current.setMarkdown(sourceTextRef.current);
-  }, []);
+    const tab = tabsRef.current.find((tb) => tb.id === activeIdRef.current);
+    if (!tab?.sourceMode) return;
+    activeHandle()?.setMarkdown(sourceTextRef.current);
+  }, [activeHandle]);
 
   const handleSourceChange = useCallback(
     (markdown: string) => {
       setSourceText(markdown);
-      handleChange(markdown);
+      sourceTexts.current.set(activeIdRef.current, markdown);
+      handleChangeFor(activeIdRef.current, markdown);
     },
-    [handleChange]
+    [handleChangeFor]
   );
 
   const handleToggleSource = useCallback(() => {
-    if (sourceModeRef.current) {
-      if (editorRef.current) {
-        editorRef.current.setMarkdown(sourceTextRef.current);
-        // Canónico: lo que el editor re-emite, para no dejar dirty espurio.
-        handleChange(editorRef.current.getMarkdown());
-      }
-      setSourceMode(false);
+    const id = activeIdRef.current;
+    const tab = tabsRef.current.find((tb) => tb.id === id);
+    const handle = activeHandle();
+    if (!tab || !handle) return;
+    if (tab.sourceMode) {
+      handle.setMarkdown(sourceTextRef.current);
+      // Canónico: lo que el editor re-emite, para no dejar dirty espurio.
+      handleChangeFor(id, handle.getMarkdown());
+      updateTab(id, { sourceMode: false });
     } else {
-      setSourceText(editorRef.current?.getMarkdown() ?? '');
-      setSourceMode(true);
+      const md = handle.getMarkdown();
+      setSourceText(md);
+      sourceTexts.current.set(id, md);
+      updateTab(id, { sourceMode: true });
     }
-  }, [handleChange]);
+  }, [activeHandle, handleChangeFor, updateTab]);
 
   // ---------- esquema del documento ----------
   const handleToggleOutline = useCallback(() => {
@@ -145,94 +237,156 @@ export default function App() {
     });
   }, []);
 
-  const handleOutlineSelect = useCallback((heading: HeadingInfo) => {
-    const editor = editorRef.current?.editor;
-    if (!editor) return;
-    const pos = Math.min(heading.pos, editor.state.doc.content.size - 1);
-    editor.chain().focus().setTextSelection(pos + 1).run();
-    const dom = editor.view.nodeDOM(pos);
-    if (dom instanceof HTMLElement) {
-      dom.scrollIntoView({ block: 'start', behavior: 'smooth' });
-    } else {
-      editor.commands.scrollIntoView();
-    }
+  const handleOutlineSelect = useCallback(
+    (heading: HeadingInfo) => {
+      const editor = activeHandle()?.editor;
+      if (!editor) return;
+      const pos = Math.min(heading.pos, editor.state.doc.content.size - 1);
+      editor.chain().focus().setTextSelection(pos + 1).run();
+      const dom = editor.view.nodeDOM(pos);
+      if (dom instanceof HTMLElement) {
+        dom.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      } else {
+        editor.commands.scrollIntoView();
+      }
+    },
+    [activeHandle]
+  );
+
+  // ---------- pestañas ----------
+  const createTab = useCallback((load?: PendingLoad, path: string | null = null): number => {
+    const id = nextTabId.current++;
+    if (load) pendingLoads.current.set(id, load);
+    setTabs((prev) => [...prev, { id, path, dirty: false, sourceMode: false }]);
+    setActiveId(id);
+    return id;
   }, []);
+
+  /** ¿La pestaña está "prístina"? (sin archivo, sin cambios, vacía) */
+  const isPristine = useCallback((tab: DocTab): boolean => {
+    if (tab.path || tab.dirty) return false;
+    const handle = editorHandles.current.get(tab.id);
+    return !handle || !handle.getMarkdown().trim();
+  }, []);
+
+  const removeTab = useCallback((id: number) => {
+    editorHandles.current.delete(id);
+    savedMd.current.delete(id);
+    sourceTexts.current.delete(id);
+    pendingLoads.current.delete(id);
+    setTabs((prev) => {
+      const idx = prev.findIndex((tab) => tab.id === id);
+      const rest = prev.filter((tab) => tab.id !== id);
+      if (rest.length === 0) {
+        // Siempre queda al menos una pestaña.
+        const freshId = nextTabId.current++;
+        setActiveId(freshId);
+        return [{ id: freshId, path: null, dirty: false, sourceMode: false }];
+      }
+      if (activeIdRef.current === id) {
+        const neighbor = rest[Math.min(idx, rest.length - 1)];
+        setActiveId(neighbor.id);
+      }
+      return rest;
+    });
+  }, []);
+
+  const handleCloseTab = useCallback(
+    async (id: number) => {
+      const tab = tabsRef.current.find((tb) => tb.id === id);
+      if (!tab) return;
+      if (tab.dirty && !(await confirmDiscard())) return;
+      removeTab(id);
+      scheduleDraftSave();
+    },
+    [removeTab, scheduleDraftSave]
+  );
 
   // ---------- abrir / nuevo ----------
-  const loadDocument = useCallback(async (path: string) => {
-    const raw = await readDocument(path);
-    editorRef.current?.setMarkdown(raw);
-    // Canónico: el markdown tal como lo re-emite el editor. Evita marcar
-    // dirty por diferencias de normalización (espacios, separadores).
-    savedMarkdownRef.current = editorRef.current?.getMarkdown() ?? raw;
-    updateCounts(savedMarkdownRef.current);
-    setSourceText(savedMarkdownRef.current);
-    setFilePath(path);
-    setDirty(false);
-    setRecentFiles(await addRecentFile(path));
-  }, [updateCounts]);
+  const loadDocument = useCallback(
+    async (path: string) => {
+      // Si ya está abierto, sólo activa su pestaña.
+      const existing = tabsRef.current.find((tab) => tab.path === path);
+      if (existing) {
+        setActiveId(existing.id);
+        return;
+      }
+      const raw = await readDocument(path);
+      setRecentFiles(await addRecentFile(path));
 
-  const guardDirty = useCallback(async (): Promise<boolean> => {
-    if (!dirtyRef.current) return true;
-    const discard = await confirmDiscard();
-    if (discard) {
-      // Descarte explícito: el borrador de autoguardado también se va.
-      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
-      void clearDraft();
-    }
-    return discard;
-  }, []);
+      const active = tabsRef.current.find((tab) => tab.id === activeIdRef.current);
+      if (active && isPristine(active)) {
+        // Reutiliza la pestaña vacía actual (comportamiento clásico).
+        const handle = editorHandles.current.get(active.id);
+        if (handle) {
+          handle.setMarkdown(raw);
+          const canonical = handle.getMarkdown();
+          savedMd.current.set(active.id, canonical);
+          sourceTexts.current.set(active.id, canonical);
+          setSourceText(canonical);
+          updateCounts(canonical);
+          if (handle.editor) setHeadings(collectHeadings(handle.editor.state.doc));
+        } else {
+          pendingLoads.current.set(active.id, { content: raw, baseline: null });
+        }
+        updateTab(active.id, { path, dirty: false });
+        return;
+      }
+      createTab({ content: raw, baseline: null }, path);
+    },
+    [createTab, isPristine, updateCounts, updateTab]
+  );
 
-  const handleNew = useCallback(async () => {
-    if (!(await guardDirty())) return;
-    editorRef.current?.setMarkdown('');
-    savedMarkdownRef.current = editorRef.current?.getMarkdown() ?? '';
-    updateCounts(savedMarkdownRef.current);
-    setSourceText(savedMarkdownRef.current);
-    setFilePath(null);
-    setDirty(false);
-  }, [guardDirty, updateCounts]);
+  const handleNew = useCallback(() => {
+    createTab();
+  }, [createTab]);
 
   const handleOpen = useCallback(async () => {
-    if (!(await guardDirty())) return;
     const path = await pickOpenPath();
     if (path) await loadDocument(path);
-  }, [guardDirty, loadDocument]);
+  }, [loadDocument]);
 
   const handleOpenRecent = useCallback(
     async (path: string) => {
-      if (!(await guardDirty())) return;
       try {
         await loadDocument(path);
       } catch (err) {
         console.error('No se pudo abrir el archivo reciente:', err);
       }
     },
-    [guardDirty, loadDocument]
+    [loadDocument]
   );
 
   // ---------- guardar ----------
-  const doSave = useCallback(async (as: boolean): Promise<string | null> => {
-    syncSourceToEditor();
-    const md = editorRef.current?.getMarkdown() ?? '';
-    let path = filePathRef.current;
-    if (as || !path) {
-      path = await pickSavePath(path ? basename(path) : 'documento.md');
-      if (!path) return null;
-      await allowDocumentDir(path);
-    }
-    await writeDocument(path, md);
-    savedMarkdownRef.current = md;
-    // En modo fuente, el textarea pasa a mostrar el markdown canónico guardado.
-    if (sourceModeRef.current) setSourceText(md);
-    setFilePath(path);
-    setDirty(false);
-    setRecentFiles(await addRecentFile(path));
-    // Guardado exitoso: el borrador de recuperación ya no aplica.
-    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
-    void clearDraft();
-    return path;
-  }, [syncSourceToEditor]);
+  const doSave = useCallback(
+    async (as: boolean): Promise<string | null> => {
+      syncSourceToEditor();
+      const id = activeIdRef.current;
+      const handle = editorHandles.current.get(id);
+      if (!handle) return null;
+      const md = handle.getMarkdown();
+      const tab = tabsRef.current.find((tb) => tb.id === id);
+      let path = tab?.path ?? null;
+      if (as || !path) {
+        path = await pickSavePath(path ? basename(path) : 'documento.md');
+        if (!path) return null;
+        await allowDocumentDir(path);
+      }
+      await writeDocument(path, md);
+      savedMd.current.set(id, md);
+      // En modo fuente, el textarea pasa a mostrar el markdown canónico guardado.
+      if (tab?.sourceMode) {
+        setSourceText(md);
+        sourceTexts.current.set(id, md);
+      }
+      updateTab(id, { path, dirty: false });
+      setRecentFiles(await addRecentFile(path));
+      // Guardado exitoso: re-generar borradores (sólo pestañas aún sucias).
+      scheduleDraftSave();
+      return path;
+    },
+    [syncSourceToEditor, updateTab, scheduleDraftSave]
+  );
 
   const handleSave = useCallback(() => void doSave(false), [doSave]);
   const handleSaveAs = useCallback(() => void doSave(true), [doSave]);
@@ -240,7 +394,7 @@ export default function App() {
   // ---------- imágenes pegadas ----------
   const handleInsertImageFile = useCallback(
     async (file: File): Promise<string | null> => {
-      let path = filePathRef.current;
+      let path = tabsRef.current.find((tab) => tab.id === activeIdRef.current)?.path ?? null;
       if (!path) {
         // Regla v1: para guardar imágenes junto al doc, primero hay que
         // guardar el documento.
@@ -275,38 +429,50 @@ export default function App() {
     });
   }, []);
 
+  const activePath = useCallback(
+    () => tabsRef.current.find((tab) => tab.id === activeIdRef.current)?.path ?? null,
+    []
+  );
+
   const handleExportPdf = useCallback(() => {
     syncSourceToEditor();
-    const editor = editorRef.current?.editor;
+    const editor = activeHandle()?.editor;
     if (!editor) return;
-    exportToPdf(editor, filePathRef.current).catch((err) =>
-      reportExportError('PDF', err)
-    );
-  }, [reportExportError, syncSourceToEditor]);
+    exportToPdf(editor, activePath()).catch((err) => reportExportError('PDF', err));
+  }, [reportExportError, syncSourceToEditor, activeHandle, activePath]);
 
   const handleExportDocx = useCallback(() => {
     syncSourceToEditor();
-    const editor = editorRef.current?.editor;
+    const editor = activeHandle()?.editor;
     if (!editor) return;
-    // Import perezoso: turbodocx pesa ~1MB y sólo se usa al exportar.
+    // Import perezoso: docx pesa ~370KB y sólo se usa al exportar.
     import('./lib/exportDocx')
-      .then(({ exportToDocx }) => exportToDocx(editor, filePathRef.current))
+      .then(({ exportToDocx }) => exportToDocx(editor, activePath()))
       .catch((err) => reportExportError('DOCX', err));
-  }, [reportExportError, syncSourceToEditor]);
+  }, [reportExportError, syncSourceToEditor, activeHandle, activePath]);
 
   const handleExportHtml = useCallback(() => {
     syncSourceToEditor();
-    const editor = editorRef.current?.editor;
+    const editor = activeHandle()?.editor;
     if (!editor) return;
     import('./lib/exportHtmlFile')
-      .then(({ exportToHtmlFile }) => exportToHtmlFile(editor, filePathRef.current))
+      .then(({ exportToHtmlFile }) => exportToHtmlFile(editor, activePath()))
       .catch((err) => reportExportError('HTML', err));
-  }, [reportExportError, syncSourceToEditor]);
+  }, [reportExportError, syncSourceToEditor, activeHandle, activePath]);
 
   const handleQuit = useCallback(() => {
     // close() dispara onCloseRequested, donde vive el guard de dirty.
     void getCurrentWindow().close();
   }, []);
+
+  // ---------- índice (TOC) ----------
+  const handleInsertToc = useCallback(() => {
+    const editor = activeHandle()?.editor;
+    const tab = tabsRef.current.find((tb) => tb.id === activeIdRef.current);
+    if (!editor || tab?.sourceMode) return;
+    const toc = buildTocHtml(collectHeadings(editor.state.doc));
+    if (toc) editor.chain().focus().insertContent(toc).run();
+  }, [activeHandle]);
 
   // ---------- preferencias de vista ----------
   useEffect(() => {
@@ -321,7 +487,9 @@ export default function App() {
   const handleSpellcheckChange = useCallback((enabled: boolean) => {
     setSpellcheck(enabled);
     setSpellcheckState(enabled);
-    editorRef.current?.setSpellcheck(enabled);
+    for (const handle of editorHandles.current.values()) {
+      handle?.setSpellcheck(enabled);
+    }
   }, []);
 
   const applyZoom = useCallback((next: number) => {
@@ -335,15 +503,29 @@ export default function App() {
 
   const handleFind = useCallback(() => {
     // La búsqueda opera sobre el editor WYSIWYG; en modo fuente no aplica.
-    if (sourceModeRef.current) return;
-    editorRef.current?.openSearch();
+    const tab = tabsRef.current.find((tb) => tb.id === activeIdRef.current);
+    if (tab?.sourceMode) return;
+    activeHandle()?.openSearch();
+  }, [activeHandle]);
+
+  const cycleTab = useCallback((delta: number) => {
+    const list = tabsRef.current;
+    if (list.length < 2) return;
+    const idx = list.findIndex((tab) => tab.id === activeIdRef.current);
+    const next = list[(idx + delta + list.length) % list.length];
+    setActiveId(next.id);
   }, []);
 
-  // ---------- atajos de teclado (los menús ya no son nativos) ----------
+  // ---------- atajos de teclado (los menús no son nativos) ----------
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
       const key = e.key.toLowerCase();
+      if (key === 'tab') {
+        e.preventDefault();
+        cycleTab(e.shiftKey ? -1 : 1);
+        return;
+      }
       if (key === 's') {
         e.preventDefault();
         if (e.shiftKey) handleSaveAs();
@@ -359,7 +541,10 @@ export default function App() {
         void handleOpen();
       } else if (key === 'n' && !e.shiftKey) {
         e.preventDefault();
-        void handleNew();
+        handleNew();
+      } else if (key === 'w' && !e.shiftKey) {
+        e.preventDefault();
+        void handleCloseTab(activeIdRef.current);
       } else if (key === 'p' && !e.shiftKey) {
         e.preventDefault();
         handleExportPdf();
@@ -387,6 +572,7 @@ export default function App() {
     handleSaveAs,
     handleOpen,
     handleNew,
+    handleCloseTab,
     handleExportPdf,
     handleQuit,
     handleFind,
@@ -395,6 +581,7 @@ export default function App() {
     handleZoomReset,
     handleToggleOutline,
     handleToggleSource,
+    cycleTab,
   ]);
 
   // ---------- precarga de mermaid en idle ----------
@@ -414,40 +601,36 @@ export default function App() {
     };
   }, []);
 
-  // ---------- arranque: recientes, recuperación de borrador y CLI ----------
+  // ---------- arranque: recientes, recuperación de borradores y CLI ----------
   useEffect(() => {
     if (!isTauri) return;
     void getRecentFiles().then(setRecentFiles);
     void (async () => {
-      // 1) ¿Quedó un borrador de una sesión que terminó mal?
-      const draft = await loadDraft();
-      if (draft) {
-        const docName = draft.path ? basename(draft.path) : t('app.untitled');
-        if (await confirmRecoverDraft(docName, draft.savedAt)) {
-          if (draft.path) {
-            try {
-              // Contenido guardado en disco = referencia para dirty.
-              const raw = await readDocument(draft.path);
-              editorRef.current?.setMarkdown(raw);
-              savedMarkdownRef.current = editorRef.current?.getMarkdown() ?? raw;
-              setFilePath(draft.path);
-              setRecentFiles(await addRecentFile(draft.path));
-            } catch {
-              savedMarkdownRef.current = '';
-              setFilePath(null);
+      // 1) ¿Quedaron borradores de una sesión que terminó mal?
+      const drafts = await loadDrafts();
+      if (drafts.length) {
+        const names = drafts.map((d) => (d.path ? basename(d.path) : t('app.untitled')));
+        const newest = Math.max(...drafts.map((d) => d.savedAt || 0));
+        if (await confirmRecoverDrafts(names, newest)) {
+          let firstId: number | null = null;
+          for (const draft of drafts) {
+            let baseline = '';
+            if (draft.path) {
+              try {
+                baseline = await readDocument(draft.path);
+              } catch {
+                baseline = '';
+              }
             }
-          } else {
-            savedMarkdownRef.current = '';
-            setFilePath(null);
+            const id = createTab({ content: draft.markdown, baseline }, draft.path);
+            if (firstId === null) firstId = id;
           }
-          editorRef.current?.setMarkdown(draft.markdown);
-          updateCounts(draft.markdown);
-          setDirty(true);
-          // El borrador sigue en disco hasta que el usuario guarde o
+          if (firstId !== null) setActiveId(firstId);
+          // Los borradores siguen en disco hasta que el usuario guarde o
           // descarte — si la app vuelve a morir, no se pierde nada.
           return;
         }
-        await clearDraft();
+        await clearDrafts();
       }
 
       // 2) Archivo pasado por línea de comandos
@@ -462,11 +645,12 @@ export default function App() {
   useEffect(() => {
     if (!isTauri) return;
     const unlisten = getCurrentWindow().onCloseRequested(async (event) => {
-      if (!dirtyRef.current) return;
+      const dirtyTabs = tabsRef.current.filter((tab) => tab.dirty);
+      if (dirtyTabs.length === 0) return;
       if (await confirmDiscard()) {
-        // Cierre con descarte explícito: sin borrador huérfano.
+        // Cierre con descarte explícito: sin borradores huérfanos.
         if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
-        await clearDraft();
+        await clearDrafts();
       } else {
         event.preventDefault();
       }
@@ -484,7 +668,7 @@ export default function App() {
       const paths = event.payload.paths || [];
       for (const p of paths) {
         if (/\.(md|markdown)$/i.test(p)) {
-          if (await guardDirty()) await loadDocument(p);
+          await loadDocument(p);
           return;
         }
         if (/\.(png|jpe?g|gif|webp|svg)$/i.test(p)) {
@@ -493,7 +677,7 @@ export default function App() {
           const mime = ext === 'svg' ? 'image/svg+xml' : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
           const file = new File([new Uint8Array(bytes)], basename(p), { type: mime });
           const src = await handleInsertImageFile(file);
-          if (src) editorRef.current?.insertImage(src, basename(p));
+          if (src) activeHandle()?.insertImage(src, basename(p));
           return;
         }
       }
@@ -501,18 +685,22 @@ export default function App() {
     return () => {
       void unlisten.then((fn) => fn());
     };
-  }, [guardDirty, loadDocument, handleInsertImageFile]);
+  }, [loadDocument, handleInsertImageFile, activeHandle]);
+
+  const sourceMode = activeTab?.sourceMode ?? false;
 
   return (
     <div className="h-full flex flex-col">
       {isTauri && <ResizeHandles />}
       {isTauri && (
         <TitleBar
-          filePath={filePath}
-          dirty={dirty}
+          tabs={tabs}
+          activeTabId={activeId}
+          onSelectTab={setActiveId}
+          onCloseTab={(id) => void handleCloseTab(id)}
           recentFiles={recentFiles}
           actions={{
-            onNew: () => void handleNew(),
+            onNew: handleNew,
             onOpen: () => void handleOpen(),
             onOpenRecent: (path) => void handleOpenRecent(path),
             onSave: handleSave,
@@ -521,9 +709,10 @@ export default function App() {
             onExportDocx: handleExportDocx,
             onExportHtml: handleExportHtml,
             onQuit: handleQuit,
-            onUndo: () => editorRef.current?.editor?.chain().focus().undo().run(),
-            onRedo: () => editorRef.current?.editor?.chain().focus().redo().run(),
-            onSelectAll: () => editorRef.current?.editor?.chain().focus().selectAll().run(),
+            onUndo: () => activeHandle()?.editor?.chain().focus().undo().run(),
+            onRedo: () => activeHandle()?.editor?.chain().focus().redo().run(),
+            onSelectAll: () => activeHandle()?.editor?.chain().focus().selectAll().run(),
+            onInsertToc: handleInsertToc,
             onFind: handleFind,
             onZoomIn: handleZoomIn,
             onZoomOut: handleZoomOut,
@@ -546,17 +735,28 @@ export default function App() {
           <OutlinePanel headings={headings} onSelect={handleOutlineSelect} />
         )}
         <div className="flex-1 min-w-0 flex flex-col" style={{ zoom }}>
-          {/* El editor queda montado (oculto) en modo fuente: conserva
-              historial de undo y evita re-renderizar mermaid al volver. */}
-          <div className={`flex-1 min-h-0 flex flex-col ${sourceMode ? 'hidden' : ''}`}>
-            <Editor
-              ref={editorRef}
-              onChange={handleChange}
-              onHeadingsChange={setHeadings}
-              onInsertImageFile={handleInsertImageFile}
-              onBrowseImage={handleBrowseImage}
-            />
-          </div>
+          {/* Cada pestaña mantiene su editor montado (oculto si no está
+              activa o en modo fuente): conserva undo, cursor y mermaid. */}
+          {tabs.map((tab) => (
+            <div
+              key={tab.id}
+              className={`flex-1 min-h-0 flex-col ${
+                tab.id === activeId && !tab.sourceMode ? 'flex' : 'hidden'
+              }`}
+            >
+              <Editor
+                ref={(handle) => {
+                  editorHandles.current.set(tab.id, handle);
+                }}
+                onChange={(md) => handleChangeFor(tab.id, md)}
+                onHeadingsChange={(hs) => {
+                  if (tab.id === activeIdRef.current) setHeadings(hs);
+                }}
+                onInsertImageFile={handleInsertImageFile}
+                onBrowseImage={handleBrowseImage}
+              />
+            </div>
+          ))}
           {sourceMode && (
             <SourceView
               value={sourceText}
@@ -569,8 +769,8 @@ export default function App() {
       <StatusBar
         words={counts.words}
         chars={counts.chars}
-        dirty={dirty}
-        hasFile={!!filePath}
+        dirty={activeTab?.dirty ?? false}
+        hasFile={!!activeTab?.path}
         zoom={zoom}
       />
     </div>

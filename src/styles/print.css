@@ -78,3 +78,42 @@
   max-width: 100%;
   height: auto;
 }
+
+/* Notas al pie */
+.print-content sup[data-fn-ref] {
+  color: #0369a1;
+  font-weight: 600;
+}
+
+.print-content sup[data-fn-ref]::before {
+  content: '[';
+}
+
+.print-content sup[data-fn-ref]::after {
+  content: ']';
+}
+
+.print-content div[data-fn-def] {
+  font-size: 0.875em;
+  color: #4b5563;
+  margin-top: 0.25em;
+}
+
+.print-content :not(div[data-fn-def]) + div[data-fn-def] {
+  border-top: 1px solid #e5e7eb;
+  margin-top: 2.5em;
+  padding-top: 0.75em;
+}
+
+.print-content div[data-fn-def]::before {
+  content: '[' attr(data-fn-def) '] ';
+  color: #0369a1;
+  font-weight: 600;
+}
+
+/* Fórmulas (MathML) */
+.print-content .math-block {
+  text-align: center;
+  margin: 1em 0;
+  font-size: 1.15em;
+}
