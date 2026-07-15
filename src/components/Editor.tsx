@@ -71,6 +71,8 @@ export interface EditorHandle {
   setMarkdown: (markdown: string) => void;
   /** Inserta una imagen en el cursor. */
   insertImage: (src: string, alt?: string) => void;
+  /** Front matter YAML del documento actual ('' si no hay). */
+  getFrontMatter: () => string;
   /** Abre la barra de búsqueda (Ctrl+F). */
   openSearch: () => void;
   /** Activa/desactiva el corrector ortográfico del contenteditable. */
@@ -238,6 +240,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
         insertImage: (src: string, alt = '') => {
           editor?.chain().focus().setImage({ src, alt }).run();
         },
+        getFrontMatter: () => frontMatterRef.current,
         openSearch: () => setShowSearch(true),
         setSpellcheck: (enabled: boolean) => {
           editor?.view.dom.setAttribute('spellcheck', String(enabled));

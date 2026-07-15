@@ -436,9 +436,12 @@ export default function App() {
 
   const handleExportPdf = useCallback(() => {
     syncSourceToEditor();
-    const editor = activeHandle()?.editor;
+    const handle = activeHandle();
+    const editor = handle?.editor;
     if (!editor) return;
-    exportToPdf(editor, activePath()).catch((err) => reportExportError('PDF', err));
+    exportToPdf(editor, activePath(), handle?.getFrontMatter() ?? '').catch((err) =>
+      reportExportError('PDF', err)
+    );
   }, [reportExportError, syncSourceToEditor, activeHandle, activePath]);
 
   const handleExportDocx = useCallback(() => {

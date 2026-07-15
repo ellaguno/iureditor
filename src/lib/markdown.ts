@@ -579,6 +579,19 @@ export const splitFrontMatter = (raw: string): FrontMatterSplit => {
 export const joinFrontMatter = (frontMatter: string, body: string): string =>
   frontMatter ? `${frontMatter}\n\n${body}` : body;
 
+/** Campos simples `clave: valor` del front matter (claves en minúsculas,
+ *  sin comillas). Suficiente para prellenar encabezados de impresión;
+ *  no es un parser YAML completo. */
+export const parseFrontMatterFields = (frontMatter: string): Record<string, string> => {
+  const fields: Record<string, string> = {};
+  for (const line of frontMatter.split('\n')) {
+    if (/^(?:---|\.\.\.)\s*$/.test(line)) continue;
+    const m = /^([\w.-]+)\s*:\s*(.+)$/.exec(line);
+    if (m) fields[m[1].toLowerCase()] = m[2].trim().replace(/^["']|["']$/g, '');
+  }
+  return fields;
+};
+
 // Prepara el contenido de un archivo para cargarlo en el editor.
 export const prepareContent = (raw: string): string => {
   if (!raw) return '';

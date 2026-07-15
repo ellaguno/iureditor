@@ -1,9 +1,6 @@
-/* Estilos de impresión para la ventana de vista previa (export a PDF). */
-
-@page {
-  size: A4;
-  margin: 2cm;
-}
+/* Estilos de impresión para la ventana de vista previa (export a PDF).
+   El tamaño de papel y los márgenes los define paged.js vía el CSS @page
+   generado en PrintPreview.tsx — aquí NO debe haber una regla @page. */
 
 @media print {
   .print-hide {
@@ -12,36 +9,6 @@
 
   .print-preview-root {
     background: white !important;
-  }
-
-  .print-sheet {
-    box-shadow: none !important;
-    margin: 0 !important;
-    max-width: none !important;
-  }
-
-  .print-content {
-    padding: 0 !important;
-  }
-
-  /* Evita cortes feos entre páginas */
-  pre,
-  table,
-  blockquote,
-  .mermaid-diagram,
-  img {
-    break-inside: avoid;
-    page-break-inside: avoid;
-  }
-
-  h1,
-  h2,
-  h3,
-  h4,
-  h5,
-  h6 {
-    break-after: avoid;
-    page-break-after: avoid;
   }
 
   /* Sólo tema claro en papel */
@@ -56,8 +23,78 @@
   }
 }
 
-/* La vista previa siempre se muestra en claro, aunque la app esté en dark */
-.print-sheet .print-content {
+/* Evita cortes feos entre páginas (paged.js respeta break-inside al paginar).
+   OJO: tablas y bloques de código largos SÍ pueden partirse entre páginas —
+   marcarlos con avoid genera páginas casi vacías cuando no caben; lo que no
+   se parte es la fila individual. */
+.print-content blockquote,
+.print-content .mermaid-diagram,
+.print-content img {
+  break-inside: avoid;
+}
+
+.print-content tr {
+  break-inside: avoid;
+}
+
+/* Un diagrama o imagen más alto que la hoja produciría una página en blanco
+   (no cabe entera en ninguna); se limita a una altura que siempre cabe. */
+.print-content .mermaid-diagram svg,
+.print-content .mermaid-diagram img,
+.print-content img {
+  max-height: 18cm;
+  width: auto;
+}
+
+.print-content h1,
+.print-content h2,
+.print-content h3,
+.print-content h4,
+.print-content h5,
+.print-content h6 {
+  break-after: avoid;
+}
+
+.paged-preview .pagedjs_page {
+  background: white;
+}
+
+/* Apariencia de hojas SÓLO en pantalla: el padding, la separación entre
+   hojas y la sombra impresos desbordaban cada hoja y generaban páginas en
+   blanco intercaladas y líneas grises en los bordes. */
+@media screen {
+  .paged-preview {
+    padding: 1.5rem 0 3rem;
+  }
+
+  .paged-preview .pagedjs_pages {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.25rem;
+  }
+
+  .paged-preview .pagedjs_page {
+    box-shadow: 0 2px 10px rgb(0 0 0 / 0.18);
+  }
+}
+
+@media print {
+  .paged-preview {
+    padding: 0 !important;
+  }
+
+  .paged-preview .pagedjs_pages {
+    display: block !important;
+  }
+
+  .paged-preview .pagedjs_page {
+    margin: 0 !important;
+  }
+}
+
+/* El contenido paginado siempre en claro, aunque la app esté en dark */
+.paged-preview .print-content {
   color: #111827;
 }
 
@@ -116,4 +153,109 @@
   text-align: center;
   margin: 1em 0;
   font-size: 1.15em;
+}
+
+/* Tipografía de documento para el PDF (Tailwind preflight resetea listas y
+   encabezados dentro de la app; aquí se restauran para papel). La fuente,
+   tamaño e interlineado los fija el CSS dinámico de PrintPreview.tsx. */
+.print-content h1 {
+  font-size: 1.6em;
+  font-weight: 700;
+  margin: 0.9em 0 0.45em;
+  line-height: 1.25;
+}
+
+.print-content h2 {
+  font-size: 1.35em;
+  font-weight: 700;
+  margin: 0.9em 0 0.4em;
+  line-height: 1.25;
+}
+
+.print-content h3 {
+  font-size: 1.15em;
+  font-weight: 700;
+  margin: 0.8em 0 0.35em;
+}
+
+.print-content h4,
+.print-content h5,
+.print-content h6 {
+  font-size: 1em;
+  font-weight: 700;
+  margin: 0.7em 0 0.3em;
+}
+
+.print-content > h1:first-child,
+.print-content > h2:first-child {
+  margin-top: 0;
+}
+
+.print-content p {
+  margin: 0.45em 0;
+}
+
+.print-content ul {
+  list-style: disc;
+  padding-left: 1.6em;
+  margin: 0.45em 0;
+}
+
+.print-content ul ul {
+  list-style: circle;
+}
+
+.print-content ul ul ul {
+  list-style: square;
+}
+
+.print-content ol {
+  list-style: decimal;
+  padding-left: 1.6em;
+  margin: 0.45em 0;
+}
+
+.print-content li {
+  margin: 0.15em 0;
+}
+
+.print-content ul[data-type='taskList'] {
+  list-style: none;
+  padding-left: 0.25em;
+}
+
+.print-content ul[data-type='taskList'] li {
+  display: flex;
+  gap: 0.5em;
+  align-items: baseline;
+}
+
+.print-content ul[data-type='taskList'] li p {
+  margin: 0;
+}
+
+.print-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.8em 0;
+}
+
+.print-content th,
+.print-content td {
+  border: 1px solid #d1d5db;
+  padding: 0.35em 0.6em;
+  text-align: left;
+  vertical-align: top;
+}
+
+.print-content th {
+  background: #f3f4f6;
+  font-weight: 600;
+}
+
+.print-content blockquote {
+  border-left: 3px solid #d1d5db;
+  margin: 0.8em 0;
+  padding: 0.1em 1em;
+  color: #4b5563;
 }

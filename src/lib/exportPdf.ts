@@ -2,6 +2,7 @@ import type { Editor } from '@tiptap/react';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { listen, emitTo, once } from '@tauri-apps/api/event';
 import { buildExportHtml } from './exportHtml';
+import { parseFrontMatterFields } from './markdown';
 
 const PREVIEW_LABEL = 'print-preview';
 export const EVT_PREVIEW_READY = 'print-preview:ready';
@@ -10,6 +11,8 @@ export const EVT_PREVIEW_CONTENT = 'print-preview:content';
 export interface PreviewPayload {
   html: string;
   title: string;
+  /** Campos del front matter (título, expediente…) para el encabezado. */
+  fields: Record<string, string>;
 }
 
 /**
@@ -19,9 +22,13 @@ export interface PreviewPayload {
  * seleccionable y mermaid vectorial. La ventana debe ser VISIBLE — las
  * webviews ocultas no pueden imprimir.
  */
-export const exportToPdf = async (editor: Editor, filePath: string | null): Promise<void> => {
+export const exportToPdf = async (
+  editor: Editor,
+  filePath: string | null,
+  frontMatter = ''
+): Promise<void> => {
   const { html, title } = await buildExportHtml(editor, filePath, { mermaidAs: 'svg' });
-  const payload: PreviewPayload = { html, title };
+  const payload: PreviewPayload = { html, title, fields: parseFrontMatterFields(frontMatter) };
 
   // Si la ventana ya existe (export previo sin cerrarla), sólo re-emite.
   const existing = await WebviewWindow.getByLabel(PREVIEW_LABEL);
