@@ -1,7 +1,8 @@
 import type { HeadingInfo } from '../lib/outline';
 import { t } from '../lib/i18n';
 
-// Panel lateral con el esquema del documento (encabezados). Clic = saltar.
+// Esquema del documento (encabezados). Clic = saltar. Vive dentro del
+// Sidebar, que aporta ancho, borde y fondo.
 export const OutlinePanel = ({
   headings,
   onSelect,
@@ -9,10 +10,7 @@ export const OutlinePanel = ({
   headings: HeadingInfo[];
   onSelect: (heading: HeadingInfo) => void;
 }) => (
-  <div className="w-60 shrink-0 overflow-y-auto border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 py-2 no-select">
-    <div className="px-3 pb-1 text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
-      {t('outline.title')}
-    </div>
+  <div className="h-full overflow-y-auto py-2">
     {headings.length === 0 ? (
       <div className="px-3 py-1 text-xs italic text-gray-400 dark:text-gray-500">
         {t('outline.empty')}

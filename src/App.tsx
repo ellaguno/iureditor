@@ -8,7 +8,7 @@ import { TitleBar } from './components/TitleBar';
 import { ResizeHandles } from './components/ResizeHandles';
 import { StatusBar } from './components/StatusBar';
 import { SourceView } from './components/SourceView';
-import { OutlinePanel } from './components/OutlinePanel';
+import { Sidebar } from './components/Sidebar';
 import type { HeadingInfo } from './lib/outline';
 import { collectHeadings, buildTocHtml } from './lib/outline';
 import {
@@ -19,11 +19,11 @@ import {
   setZoom,
   getSpellcheck,
   setSpellcheck,
-  getOutlineVisible,
-  setOutlineVisible,
+  getSidebarPrefs,
+  setSidebarPrefs,
   ZOOM_STEP,
 } from './lib/prefs';
-import type { Theme } from './lib/prefs';
+import type { Theme, SidebarView, SidebarPrefs } from './lib/prefs';
 import { getMermaid } from './lib/mermaid';
 import {
   readDocument,
@@ -94,7 +94,8 @@ export default function App() {
   const [theme, setThemeState] = useState<Theme>(getTheme);
   const [spellcheck, setSpellcheckState] = useState<boolean>(getSpellcheck);
   const [zoom, setZoomState] = useState<number>(getZoom);
-  const [showOutline, setShowOutline] = useState<boolean>(getOutlineVisible);
+  const [sidebar, setSidebar] = useState<SidebarPrefs>(getSidebarPrefs);
+  const [workspace, setWorkspace] = useState<string | null>(null);
   const [headings, setHeadings] = useState<HeadingInfo[]>([]);
   const [sourceText, setSourceText] = useState('');
 
@@ -275,13 +276,39 @@ export default function App() {
     }
   }, [activeHandle, handleChangeFor, updateTab]);
 
-  // ---------- esquema del documento ----------
-  const handleToggleOutline = useCallback(() => {
-    setShowOutline((prev) => {
-      setOutlineVisible(!prev);
-      return !prev;
+  // ---------- panel lateral (archivos / esquema) ----------
+  const applySidebar = useCallback((updater: (prev: SidebarPrefs) => SidebarPrefs) => {
+    setSidebar((prev) => {
+      const next = updater(prev);
+      setSidebarPrefs(next);
+      return next;
     });
   }, []);
+
+  const handleToggleSidebar = useCallback(() => {
+    applySidebar((prev) => ({ ...prev, visible: !prev.visible }));
+  }, [applySidebar]);
+
+  /** Muestra el panel en una vista; si ya está visible en esa vista, lo oculta. */
+  const handleSidebarView = useCallback(
+    (view: SidebarView) => {
+      applySidebar((prev) =>
+        prev.visible && prev.view === view
+          ? { ...prev, visible: false }
+          : { visible: true, view }
+      );
+    },
+    [applySidebar]
+  );
+
+  // ---------- carpeta de trabajo ----------
+  const handlePickWorkspace = useCallback(async () => {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const selected = await open({ directory: true });
+    if (typeof selected !== 'string') return;
+    setWorkspace(selected);
+    applySidebar(() => ({ visible: true, view: 'files' }));
+  }, [applySidebar]);
 
   const handleOutlineSelect = useCallback(
     (heading: HeadingInfo) => {
@@ -763,7 +790,10 @@ export default function App() {
         else handleSave();
       } else if (key === 'o' && e.shiftKey) {
         e.preventDefault();
-        handleToggleOutline();
+        handleSidebarView('outline');
+      } else if (key === 'e' && e.shiftKey) {
+        e.preventDefault();
+        handleSidebarView('files');
       } else if (key === 'm' && e.shiftKey) {
         e.preventDefault();
         handleToggleSource();
@@ -810,7 +840,7 @@ export default function App() {
     handleZoomIn,
     handleZoomOut,
     handleZoomReset,
-    handleToggleOutline,
+    handleSidebarView,
     handleToggleSource,
     cycleTab,
     moveActiveTab,
@@ -858,6 +888,7 @@ export default function App() {
         // 2) Pestañas de la sesión anterior (en su orden), aplicando encima
         //    el borrador si lo hay para esa ruta.
         const session = await loadSession();
+        if (session?.workspace) setWorkspace(session.workspace);
         const openedByPath = new Map<string, number>();
         for (const path of session?.paths ?? []) {
           if (openedByPath.has(path)) continue;
@@ -934,10 +965,10 @@ export default function App() {
     const timer = setTimeout(() => {
       const paths = tabs.filter((tb) => tb.path).map((tb) => tb.path!);
       const activePath = tabs.find((tb) => tb.id === activeId)?.path ?? null;
-      void saveSession({ paths, activePath });
+      void saveSession({ paths, activePath, workspace });
     }, 800);
     return () => clearTimeout(timer);
-  }, [tabs, activeId]);
+  }, [tabs, activeId, workspace]);
 
   // ---------- guard al cerrar ----------
   useEffect(() => {
@@ -1000,6 +1031,8 @@ export default function App() {
       {isTauri && <ResizeHandles />}
       {isTauri && (
         <TitleBar
+          sidebarVisible={sidebar.visible}
+          onToggleSidebar={handleToggleSidebar}
           tabs={tabs}
           activeTabId={activeId}
           onSelectTab={setActiveId}
@@ -1013,6 +1046,7 @@ export default function App() {
             onOpenTemplatesFolder: handleOpenTemplatesFolder,
             onTemplatesRefresh: refreshTemplates,
             onOpen: () => void handleOpen(),
+            onOpenFolder: () => void handlePickWorkspace(),
             onOpenRecent: (path) => void handleOpenRecent(path),
             onSave: handleSave,
             onSaveAs: handleSaveAs,
@@ -1035,16 +1069,32 @@ export default function App() {
             onThemeChange: handleThemeChange,
             spellcheck,
             onSpellcheckChange: handleSpellcheckChange,
-            outline: showOutline,
-            onOutlineToggle: handleToggleOutline,
+            outline: sidebar.visible && sidebar.view === 'outline',
+            onOutlineToggle: () => handleSidebarView('outline'),
+            files: sidebar.visible && sidebar.view === 'files',
+            onFilesToggle: () => handleSidebarView('files'),
             sourceMode,
             onSourceModeToggle: handleToggleSource,
           }}
         />
       )}
       <div className="flex-1 min-h-0 flex">
-        {showOutline && !sourceMode && (
-          <OutlinePanel headings={headings} onSelect={handleOutlineSelect} />
+        {sidebar.visible && (
+          <Sidebar
+            view={sidebar.view}
+            onViewChange={(view) => applySidebar((prev) => ({ ...prev, view }))}
+            sourceMode={sourceMode}
+            headings={headings}
+            onSelectHeading={handleOutlineSelect}
+            workspace={workspace}
+            activePath={activeTab?.path ?? null}
+            onOpenFile={(path) =>
+              void loadDocument(path).catch((err) =>
+                console.error('No se pudo abrir desde el panel:', err)
+              )
+            }
+            onPickFolder={() => void handlePickWorkspace()}
+          />
         )}
         <div className="flex-1 min-w-0 flex flex-col" style={{ zoom }}>
           {/* Cada pestaña mantiene su editor montado (oculto si no está

@@ -80,6 +80,12 @@ const STRINGS = {
     'status.unsaved': 'Sin guardar',
     'outline.title': 'Esquema',
     'outline.empty': 'Sin encabezados',
+    'outline.sourceMode': 'El esquema no está disponible en modo fuente',
+    'files.title': 'Archivos',
+    'files.open': 'Abrir carpeta…',
+    'files.empty': 'Sin carpeta de trabajo',
+    'files.emptyDir': 'Carpeta vacía',
+    'files.change': 'Cambiar carpeta',
   },
   en: {
     'editor.placeholder': 'Write your document…',
@@ -157,6 +163,12 @@ const STRINGS = {
     'status.unsaved': 'Unsaved',
     'outline.title': 'Outline',
     'outline.empty': 'No headings',
+    'outline.sourceMode': 'Outline is not available in source mode',
+    'files.title': 'Files',
+    'files.open': 'Open folder…',
+    'files.empty': 'No workspace folder',
+    'files.emptyDir': 'Empty folder',
+    'files.change': 'Change folder',
   },
 } as const;
 

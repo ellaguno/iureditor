@@ -10,6 +10,8 @@ const KEY = 'openTabs';
 export interface SessionState {
   paths: string[];
   activePath: string | null;
+  /** Carpeta de trabajo del panel de archivos (null = sin carpeta). */
+  workspace?: string | null;
 }
 
 const getStore = () => load(STORE_FILE, { autoSave: true, defaults: {} });
@@ -28,7 +30,11 @@ export const loadSession = async (): Promise<SessionState | null> => {
     const store = await getStore();
     const state = await store.get<SessionState>(KEY);
     if (!state || !Array.isArray(state.paths)) return null;
-    return { paths: state.paths.filter(Boolean), activePath: state.activePath ?? null };
+    return {
+      paths: state.paths.filter(Boolean),
+      activePath: state.activePath ?? null,
+      workspace: state.workspace ?? null,
+    };
   } catch {
     return null;
   }

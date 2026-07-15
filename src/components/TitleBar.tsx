@@ -12,6 +12,8 @@ import {
   ChevronRight,
   ChevronDown,
   Plus,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { basename } from '../lib/fileio';
 import type { Theme } from '../lib/prefs';
@@ -33,6 +35,7 @@ export interface TitleBarActions {
   onOpenTemplatesFolder: () => void;
   onTemplatesRefresh: () => void;
   onOpen: () => void;
+  onOpenFolder: () => void;
   onOpenRecent: (path: string) => void;
   onSave: () => void;
   onSaveAs: () => void;
@@ -58,6 +61,8 @@ export interface ViewPrefs {
   onSpellcheckChange: (enabled: boolean) => void;
   outline: boolean;
   onOutlineToggle: () => void;
+  files: boolean;
+  onFilesToggle: () => void;
   sourceMode: boolean;
   onSourceModeToggle: () => void;
 }
@@ -219,6 +224,8 @@ const Tab = ({
 );
 
 export const TitleBar = ({
+  sidebarVisible,
+  onToggleSidebar,
   actions,
   tabs,
   activeTabId,
@@ -229,6 +236,8 @@ export const TitleBar = ({
   templates,
   viewPrefs,
 }: {
+  sidebarVisible: boolean;
+  onToggleSidebar: () => void;
   actions: TitleBarActions;
   tabs: TabInfo[];
   activeTabId: number;
@@ -339,6 +348,26 @@ export const TitleBar = ({
       className="h-10 flex items-center bg-gray-100 dark:bg-gray-800 border-b border-gray-300 dark:border-gray-700 select-none no-select shrink-0"
       data-tauri-drag-region
     >
+      {/* Colapsar/abrir el panel lateral */}
+      <div className="pl-2 shrink-0">
+        <button
+          type="button"
+          title={sidebarVisible ? 'Ocultar panel lateral' : 'Mostrar panel lateral'}
+          onClick={onToggleSidebar}
+          className={`w-8 h-8 rounded-md flex items-center justify-center ${
+            sidebarVisible
+              ? 'text-gray-700 dark:text-gray-300 hover:bg-gray-200/70 dark:hover:bg-gray-700/70'
+              : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200/70 dark:hover:bg-gray-700/70'
+          }`}
+        >
+          {sidebarVisible ? (
+            <PanelLeftClose className="w-5 h-5" />
+          ) : (
+            <PanelLeftOpen className="w-5 h-5" />
+          )}
+        </button>
+      </div>
+
       {/* Menú hamburguesa */}
       <div className="relative px-2 shrink-0" ref={menuRef}>
         <button
@@ -358,6 +387,7 @@ export const TitleBar = ({
             <MenuSection label="Archivo" expanded={section === 'file'} onToggle={toggleSection('file')}>
               <MenuItem label="Nuevo" shortcut="Ctrl+N" onClick={closeAnd(actions.onNew)} />
               <MenuItem label="Abrir…" shortcut="Ctrl+O" onClick={closeAnd(actions.onOpen)} />
+              <MenuItem label="Abrir carpeta…" onClick={closeAnd(actions.onOpenFolder)} />
               {templates.length > 0 && (
                 <>
                   <MenuSeparator />
@@ -435,6 +465,12 @@ export const TitleBar = ({
             <MenuSeparator />
 
             <MenuSection label="Ver" expanded={section === 'view'} onToggle={toggleSection('view')}>
+              <MenuItem
+                label="Archivos de la carpeta"
+                shortcut="Ctrl+Shift+E"
+                checked={viewPrefs.files}
+                onClick={viewPrefs.onFilesToggle}
+              />
               <MenuItem
                 label="Esquema del documento"
                 shortcut="Ctrl+Shift+O"

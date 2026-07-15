@@ -52,14 +52,37 @@ export const setZoom = (zoom: number): number => {
   return clamped;
 };
 
-// ---------- panel de esquema ----------
+// ---------- panel lateral (archivos / esquema) ----------
 
+export type SidebarView = 'files' | 'outline';
+
+export interface SidebarPrefs {
+  visible: boolean;
+  view: SidebarView;
+}
+
+const SIDEBAR_KEY = 'iur-sidebar';
+// Clave previa a la vista de archivos (sólo esquema): se migra.
 const OUTLINE_KEY = 'iur-outline';
 
-export const getOutlineVisible = (): boolean => localStorage.getItem(OUTLINE_KEY) === 'true';
+export const getSidebarPrefs = (): SidebarPrefs => {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<SidebarPrefs>;
+      return {
+        visible: parsed.visible === true,
+        view: parsed.view === 'files' ? 'files' : 'outline',
+      };
+    }
+  } catch {
+    /* pref corrupta: defaults */
+  }
+  return { visible: localStorage.getItem(OUTLINE_KEY) === 'true', view: 'outline' };
+};
 
-export const setOutlineVisible = (visible: boolean): void => {
-  localStorage.setItem(OUTLINE_KEY, String(visible));
+export const setSidebarPrefs = (prefs: SidebarPrefs): void => {
+  localStorage.setItem(SIDEBAR_KEY, JSON.stringify(prefs));
 };
 
 // ---------- corrector ortográfico ----------
