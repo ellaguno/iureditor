@@ -1851,6 +1851,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-store",
  "tauri-plugin-window-state",
+ "webkit2gtk",
 ]
 
 [[package]]

@@ -109,6 +109,44 @@ mod tests {
     }
 }
 
+/// En Linux, WebKitGTK trae la corrección ortográfica desactivada a nivel
+/// del contexto del webview; el atributo HTML `spellcheck` del editor no
+/// hace nada sin esto. Los idiomas salen del locale del sistema (enchant
+/// ignora los que no tengan diccionario hunspell instalado).
+#[cfg(target_os = "linux")]
+fn enable_spellcheck(app: &tauri::App) {
+    use webkit2gtk::{WebContextExt, WebViewExt};
+
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let _ = window.with_webview(|webview| {
+        let Some(context) = webview.inner().context() else {
+            return;
+        };
+        context.set_spell_checking_enabled(true);
+
+        let locale = std::env::var("LC_ALL")
+            .or_else(|_| std::env::var("LC_MESSAGES"))
+            .or_else(|_| std::env::var("LANG"))
+            .unwrap_or_default();
+        // "es_ES.UTF-8" → "es_ES"; añade el idioma base ("es") como fallback
+        // por si no hay diccionario para la variante exacta.
+        let base = locale.split(['.', '@']).next().unwrap_or("");
+        let mut langs: Vec<&str> = Vec::new();
+        let short = base.split('_').next().unwrap_or("");
+        if !base.is_empty() && base != "C" && base != "POSIX" {
+            langs.push(base);
+            if short != base {
+                langs.push(short);
+            }
+        } else {
+            langs.push("en_US");
+        }
+        context.set_spell_checking_languages(&langs);
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -134,6 +172,11 @@ pub fn run() {
             print_webview,
             render_svg_png
         ])
+        .setup(|app| {
+            #[cfg(target_os = "linux")]
+            enable_spellcheck(app);
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
