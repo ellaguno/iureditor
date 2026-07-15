@@ -53,6 +53,6 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'iureditor ${{ github.ref_name }}'
           releaseBody: 'Ver los assets para descargar la versión de tu plataforma.'
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
