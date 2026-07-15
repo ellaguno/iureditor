@@ -34,6 +34,7 @@
     "fs:allow-write-text-file",
     "fs:allow-mkdir",
     "fs:allow-exists",
+    "fs:allow-stat",
     "fs:allow-remove"
   ]
 }

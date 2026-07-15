@@ -40,6 +40,9 @@ import {
   basename,
   isMarkdownPath,
   isTextPath,
+  getMtime,
+  confirmReloadExternal,
+  confirmOverwriteExternal,
 } from './lib/fileio';
 import { saveDrafts, loadDrafts, clearDrafts } from './lib/autosave';
 import { exportToPdf } from './lib/exportPdf';
@@ -91,6 +94,9 @@ export default function App() {
   const savedMd = useRef(new Map<number, string>());
   const sourceTexts = useRef(new Map<number, string>());
   const pendingLoads = useRef(new Map<number, PendingLoad>());
+  // mtime del archivo en disco cuando lo cargamos/guardamos: si el disco
+  // tiene uno más nuevo, alguien lo modificó por fuera.
+  const diskMtime = useRef(new Map<number, number>());
 
   // Refs espejo para handlers estables (listeners de ventana, atajos).
   const tabsRef = useRef(tabs);
@@ -306,6 +312,7 @@ export default function App() {
     savedMd.current.delete(id);
     sourceTexts.current.delete(id);
     pendingLoads.current.delete(id);
+    diskMtime.current.delete(id);
     setTabs((prev) => {
       const idx = prev.findIndex((tab) => tab.id === id);
       const rest = prev.filter((tab) => tab.id !== id);
@@ -346,9 +353,14 @@ export default function App() {
       const raw = await readDocument(path);
       setRecentFiles(await addRecentFile(path));
       const plain = !isMarkdownPath(path);
+      const mtime = await getMtime(path);
+      const rememberMtime = (id: number) => {
+        if (mtime !== null) diskMtime.current.set(id, mtime);
+      };
 
       const active = tabsRef.current.find((tab) => tab.id === activeIdRef.current);
       if (active && isPristine(active)) {
+        rememberMtime(active.id);
         if (plain) {
           // La pestaña vacía se convierte en pestaña de texto plano.
           savedMd.current.set(active.id, raw);
@@ -375,10 +387,84 @@ export default function App() {
         updateTab(active.id, { path, dirty: false });
         return;
       }
-      createTab({ content: raw, baseline: null, plain }, path);
+      rememberMtime(createTab({ content: raw, baseline: null, plain }, path));
     },
     [createTab, isPristine, updateCounts, updateTab]
   );
+
+  // ---------- cambios externos al archivo abierto ----------
+  const reloadTabFromDisk = useCallback(
+    async (id: number) => {
+      const tab = tabsRef.current.find((tb) => tb.id === id);
+      if (!tab?.path) return;
+      const raw = await readDocument(tab.path);
+      const m = await getMtime(tab.path);
+      if (m !== null) diskMtime.current.set(id, m);
+      if (tab.plain) {
+        savedMd.current.set(id, raw);
+        sourceTexts.current.set(id, raw);
+        if (id === activeIdRef.current) {
+          setSourceText(raw);
+          updateCounts(raw);
+        }
+      } else {
+        const handle = editorHandles.current.get(id);
+        if (!handle) return;
+        handle.setMarkdown(raw);
+        const canonical = handle.getMarkdown();
+        savedMd.current.set(id, canonical);
+        sourceTexts.current.set(id, canonical);
+        if (id === activeIdRef.current) {
+          setSourceText(canonical);
+          updateCounts(canonical);
+          if (handle.editor) setHeadings(collectHeadings(handle.editor.state.doc));
+        }
+      }
+      updateTab(id, { dirty: false });
+    },
+    [updateCounts, updateTab]
+  );
+
+  const externalCheckBusy = useRef(false);
+
+  /** Al recuperar el foco: ¿algún archivo abierto cambió en disco?
+   *  Limpio → recarga silenciosa; con cambios locales → el usuario decide. */
+  const checkExternalChanges = useCallback(async () => {
+    if (externalCheckBusy.current) return;
+    externalCheckBusy.current = true;
+    try {
+      for (const tab of tabsRef.current) {
+        if (!tab.path) continue;
+        const known = diskMtime.current.get(tab.id);
+        if (known === undefined) continue;
+        const m = await getMtime(tab.path);
+        if (m === null || m <= known) continue;
+        if (!tab.dirty) {
+          await reloadTabFromDisk(tab.id);
+        } else if (await confirmReloadExternal(basename(tab.path))) {
+          await reloadTabFromDisk(tab.id);
+        } else {
+          // Conservar la versión local: conflicto resuelto a favor del
+          // usuario; el próximo guardado sobrescribe sin volver a preguntar.
+          diskMtime.current.set(tab.id, m);
+        }
+      }
+    } catch (err) {
+      console.error('Chequeo de cambios externos falló:', err);
+    } finally {
+      externalCheckBusy.current = false;
+    }
+  }, [reloadTabFromDisk]);
+
+  useEffect(() => {
+    if (!isTauri) return;
+    const unlisten = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+      if (focused) void checkExternalChanges();
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, [checkExternalChanges]);
 
   const handleNew = useCallback(() => {
     createTab();
@@ -416,6 +502,7 @@ export default function App() {
         md = handle.getMarkdown();
       }
       let path = tab?.path ?? null;
+      const savingInPlace = !as && !!path;
       if (as || !path) {
         path = await pickSavePath(
           path ? basename(path) : 'documento.md',
@@ -424,7 +511,18 @@ export default function App() {
         if (!path) return null;
         if (!tab?.plain) await allowDocumentDir(path);
       }
+      // Cinturón: si el archivo cambió en disco desde que se cargó, avisar
+      // antes de sobrescribir los cambios externos.
+      if (savingInPlace) {
+        const known = diskMtime.current.get(id);
+        const current = await getMtime(path);
+        if (known !== undefined && current !== null && current > known) {
+          if (!(await confirmOverwriteExternal(basename(path)))) return null;
+        }
+      }
       await writeDocument(path, md);
+      const savedMtime = await getMtime(path);
+      if (savedMtime !== null) diskMtime.current.set(id, savedMtime);
       savedMd.current.set(id, md);
       // En modo fuente, el textarea pasa a mostrar el markdown canónico guardado.
       if (tab?.sourceMode) {
@@ -695,6 +793,10 @@ export default function App() {
             }
             const plain = draft.path ? !isMarkdownPath(draft.path) : false;
             const id = createTab({ content: draft.markdown, baseline, plain }, draft.path);
+            if (draft.path) {
+              const m = await getMtime(draft.path);
+              if (m !== null) diskMtime.current.set(id, m);
+            }
             if (firstId === null) firstId = id;
           }
           if (firstId !== null) setActiveId(firstId);

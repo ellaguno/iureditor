@@ -5,6 +5,7 @@ import {
   writeFile,
   mkdir,
   exists,
+  stat,
 } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
 import { load } from '@tauri-apps/plugin-store';
@@ -72,6 +73,39 @@ export const readDocument = async (path: string): Promise<string> => {
 export const writeDocument = async (path: string, markdown: string): Promise<void> => {
   await writeTextFile(path, markdown);
 };
+
+/** Fecha de modificación en ms, o null si no se puede leer. Base de la
+ *  detección de cambios externos al archivo abierto. */
+export const getMtime = async (path: string): Promise<number | null> => {
+  try {
+    const info = await stat(path);
+    return info.mtime ? new Date(info.mtime).getTime() : null;
+  } catch {
+    return null;
+  }
+};
+
+export const confirmReloadExternal = async (docName: string): Promise<boolean> =>
+  ask(
+    `«${docName}» cambió en el disco y aquí tienes cambios sin guardar.\n¿Recargar del disco? (tus cambios de esta pestaña se pierden)`,
+    {
+      title: 'iureditor — Archivo modificado',
+      kind: 'warning',
+      okLabel: 'Recargar del disco',
+      cancelLabel: 'Conservar mi versión',
+    }
+  );
+
+export const confirmOverwriteExternal = async (docName: string): Promise<boolean> =>
+  ask(
+    `«${docName}» cambió en el disco después de abrirse aquí.\n¿Sobrescribir con tu versión?`,
+    {
+      title: 'iureditor — Archivo modificado',
+      kind: 'warning',
+      okLabel: 'Sobrescribir',
+      cancelLabel: 'Cancelar',
+    }
+  );
 
 export const pickOpenPath = async (): Promise<string | null> => {
   const selected = await open({ multiple: false, filters: OPEN_FILTERS });
