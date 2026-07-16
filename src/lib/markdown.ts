@@ -6,10 +6,22 @@ import TurndownService from 'turndown';
 // extensión Mermaid de TipTap los renderice como diagrama en vivo, y la regla
 // inversa de Turndown los devuelve al fence verbatim.
 
-// Helper to detect if content is HTML
+// ¿El contenido es un documento HTML ya renderizado (y por tanto hay que
+// saltarse la conversión markdown)?
+//
+// Sólo devolvemos true cuando el documento EMPIEZA por HTML. Un documento
+// markdown que meramente EMBEBE bloques HTML (p.ej. mockups de UI
+// `<div style="...">`) debe pasar por markdownToHtml: éste convierte
+// encabezados, listas, fences, tablas, etc. y a la vez preserva esos bloques
+// HTML verbatim (STEP 7). Antes bastaba con encontrar un `<div>`/`<p>` en
+// CUALQUIER punto para clasificar todo el archivo como HTML y no convertir
+// nada: el markdown se mostraba crudo (encabezados `#`, fences ``` y mockups)
+// como si fuese texto/código.
 export const isHtmlContent = (content: string): boolean => {
-  const htmlPattern = /<(p|div|h[1-6]|ul|ol|table|blockquote|pre|img|a|strong|em|code)[^>]*>/i;
-  return htmlPattern.test(content);
+  const head = content.replace(/^﻿/, '').trimStart();
+  return /^(?:<!doctype\b|<(?:html|body|p|div|h[1-6]|ul|ol|table|blockquote|pre|section|article|header|footer|main|figure|img)\b)/i.test(
+    head
+  );
 };
 
 // Convert a markdown table block (array of lines) into an HTML <table>

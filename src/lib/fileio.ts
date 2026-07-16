@@ -9,7 +9,7 @@ import {
 } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
 import { load } from '@tauri-apps/plugin-store';
-import { setImageBaseDir } from '../extensions/localImage';
+import { setImageBaseDir, joinAndNormalize } from '../extensions/localImage';
 
 export const MD_FILTERS = [{ name: 'Markdown', extensions: ['md', 'markdown'] }];
 
@@ -65,9 +65,45 @@ export const allowDocumentDir = async (filePath: string): Promise<string> => {
   return dir;
 };
 
+/** Extrae los `src` de imágenes markdown `![alt](src)` y HTML `<img src=…>`. */
+const extractImageSrcs = (content: string): string[] => {
+  const srcs: string[] = [];
+  const mdImg = /!\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+["'][^"']*["'])?\s*\)/g;
+  const htmlImg = /<img\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/gi;
+  let m: RegExpExecArray | null;
+  while ((m = mdImg.exec(content)) !== null) srcs.push(m[1]);
+  while ((m = htmlImg.exec(content)) !== null) srcs.push(m[1]);
+  return srcs;
+};
+
+const isRelativeImg = (src: string): boolean =>
+  !!src && !/^(?:[a-z]+:)?\/\//i.test(src) && !src.startsWith('data:') &&
+  !src.startsWith('asset:') && !src.startsWith('/');
+
+/** Habilita el asset protocol para TODOS los directorios donde viven las
+ *  imágenes referenciadas, no sólo el del documento. Las rutas relativas
+ *  pueden apuntar fuera de `docDir` (p. ej. `../instance/…/img.png`); sin
+ *  permitir ese directorio, el webview bloquea la imagen y no se dibuja. */
+export const allowImageDirs = async (content: string, docDir: string): Promise<void> => {
+  const dirs = new Set<string>();
+  for (const src of extractImageSrcs(content)) {
+    if (!isRelativeImg(src)) continue;
+    dirs.add(dirname(joinAndNormalize(docDir, src)));
+  }
+  await Promise.all(
+    [...dirs].map((d) =>
+      invoke('allow_asset_dir', { path: d }).catch((err) =>
+        console.error('allow_asset_dir (imagen) falló:', d, err)
+      )
+    )
+  );
+};
+
 export const readDocument = async (path: string): Promise<string> => {
-  await allowDocumentDir(path);
-  return readTextFile(path);
+  const dir = await allowDocumentDir(path);
+  const content = await readTextFile(path);
+  await allowImageDirs(content, dir);
+  return content;
 };
 
 export const writeDocument = async (path: string, markdown: string): Promise<void> => {

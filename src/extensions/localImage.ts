@@ -44,13 +44,37 @@ const isRelative = (src: string): boolean =>
   !!src && !/^(?:[a-z]+:)?\/\//i.test(src) && !src.startsWith('data:') &&
   !src.startsWith('asset:') && !src.startsWith('/') && !src.startsWith('http');
 
+/** Une `base` + `rel` y colapsa los segmentos `.`/`..` a una ruta absoluta.
+ *  Necesario para rutas como `../instance/img.png`: sin normalizar, el asset
+ *  protocol de Tauri recibe `…/docs/../instance/img.png` y la comprobación de
+ *  scope (que compara contra el directorio permitido canónico) la rechaza, por
+ *  lo que la imagen no se dibuja. El separador de salida es el de `base`. */
+export const joinAndNormalize = (base: string, rel: string): string => {
+  const sep = base.includes('\\') ? '\\' : '/';
+  const raw = `${base}${base.endsWith(sep) ? '' : sep}${rel}`;
+  const stack: string[] = [];
+  const parts = raw.split(/[/\\]/);
+  parts.forEach((p, i) => {
+    if (p === '.') return;
+    if (p === '') {
+      if (i === 0) stack.push(''); // conserva la raíz "/" de rutas POSIX
+      return;
+    }
+    if (p === '..') {
+      const top = stack[stack.length - 1];
+      if (stack.length && top !== '' && top !== '..') stack.pop();
+      return;
+    }
+    stack.push(p);
+  });
+  return stack.join(sep) || sep;
+};
+
 const resolveSrc = (src: string): string => {
   if (!isRelative(src) || !docDir) return src;
   const fn = convertFileSrcFn || ensureConvert();
   if (!fn) return src;
-  const sep = docDir.includes('\\') ? '\\' : '/';
-  const joined = `${docDir}${docDir.endsWith(sep) ? '' : sep}${src.replaceAll('/', sep)}`;
-  return fn(joined);
+  return fn(joinAndNormalize(docDir, src));
 };
 
 export const LocalImage = Image.extend({
