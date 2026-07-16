@@ -85,6 +85,24 @@ export const setSidebarPrefs = (prefs: SidebarPrefs): void => {
   localStorage.setItem(SIDEBAR_KEY, JSON.stringify(prefs));
 };
 
+// ---------- ancho de página (columna de lectura) ----------
+// En monitores anchos, el 100% del ancho perjudica la legibilidad (línea muy
+// larga). Se ofrece una columna centrada con varios anchos; 'full' conserva el
+// comportamiento previo. Aplica sólo a la vista de edición, no al export.
+
+export type PageWidth = 'medium' | 'wide' | 'full';
+
+const PAGE_WIDTH_KEY = 'iur-page-width';
+
+export const getPageWidth = (): PageWidth => {
+  const v = localStorage.getItem(PAGE_WIDTH_KEY);
+  return v === 'wide' || v === 'full' ? v : 'medium';
+};
+
+export const setPageWidth = (width: PageWidth): void => {
+  localStorage.setItem(PAGE_WIDTH_KEY, width);
+};
+
 // ---------- corrector ortográfico ----------
 
 export const getSpellcheck = (): boolean => localStorage.getItem(SPELL_KEY) !== 'false';

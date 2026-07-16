@@ -16,7 +16,7 @@ import {
   PanelLeftOpen,
 } from 'lucide-react';
 import { basename } from '../lib/fileio';
-import type { Theme } from '../lib/prefs';
+import type { Theme, PageWidth } from '../lib/prefs';
 
 const HELP_LINKS: { label: string; url: string }[] = [
   { label: 'Apps', url: 'https://iurefficient.com' },
@@ -65,6 +65,8 @@ export interface ViewPrefs {
   onFilesToggle: () => void;
   sourceMode: boolean;
   onSourceModeToggle: () => void;
+  pageWidth: PageWidth;
+  onPageWidthChange: (width: PageWidth) => void;
 }
 
 export interface TabInfo {
@@ -487,6 +489,25 @@ export const TitleBar = ({
               <MenuItem label="Aumentar zoom" shortcut="Ctrl++" onClick={actions.onZoomIn} />
               <MenuItem label="Reducir zoom" shortcut="Ctrl+-" onClick={actions.onZoomOut} />
               <MenuItem label="Zoom normal" shortcut="Ctrl+0" onClick={actions.onZoomReset} />
+              <MenuSeparator />
+              <div className="px-3 py-1 text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                Ancho de página
+              </div>
+              <MenuItem
+                label="Medio"
+                checked={viewPrefs.pageWidth === 'medium'}
+                onClick={() => viewPrefs.onPageWidthChange('medium')}
+              />
+              <MenuItem
+                label="Ancho"
+                checked={viewPrefs.pageWidth === 'wide'}
+                onClick={() => viewPrefs.onPageWidthChange('wide')}
+              />
+              <MenuItem
+                label="Completo"
+                checked={viewPrefs.pageWidth === 'full'}
+                onClick={() => viewPrefs.onPageWidthChange('full')}
+              />
               <MenuSeparator />
               <div className="px-3 py-1 text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
                 Tema

@@ -21,9 +21,11 @@ import {
   setSpellcheck,
   getSidebarPrefs,
   setSidebarPrefs,
+  getPageWidth,
+  setPageWidth,
   ZOOM_STEP,
 } from './lib/prefs';
-import type { Theme, SidebarView, SidebarPrefs } from './lib/prefs';
+import type { Theme, SidebarView, SidebarPrefs, PageWidth } from './lib/prefs';
 import { getMermaid } from './lib/mermaid';
 import {
   readDocument,
@@ -94,6 +96,7 @@ export default function App() {
   const [theme, setThemeState] = useState<Theme>(getTheme);
   const [spellcheck, setSpellcheckState] = useState<boolean>(getSpellcheck);
   const [zoom, setZoomState] = useState<number>(getZoom);
+  const [pageWidth, setPageWidthState] = useState<PageWidth>(getPageWidth);
   const [sidebar, setSidebar] = useState<SidebarPrefs>(getSidebarPrefs);
   const [workspace, setWorkspace] = useState<string | null>(null);
   const [headings, setHeadings] = useState<HeadingInfo[]>([]);
@@ -731,6 +734,11 @@ export default function App() {
   const handleZoomOut = useCallback(() => applyZoom(getZoom() - ZOOM_STEP), [applyZoom]);
   const handleZoomReset = useCallback(() => applyZoom(1), [applyZoom]);
 
+  const handlePageWidthChange = useCallback((next: PageWidth) => {
+    setPageWidth(next);
+    setPageWidthState(next);
+  }, []);
+
   const handleFind = useCallback(() => {
     // La búsqueda opera sobre el editor WYSIWYG; en modo fuente no aplica.
     const tab = tabsRef.current.find((tb) => tb.id === activeIdRef.current);
@@ -1075,6 +1083,8 @@ export default function App() {
             onFilesToggle: () => handleSidebarView('files'),
             sourceMode,
             onSourceModeToggle: handleToggleSource,
+            pageWidth,
+            onPageWidthChange: handlePageWidthChange,
           }}
         />
       )}
@@ -1096,7 +1106,7 @@ export default function App() {
             onPickFolder={() => void handlePickWorkspace()}
           />
         )}
-        <div className="flex-1 min-w-0 flex flex-col" style={{ zoom }}>
+        <div className="flex-1 min-w-0 flex flex-col" style={{ zoom }} data-page-width={pageWidth}>
           {/* Cada pestaña mantiene su editor montado (oculto si no está
               activa o en modo fuente): conserva undo, cursor y mermaid. */}
           {tabs.map((tab) => (
