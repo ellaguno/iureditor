@@ -16,6 +16,8 @@ export const Sidebar = ({
   activePath,
   onOpenFile,
   onPickFolder,
+  onCreateFile,
+  onSelectDir,
 }: {
   view: SidebarView;
   onViewChange: (view: SidebarView) => void;
@@ -26,6 +28,8 @@ export const Sidebar = ({
   activePath: string | null;
   onOpenFile: (path: string) => void;
   onPickFolder: () => void;
+  onCreateFile: (dir: string, name: string) => Promise<boolean>;
+  onSelectDir: (dir: string) => void;
 }) => (
   <div className="w-64 shrink-0 flex flex-col border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 no-select">
     <div className="flex shrink-0 border-b border-gray-200 dark:border-gray-700">
@@ -51,6 +55,8 @@ export const Sidebar = ({
           activePath={activePath}
           onOpenFile={onOpenFile}
           onPickFolder={onPickFolder}
+          onCreateFile={onCreateFile}
+          onSelectDir={onSelectDir}
         />
       ) : sourceMode ? (
         <div className="px-3 py-3 text-xs italic text-gray-400 dark:text-gray-500">

@@ -30,6 +30,8 @@ import { getMermaid } from './lib/mermaid';
 import {
   readDocument,
   writeDocument,
+  createFile,
+  dirname,
   pickOpenPath,
   pickSavePath,
   pickImagePath,
@@ -99,6 +101,12 @@ export default function App() {
   const [pageWidth, setPageWidthState] = useState<PageWidth>(getPageWidth);
   const [sidebar, setSidebar] = useState<SidebarPrefs>(getSidebarPrefs);
   const [workspace, setWorkspace] = useState<string | null>(null);
+  // Directorio por defecto para archivos nuevos: último abierto/guardado, o el
+  // seleccionado en el panel de archivos. Se mantiene también en un ref para
+  // usarlo dentro de callbacks (guardado) sin re-crearlos.
+  const [lastDir, setLastDir] = useState<string | null>(null);
+  const lastDirRef = useRef<string | null>(null);
+  lastDirRef.current = lastDir;
   const [headings, setHeadings] = useState<HeadingInfo[]>([]);
   const [sourceText, setSourceText] = useState('');
 
@@ -310,6 +318,7 @@ export default function App() {
     const selected = await open({ directory: true });
     if (typeof selected !== 'string') return;
     setWorkspace(selected);
+    setLastDir(selected);
     applySidebar(() => ({ visible: true, view: 'files' }));
   }, [applySidebar]);
 
@@ -391,6 +400,7 @@ export default function App() {
       }
       const raw = await readDocument(path);
       setRecentFiles(await addRecentFile(path));
+      setLastDir(dirname(path));
       const plain = !isMarkdownPath(path);
       const mtime = await getMtime(path);
       const rememberMtime = (id: number) => {
@@ -509,6 +519,32 @@ export default function App() {
     createTab();
   }, [createTab]);
 
+  /** Nuevo archivo desde el panel: se crea vacío en `dir` y se abre. Devuelve
+   *  true si se creó (el panel cierra su input). */
+  const handleCreateFile = useCallback(
+    async (dir: string, name: string): Promise<boolean> => {
+      try {
+        const path = await createFile(dir, name);
+        await loadDocument(path);
+        setLastDir(dir);
+        return true;
+      } catch (err) {
+        const { message } = await import('@tauri-apps/plugin-dialog');
+        const reason =
+          err instanceof Error && err.message === 'ya-existe'
+            ? 'Ya existe un archivo con ese nombre.'
+            : 'No se pudo crear el archivo (nombre inválido o sin permisos).';
+        await message(reason, { title: 'iureditor', kind: 'warning' });
+        return false;
+      }
+    },
+    [loadDocument]
+  );
+
+  /** El panel informa qué carpeta está activa: pasa a ser el destino por
+   *  defecto de los archivos nuevos. */
+  const handleSelectDir = useCallback((dir: string) => setLastDir(dir), []);
+
   // ---------- plantillas ----------
   const refreshTemplates = useCallback(() => {
     void listTemplates().then(setTemplates);
@@ -568,10 +604,13 @@ export default function App() {
       let path = tab?.path ?? null;
       const savingInPlace = !as && !!path;
       if (as || !path) {
-        path = await pickSavePath(
-          path ? basename(path) : 'documento.md',
-          !tab?.plain
-        );
+        // Documento sin título: sugerir el último directorio abierto/seleccionado.
+        const suggested = path
+          ? basename(path)
+          : lastDirRef.current
+            ? `${lastDirRef.current}/documento.md`
+            : 'documento.md';
+        path = await pickSavePath(suggested, !tab?.plain);
         if (!path) return null;
         if (!tab?.plain) await allowDocumentDir(path);
       }
@@ -594,6 +633,7 @@ export default function App() {
         sourceTexts.current.set(id, md);
       }
       updateTab(id, { path, dirty: false });
+      setLastDir(dirname(path));
       setRecentFiles(await addRecentFile(path));
       // Guardado exitoso: re-generar borradores (sólo pestañas aún sucias).
       scheduleDraftSave();
@@ -739,6 +779,12 @@ export default function App() {
     setPageWidthState(next);
   }, []);
 
+  const handleCyclePageWidth = useCallback(() => {
+    const order: PageWidth[] = ['medium', 'wide', 'full'];
+    const next = order[(order.indexOf(getPageWidth()) + 1) % order.length];
+    handlePageWidthChange(next);
+  }, [handlePageWidthChange]);
+
   const handleFind = useCallback(() => {
     // La búsqueda opera sobre el editor WYSIWYG; en modo fuente no aplica.
     const tab = tabsRef.current.find((tb) => tb.id === activeIdRef.current);
@@ -792,10 +838,16 @@ export default function App() {
         moveActiveTab(key === 'pageup' ? -1 : 1);
         return;
       }
-      if (key === 's') {
+      // Guardar: Ctrl+S (Save) y su equivalente en español Ctrl+G (Guardar).
+      if (key === 's' || key === 'g') {
         e.preventDefault();
         if (e.shiftKey) handleSaveAs();
         else handleSave();
+      } else if (key === 'a' && e.shiftKey) {
+        // Ctrl+Shift+A: ciclar el ancho de página (Ancho). Ctrl+A sin Shift
+        // queda para "seleccionar todo".
+        e.preventDefault();
+        handleCyclePageWidth();
       } else if (key === 'o' && e.shiftKey) {
         e.preventDefault();
         handleSidebarView('outline');
@@ -850,6 +902,7 @@ export default function App() {
     handleZoomReset,
     handleSidebarView,
     handleToggleSource,
+    handleCyclePageWidth,
     cycleTab,
     moveActiveTab,
   ]);
@@ -873,9 +926,16 @@ export default function App() {
 
   // ---------- arranque: sesión, borradores, recientes y CLI ----------
   const sessionReady = useRef(false);
+  // Guarda síncrona: en dev, React.StrictMode monta el componente dos veces
+  // (setup → cleanup → setup) y este efecto de restauración no es idempotente
+  // (crea pestañas). Sin la guarda, cada archivo de la sesión se abría por
+  // duplicado. También protege ante cualquier remontaje (HMR).
+  const initStarted = useRef(false);
 
   useEffect(() => {
     if (!isTauri) return;
+    if (initStarted.current) return;
+    initStarted.current = true;
     void getRecentFiles().then(setRecentFiles);
     void ensureStarterTemplates().then(() => listTemplates().then(setTemplates));
     void (async () => {
@@ -896,7 +956,10 @@ export default function App() {
         // 2) Pestañas de la sesión anterior (en su orden), aplicando encima
         //    el borrador si lo hay para esa ruta.
         const session = await loadSession();
-        if (session?.workspace) setWorkspace(session.workspace);
+        if (session?.workspace) {
+          setWorkspace(session.workspace);
+          setLastDir(session.workspace);
+        }
         const openedByPath = new Map<string, number>();
         for (const path of session?.paths ?? []) {
           if (openedByPath.has(path)) continue;
@@ -971,7 +1034,9 @@ export default function App() {
   useEffect(() => {
     if (!isTauri || !sessionReady.current) return;
     const timer = setTimeout(() => {
-      const paths = tabs.filter((tb) => tb.path).map((tb) => tb.path!);
+      // Dedup por si el árbol de pestañas llegara a tener la misma ruta abierta
+      // más de una vez: la sesión guardada nunca debe multiplicar archivos.
+      const paths = [...new Set(tabs.filter((tb) => tb.path).map((tb) => tb.path!))];
       const activePath = tabs.find((tb) => tb.id === activeId)?.path ?? null;
       void saveSession({ paths, activePath, workspace });
     }, 800);
@@ -1104,6 +1169,8 @@ export default function App() {
               )
             }
             onPickFolder={() => void handlePickWorkspace()}
+            onCreateFile={handleCreateFile}
+            onSelectDir={handleSelectDir}
           />
         )}
         <div className="flex-1 min-w-0 flex flex-col" style={{ zoom }} data-page-width={pageWidth}>

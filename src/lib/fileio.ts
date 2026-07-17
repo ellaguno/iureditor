@@ -41,7 +41,7 @@ export const isTextPath = (path: string): boolean => {
   return TEXT_EXTENSIONS.some((ext) => name.endsWith(`.${ext}`)) || !name.includes('.');
 };
 
-const dirname = (path: string): string => {
+export const dirname = (path: string): string => {
   const idx = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
   return idx > 0 ? path.slice(0, idx) : path;
 };
@@ -108,6 +108,19 @@ export const readDocument = async (path: string): Promise<string> => {
 
 export const writeDocument = async (path: string, markdown: string): Promise<void> => {
   await writeTextFile(path, markdown);
+};
+
+/** Crea un archivo nuevo (vacío) en `dir` con el nombre dado. Si el nombre no
+ *  trae extensión, se asume `.md`. Devuelve la ruta creada; lanza si ya existe
+ *  o el nombre es inválido. Usado por el panel de archivos. */
+export const createFile = async (dir: string, rawName: string): Promise<string> => {
+  const trimmed = rawName.trim().replace(/[\\/]+$/, '');
+  if (!trimmed || /[\\/]/.test(trimmed)) throw new Error('nombre-invalido');
+  const name = /\.[A-Za-z0-9]+$/.test(trimmed) ? trimmed : `${trimmed}.md`;
+  const path = `${dir}/${name}`;
+  if (await exists(path)) throw new Error('ya-existe');
+  await writeTextFile(path, '');
+  return path;
 };
 
 /** Fecha de modificación en ms, o null si no se puede leer. Base de la

@@ -425,10 +425,10 @@ export const TitleBar = ({
                 </>
               )}
               <MenuSeparator />
-              <MenuItem label="Guardar" shortcut="Ctrl+S" onClick={closeAnd(actions.onSave)} />
+              <MenuItem label="Guardar" shortcut="Ctrl+G" onClick={closeAnd(actions.onSave)} />
               <MenuItem
                 label="Guardar como…"
-                shortcut="Ctrl+Shift+S"
+                shortcut="Ctrl+Shift+G"
                 onClick={closeAnd(actions.onSaveAs)}
               />
               <MenuSeparator />
@@ -490,8 +490,9 @@ export const TitleBar = ({
               <MenuItem label="Reducir zoom" shortcut="Ctrl+-" onClick={actions.onZoomOut} />
               <MenuItem label="Zoom normal" shortcut="Ctrl+0" onClick={actions.onZoomReset} />
               <MenuSeparator />
-              <div className="px-3 py-1 text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
-                Ancho de página
+              <div className="px-3 py-1 flex items-center justify-between gap-2 text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                <span>Ancho de página</span>
+                <span className="normal-case tracking-normal">Ctrl+Shift+A</span>
               </div>
               <MenuItem
                 label="Medio"

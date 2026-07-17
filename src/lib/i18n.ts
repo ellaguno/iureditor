@@ -86,6 +86,8 @@ const STRINGS = {
     'files.empty': 'Sin carpeta de trabajo',
     'files.emptyDir': 'Carpeta vacía',
     'files.change': 'Cambiar carpeta',
+    'files.newFile': 'Nuevo archivo',
+    'files.newFilePlaceholder': 'nombre.md',
   },
   en: {
     'editor.placeholder': 'Write your document…',
@@ -169,6 +171,8 @@ const STRINGS = {
     'files.empty': 'No workspace folder',
     'files.emptyDir': 'Empty folder',
     'files.change': 'Change folder',
+    'files.newFile': 'New file',
+    'files.newFilePlaceholder': 'name.md',
   },
 } as const;
 
