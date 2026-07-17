@@ -123,6 +123,18 @@ export const createFile = async (dir: string, rawName: string): Promise<string> 
   return path;
 };
 
+/** Crea una carpeta nueva en `dir` con el nombre dado. Devuelve la ruta
+ *  creada; lanza si ya existe o el nombre es inválido. Usado por el menú
+ *  contextual del panel de archivos. */
+export const createFolder = async (dir: string, rawName: string): Promise<string> => {
+  const trimmed = rawName.trim().replace(/[\\/]+$/, '');
+  if (!trimmed || /[\\/]/.test(trimmed)) throw new Error('nombre-invalido');
+  const path = `${dir}/${trimmed}`;
+  if (await exists(path)) throw new Error('ya-existe');
+  await mkdir(path);
+  return path;
+};
+
 /** Fecha de modificación en ms, o null si no se puede leer. Base de la
  *  detección de cambios externos al archivo abierto. */
 export const getMtime = async (path: string): Promise<number | null> => {

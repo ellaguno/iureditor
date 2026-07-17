@@ -31,6 +31,7 @@ import {
   readDocument,
   writeDocument,
   createFile,
+  createFolder,
   dirname,
   pickOpenPath,
   pickSavePath,
@@ -541,6 +542,45 @@ export default function App() {
     [loadDocument]
   );
 
+  /** Nueva carpeta desde el menú contextual del panel. Devuelve true si se
+   *  creó (el panel cierra su input y recarga). */
+  const handleCreateFolder = useCallback(
+    async (dir: string, name: string): Promise<boolean> => {
+      try {
+        await createFolder(dir, name);
+        setLastDir(dir);
+        return true;
+      } catch (err) {
+        const { message } = await import('@tauri-apps/plugin-dialog');
+        const reason =
+          err instanceof Error && err.message === 'ya-existe'
+            ? 'Ya existe una carpeta con ese nombre.'
+            : 'No se pudo crear la carpeta (nombre inválido o sin permisos).';
+        await message(reason, { title: 'iureditor', kind: 'warning' });
+        return false;
+      }
+    },
+    []
+  );
+
+  /** "Subir un directorio" del panel: la carpeta de trabajo pasa a ser su
+   *  carpeta padre (dentro de $HOME; readDir arriba de ahí falla por scope). */
+  const handleGoUp = useCallback(() => {
+    setWorkspace((current) => {
+      if (!current) return current;
+      const parent = dirname(current);
+      if (!parent || parent === current) return current;
+      setLastDir(parent);
+      return parent;
+    });
+  }, []);
+
+  /** Doble clic en una carpeta del panel: pasa a ser la carpeta de trabajo. */
+  const handleEnterDir = useCallback((dir: string) => {
+    setWorkspace(dir);
+    setLastDir(dir);
+  }, []);
+
   /** El panel informa qué carpeta está activa: pasa a ser el destino por
    *  defecto de los archivos nuevos. */
   const handleSelectDir = useCallback((dir: string) => setLastDir(dir), []);
@@ -659,6 +699,23 @@ export default function App() {
     },
     [doSave]
   );
+
+  // ---------- imagen pegada desde el portapapeles del sistema ----------
+  // Respaldo para Linux/WebKitGTK, donde el evento `paste` del DOM no entrega
+  // los bytes de una captura. Devuelve un File PNG o null si no hay imagen.
+  const readClipboardImageFile = useCallback(async (): Promise<File | null> => {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const b64 = await invoke<string | null>('read_clipboard_image');
+      if (!b64) return null;
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      // Nombre `image.png` → saveImageToAssets genera `img-<timestamp>.png`.
+      return new File([bytes], 'image.png', { type: 'image/png' });
+    } catch (err) {
+      console.error('No se pudo leer la imagen del portapapeles:', err);
+      return null;
+    }
+  }, []);
 
   // ---------- imagen vía diálogo nativo (botón Examinar del modal) ----------
   const handleBrowseImage = useCallback(async (): Promise<string | null> => {
@@ -1170,7 +1227,10 @@ export default function App() {
             }
             onPickFolder={() => void handlePickWorkspace()}
             onCreateFile={handleCreateFile}
+            onCreateFolder={handleCreateFolder}
             onSelectDir={handleSelectDir}
+            onGoUp={handleGoUp}
+            onEnterDir={handleEnterDir}
           />
         )}
         <div className="flex-1 min-w-0 flex flex-col" style={{ zoom }} data-page-width={pageWidth}>
@@ -1193,6 +1253,7 @@ export default function App() {
                 }}
                 onInsertImageFile={handleInsertImageFile}
                 onBrowseImage={handleBrowseImage}
+                onReadClipboardImage={readClipboardImageFile}
               />
             </div>
           ))}

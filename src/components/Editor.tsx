@@ -93,10 +93,16 @@ interface EditorProps {
   onInsertImageFile?: (file: File) => Promise<string | null>;
   /** Diálogo nativo de selección de imagen (botón Examinar del modal). */
   onBrowseImage?: () => Promise<string | null>;
+  /**
+   * Lee una imagen del portapapeles del sistema (respaldo para Linux, donde
+   * el evento `paste` del DOM no entrega los bytes de una captura). Devuelve
+   * un File o null si el portapapeles no contiene una imagen.
+   */
+  onReadClipboardImage?: () => Promise<File | null>;
 }
 
 export const Editor = forwardRef<EditorHandle, EditorProps>(
-  ({ onChange, onHeadingsChange, onInsertImageFile, onBrowseImage }, ref) => {
+  ({ onChange, onHeadingsChange, onInsertImageFile, onBrowseImage, onReadClipboardImage }, ref) => {
     const turndown = useMemo(() => buildTurndownService(), []);
     const [showSearch, setShowSearch] = useState(false);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -106,6 +112,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
     onHeadingsRef.current = onHeadingsChange;
     const insertFileRef = useRef(onInsertImageFile);
     insertFileRef.current = onInsertImageFile;
+    const readClipboardImageRef = useRef(onReadClipboardImage);
+    readClipboardImageRef.current = onReadClipboardImage;
     const editorRef = useRef<TipTapEditor | null>(null);
     // Front matter YAML del documento actual: no se renderiza en el editor,
     // pero debe sobrevivir el round-trip (se antepone al markdown emitido).
@@ -204,6 +212,20 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
             const inst = editorRef.current;
             if (inst) inst.chain().focus().insertContent(markdownToHtml(text)).run();
             return true;
+          }
+          // 3) Respaldo: en Linux/WebKitGTK las capturas del portapapeles no
+          //    llegan por clipboardData. Si no había ni imagen ni texto en el
+          //    evento del DOM, consultamos el portapapeles del sistema vía
+          //    Rust. Es asíncrono, así que no podemos preventDefault aquí:
+          //    dejamos que el paste por defecto siga (no inserta nada útil sin
+          //    texto) e insertamos la imagen cuando llegue.
+          if (!html && !text && readClipboardImageRef.current) {
+            void (async () => {
+              const file = await readClipboardImageRef.current?.();
+              if (file && editorRef.current) {
+                await insertImageFile(file, editorRef.current);
+              }
+            })();
           }
           return false;
         },

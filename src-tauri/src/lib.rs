@@ -90,6 +90,39 @@ async fn render_svg_png(svg: String, scale: f32) -> Result<String, String> {
     rasterize_svg(&svg, scale)
 }
 
+/// Lee una imagen del portapapeles del sistema y la devuelve como PNG en
+/// base64 (o `None` si el portapapeles no contiene una imagen). Necesario
+/// porque en Linux WebKitGTK no expone los bytes de una captura a través del
+/// evento `paste` del DOM; el frontend usa esto como respaldo al pegar.
+/// async: arboard puede tardar un poco en dialogar con el servidor de
+/// portapapeles y no queremos congelar el hilo de UI.
+#[tauri::command]
+async fn read_clipboard_image() -> Result<Option<String>, String> {
+    use base64::Engine as _;
+
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    let img = match clipboard.get_image() {
+        Ok(img) => img,
+        // Sin imagen en el portapapeles (o formato no soportado): no es error.
+        Err(_) => return Ok(None),
+    };
+
+    let mut png_bytes: Vec<u8> = Vec::new();
+    {
+        let mut encoder =
+            png::Encoder::new(&mut png_bytes, img.width as u32, img.height as u32);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
+        writer
+            .write_image_data(&img.bytes)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(Some(
+        base64::engine::general_purpose::STANDARD.encode(png_bytes),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -172,7 +205,8 @@ pub fn run() {
             allow_asset_dir,
             get_cli_file,
             print_webview,
-            render_svg_png
+            render_svg_png,
+            read_clipboard_image
         ])
         .setup(|app| {
             #[cfg(target_os = "linux")]

@@ -1,13 +1,19 @@
 import { NodeViewWrapper } from '@tiptap/react';
 import type { NodeViewProps } from '@tiptap/react';
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { AlertTriangle, Pencil, Trash2 } from 'lucide-react';
 import { renderMathHtml } from '../lib/katex';
 import { t } from '../lib/i18n';
 
 // NodeView compartido para fórmulas KaTeX inline y de bloque: render en vivo,
 // clic (inline) / doble clic (bloque) para editar el LaTeX en el sitio.
-export const MathNodeView = ({ node, updateAttributes, selected }: NodeViewProps) => {
+export const MathNodeView = ({
+  node,
+  updateAttributes,
+  selected,
+  deleteNode,
+}: NodeViewProps) => {
   const latex: string = node.attrs.latex || '';
   const isBlock = node.type.name === 'mathBlock';
   const [html, setHtml] = useState('');
@@ -68,6 +74,75 @@ export const MathNodeView = ({ node, updateAttributes, selected }: NodeViewProps
     e.stopPropagation();
   };
 
+  // Menú contextual (botón derecho): Editar / Borrar. Sustituye al menú
+  // nativo del webview (que sólo ofrecía "Inspeccionar elemento").
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+
+  const openMenu = (e: React.MouseEvent) => {
+    if (editing) return; // en modo edición se deja el menú nativo (pegar, etc.)
+    e.preventDefault();
+    e.stopPropagation();
+    setMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenu(null);
+    };
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [menu]);
+
+  // Se renderiza en document.body (portal): evita el anidado inválido de un
+  // div dentro del wrapper inline (<span>) y los recortes por overflow.
+  const contextMenu =
+    menu &&
+    createPortal(
+      <div
+        role="menu"
+        onContextMenu={(e) => e.preventDefault()}
+        style={{
+          left: Math.min(menu.x, window.innerWidth - 160),
+          top: Math.min(menu.y, window.innerHeight - 90),
+        }}
+        className="fixed z-50 min-w-[140px] py-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl"
+      >
+        <button
+          type="button"
+          onClick={() => {
+            setMenu(null);
+            setEditing(true);
+          }}
+          className="w-full px-3 py-1.5 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+        >
+          <Pencil className="w-4 h-4 opacity-70" />
+          {t('math.edit')}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setMenu(null);
+            deleteNode();
+          }}
+          className="w-full px-3 py-1.5 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+        >
+          <Trash2 className="w-4 h-4 opacity-70" />
+          {t('math.delete')}
+        </button>
+      </div>,
+      document.body
+    );
+
   const ring = selected ? 'ring-2 ring-primary-300 dark:ring-primary-700' : '';
 
   if (isBlock) {
@@ -77,7 +152,9 @@ export const MathNodeView = ({ node, updateAttributes, selected }: NodeViewProps
           selected ? 'border-primary-400' : 'border-transparent hover:border-gray-200 dark:hover:border-gray-700'
         } ${ring}`}
         data-math-block
+        onContextMenu={openMenu}
       >
+        {contextMenu}
         {editing ? (
           <div className="p-3">
             <textarea
@@ -135,7 +212,13 @@ export const MathNodeView = ({ node, updateAttributes, selected }: NodeViewProps
 
   // Inline
   return (
-    <NodeViewWrapper as="span" className={`iur-math-inline rounded ${ring}`} data-math-inline>
+    <NodeViewWrapper
+      as="span"
+      className={`iur-math-inline rounded ${ring}`}
+      data-math-inline
+      onContextMenu={openMenu}
+    >
+      {contextMenu}
       {editing ? (
         <span className="inline-flex items-center gap-1">
           <input
