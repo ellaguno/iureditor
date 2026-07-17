@@ -1,81 +1,14 @@
 import Image from '@tiptap/extension-image';
 import { mergeAttributes } from '@tiptap/core';
+import { ReactNodeViewRenderer } from '@tiptap/react';
+import { ImageNodeView } from '../components/ImageNodeView';
+import { resolveSrc } from './imageResolve';
 
 // Imágenes con rutas relativas al documento (p. ej. `assets/img-123.png`).
-// El modelo conserva la ruta relativa (así el .md guardado queda portable);
-// para MOSTRARLA la webview necesita una URL del asset protocol de Tauri
-// (convertFileSrc). La ruta original viaja en data-orig-src y la regla de
-// Turndown / parseHTML la recupera.
-
-let docDir: string | null = null;
-let convertFileSrcFn: ((path: string) => string) | null = null;
-
-// Import perezoso del API de Tauri: en vitest/jsdom no existe el runtime.
-const ensureConvert = () => {
-  if (convertFileSrcFn) return convertFileSrcFn;
-  try {
-    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
-      // import estático evitado: sólo disponible dentro de Tauri
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      import('@tauri-apps/api/core').then((m) => {
-        convertFileSrcFn = m.convertFileSrc;
-      });
-    }
-  } catch {
-    /* fuera de Tauri (tests, navegador) las relativas quedan sin resolver */
-  }
-  return convertFileSrcFn;
-};
-
-/** La app llama esto al abrir/guardar-como, después de allow_asset_dir. */
-export const setImageBaseDir = async (dir: string | null) => {
-  docDir = dir;
-  if (dir && !convertFileSrcFn) {
-    try {
-      const m = await import('@tauri-apps/api/core');
-      convertFileSrcFn = m.convertFileSrc;
-    } catch {
-      /* no-op fuera de Tauri */
-    }
-  }
-};
-
-const isRelative = (src: string): boolean =>
-  !!src && !/^(?:[a-z]+:)?\/\//i.test(src) && !src.startsWith('data:') &&
-  !src.startsWith('asset:') && !src.startsWith('/') && !src.startsWith('http');
-
-/** Une `base` + `rel` y colapsa los segmentos `.`/`..` a una ruta absoluta.
- *  Necesario para rutas como `../instance/img.png`: sin normalizar, el asset
- *  protocol de Tauri recibe `…/docs/../instance/img.png` y la comprobación de
- *  scope (que compara contra el directorio permitido canónico) la rechaza, por
- *  lo que la imagen no se dibuja. El separador de salida es el de `base`. */
-export const joinAndNormalize = (base: string, rel: string): string => {
-  const sep = base.includes('\\') ? '\\' : '/';
-  const raw = `${base}${base.endsWith(sep) ? '' : sep}${rel}`;
-  const stack: string[] = [];
-  const parts = raw.split(/[/\\]/);
-  parts.forEach((p, i) => {
-    if (p === '.') return;
-    if (p === '') {
-      if (i === 0) stack.push(''); // conserva la raíz "/" de rutas POSIX
-      return;
-    }
-    if (p === '..') {
-      const top = stack[stack.length - 1];
-      if (stack.length && top !== '' && top !== '..') stack.pop();
-      return;
-    }
-    stack.push(p);
-  });
-  return stack.join(sep) || sep;
-};
-
-const resolveSrc = (src: string): string => {
-  if (!isRelative(src) || !docDir) return src;
-  const fn = convertFileSrcFn || ensureConvert();
-  if (!fn) return src;
-  return fn(joinAndNormalize(docDir, src));
-};
+// La resolución de rutas y el estado del directorio del documento viven en
+// `imageResolve.ts` (módulo hoja, para no crear un ciclo con el NodeView).
+// Se re-exportan aquí los helpers que ya consumen fileio.ts y los tests.
+export { setImageBaseDir, joinAndNormalize, resolveSrc, resolveAssetFsPath } from './imageResolve';
 
 export const LocalImage = Image.extend({
   name: 'image',
@@ -101,5 +34,11 @@ export const LocalImage = Image.extend({
         'data-orig-src': src,
       }),
     ];
+  },
+
+  // NodeView para el menú contextual (abrir en editor externo / borrar). No
+  // altera renderHTML, así que la serialización a markdown sigue igual.
+  addNodeView() {
+    return ReactNodeViewRenderer(ImageNodeView);
   },
 });
