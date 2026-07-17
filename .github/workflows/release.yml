@@ -46,6 +46,27 @@ jobs:
 
       - run: npm ci
 
+      # Cuerpo del release = sección del CHANGELOG para este tag (vX.Y.Z).
+      # `shell: bash` y `cat`/`awk` funcionan en los tres runners.
+      - name: Extraer notas del CHANGELOG
+        id: notes
+        shell: bash
+        run: |
+          notes=$(awk -v tag="$GITHUB_REF_NAME" '
+            index($0, "## " tag) == 1 { grab = 1; next }
+            grab && /^## v/ { exit }
+            grab { print }
+          ' CHANGELOG.md)
+          # Respaldo si el tag no tiene sección en el CHANGELOG.
+          if [ -z "$(printf '%s' "$notes" | tr -d '[:space:]')" ]; then
+            notes="Ver los assets para descargar la versión de tu plataforma."
+          fi
+          {
+            echo "body<<__NOTES_EOF__"
+            echo "$notes"
+            echo "__NOTES_EOF__"
+          } >> "$GITHUB_OUTPUT"
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -55,7 +76,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'iureditor ${{ github.ref_name }}'
-          releaseBody: 'Ver los assets para descargar la versión de tu plataforma.'
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
