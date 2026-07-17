@@ -5,6 +5,19 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.5.5 — 2026-07-17
+
+### Nuevo
+- **Editor de diagramas mermaid mejorado**: al editar se abre un panel con el
+  código a la izquierda y una **vista previa en vivo** a la derecha, más
+  **plantillas** por tipo de diagrama (flujo, secuencia, clases, estados,
+  entidad–relación, Gantt, pastel). `Tab` inserta espacios en vez de mover el
+  foco.
+- **Menú contextual en las imágenes** (reemplaza el del navegador): **«Abrir en
+  editor externo»** —abre el asset con la app del sistema, pensado para editar
+  SVG de draw.io— y **«Borrar imagen»**. Al volver a la app tras editar afuera,
+  la imagen se refresca automáticamente.
+
 ## v1.5.4 — 2026-07-17
 
 ### Nuevo
