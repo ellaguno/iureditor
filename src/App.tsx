@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { listen } from '@tauri-apps/api/event';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { Editor } from './components/Editor';
 import type { EditorHandle } from './components/Editor';
@@ -63,6 +64,15 @@ import { exportToPdf } from './lib/exportPdf';
 import { t } from './lib/i18n';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+// Ventana desacoplada: se creó con `index.html?detach=<ruta>` desde el menú de
+// una pestaña. Arranca con ese único documento y NO persiste sesión ni
+// borradores (esos son responsabilidad de la ventana principal, y el store es
+// compartido entre ventanas: escribirlo aquí pisaría el de la principal).
+const detachPath =
+  isTauri && typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('detach')
+    : null;
 
 // Un documento abierto = una pestaña. Cada pestaña monta su propio <Editor>
 // (oculto si no está activa): así conserva su historial de undo, cursor y
@@ -156,6 +166,7 @@ export default function App() {
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const scheduleDraftSave = useCallback(() => {
+    if (detachPath) return; // las ventanas desacopladas no tocan los borradores
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     draftTimerRef.current = setTimeout(() => {
       const drafts = tabsRef.current
@@ -476,6 +487,98 @@ export default function App() {
     [updateCounts, updateTab]
   );
 
+  // ---------- menú contextual de pestañas ----------
+  /** Recargar desde disco (menú contextual). Si hay cambios locales, confirma
+   *  antes de descartarlos. */
+  const handleReloadTab = useCallback(
+    async (id: number) => {
+      const tab = tabsRef.current.find((tb) => tb.id === id);
+      if (!tab?.path) return;
+      if (tab.dirty && !(await confirmDiscard())) return;
+      await reloadTabFromDisk(id);
+    },
+    [reloadTabFromDisk]
+  );
+
+  const handleCloseOthers = useCallback(
+    async (id: number) => {
+      const others = tabsRef.current.filter((tb) => tb.id !== id).map((tb) => tb.id);
+      for (const oid of others) await handleCloseTab(oid);
+    },
+    [handleCloseTab]
+  );
+
+  const handleCloseRight = useCallback(
+    async (id: number) => {
+      const list = tabsRef.current;
+      const idx = list.findIndex((tb) => tb.id === id);
+      if (idx < 0) return;
+      const right = list.slice(idx + 1).map((tb) => tb.id);
+      for (const rid of right) await handleCloseTab(rid);
+    },
+    [handleCloseTab]
+  );
+
+  /** Guarda una pestaña concreta en su ruta (sin diálogo: ya tiene archivo).
+   *  Usado al desacoplar una pestaña sucia, para que la ventana nueva no lea
+   *  del disco una versión vieja. Devuelve false si el usuario cancela ante un
+   *  cambio externo. */
+  const saveTabInPlace = useCallback(
+    async (id: number): Promise<boolean> => {
+      const tab = tabsRef.current.find((tb) => tb.id === id);
+      if (!tab?.path) return false;
+      // Si es la pestaña activa en modo fuente, vuelca el textarea al editor.
+      if (id === activeIdRef.current) syncSourceToEditor();
+      const md = tab.plain
+        ? sourceTexts.current.get(id) ?? ''
+        : editorHandles.current.get(id)?.getMarkdown() ?? '';
+      const known = diskMtime.current.get(id);
+      const current = await getMtime(tab.path);
+      if (known !== undefined && current !== null && current > known) {
+        if (!(await confirmOverwriteExternal(basename(tab.path)))) return false;
+      }
+      await writeDocument(tab.path, md);
+      const savedMtime = await getMtime(tab.path);
+      if (savedMtime !== null) diskMtime.current.set(id, savedMtime);
+      savedMd.current.set(id, md);
+      updateTab(id, { dirty: false });
+      return true;
+    },
+    [syncSourceToEditor, updateTab]
+  );
+
+  /** Desacoplar la pestaña a una ventana propia (mismo proceso). La ventana
+   *  nueva lee el archivo del disco, así que primero se guarda si está sucia. */
+  const handleDetachTab = useCallback(
+    async (id: number) => {
+      const tab = tabsRef.current.find((tb) => tb.id === id);
+      if (!tab?.path) return; // sin archivo no hay nada que leer en la ventana nueva
+      if (tab.dirty && !(await saveTabInPlace(id))) return;
+      const path = tab.path;
+      try {
+        const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+        const label = `doc-${Date.now()}`;
+        const win = new WebviewWindow(label, {
+          url: `index.html?detach=${encodeURIComponent(path)}`,
+          title: basename(path),
+          width: 1000,
+          height: 760,
+          minWidth: 640,
+          minHeight: 480,
+          decorations: false,
+        });
+        win.once('tauri://error', (e) =>
+          console.error('No se pudo desacoplar la pestaña:', e)
+        );
+      } catch (err) {
+        console.error('No se pudo desacoplar la pestaña:', err);
+        return;
+      }
+      removeTab(id); // ya guardada/limpia: sin diálogo de descarte
+    },
+    [saveTabInPlace, removeTab]
+  );
+
   const externalCheckBusy = useRef(false);
 
   /** Al recuperar el foco: ¿algún archivo abierto cambió en disco?
@@ -516,6 +619,21 @@ export default function App() {
       void unlisten.then((fn) => fn());
     };
   }, [checkExternalChanges]);
+
+  // ---------- instancia única: abrir archivo de un 2º lanzamiento ----------
+  // El plugin single-instance (Rust) emite "open-file" a la ventana principal
+  // cuando se abre un .md con la app ya corriendo, en vez de lanzar otra
+  // instancia. loadDocument deduplica por ruta.
+  useEffect(() => {
+    if (!isTauri || detachPath) return;
+    const unlisten = listen<string>('open-file', (event) => {
+      const path = event.payload;
+      if (path) void loadDocument(path);
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, [loadDocument]);
 
   const handleNew = useCallback(() => {
     createTab();
@@ -998,6 +1116,15 @@ export default function App() {
     void ensureStarterTemplates().then(() => listTemplates().then(setTemplates));
     void (async () => {
       try {
+        // 0) Ventana desacoplada: sólo su documento, sin sesión ni borradores.
+        if (detachPath) {
+          try {
+            await loadDocument(detachPath);
+          } catch (err) {
+            console.error('No se pudo abrir el documento desacoplado:', err);
+          }
+          return;
+        }
         // 1) ¿Quedaron borradores de una sesión que terminó mal?
         const drafts = await loadDrafts();
         let recovered = false;
@@ -1090,7 +1217,9 @@ export default function App() {
 
   // ---------- persistencia de la sesión de pestañas ----------
   useEffect(() => {
-    if (!isTauri || !sessionReady.current) return;
+    // La ventana desacoplada no persiste sesión (store compartido: pisaría la
+    // de la ventana principal).
+    if (!isTauri || detachPath || !sessionReady.current) return;
     const timer = setTimeout(() => {
       // Dedup por si el árbol de pestañas llegara a tener la misma ruta abierta
       // más de una vez: la sesión guardada nunca debe multiplicar archivos.
@@ -1108,9 +1237,10 @@ export default function App() {
       const dirtyTabs = tabsRef.current.filter((tab) => tab.dirty);
       if (dirtyTabs.length === 0) return;
       if (await confirmDiscard()) {
-        // Cierre con descarte explícito: sin borradores huérfanos.
+        // Cierre con descarte explícito: sin borradores huérfanos. La ventana
+        // desacoplada no gestiona borradores (son de la principal).
         if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
-        await clearDrafts();
+        if (!detachPath) await clearDrafts();
       } else {
         event.preventDefault();
       }
@@ -1168,6 +1298,10 @@ export default function App() {
           activeTabId={activeId}
           onSelectTab={setActiveId}
           onCloseTab={(id) => void handleCloseTab(id)}
+          onReloadTab={(id) => void handleReloadTab(id)}
+          onCloseOthers={(id) => void handleCloseOthers(id)}
+          onCloseRight={(id) => void handleCloseRight(id)}
+          onDetachTab={(id) => void handleDetachTab(id)}
           onReorderTab={reorderTabs}
           recentFiles={recentFiles}
           templates={templates}

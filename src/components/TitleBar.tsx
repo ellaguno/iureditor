@@ -177,6 +177,7 @@ const Tab = ({
   onSelect,
   onClose,
   onDragStart,
+  onContextMenu,
 }: {
   id: number;
   title: string;
@@ -186,6 +187,7 @@ const Tab = ({
   onSelect: () => void;
   onClose: () => void;
   onDragStart: (e: React.MouseEvent) => void;
+  onContextMenu: (e: React.MouseEvent) => void;
 }) => (
   <div
     role="tab"
@@ -198,6 +200,12 @@ const Tab = ({
     }}
     onAuxClick={(e) => {
       if (e.button === 1) onClose(); // clic central cierra, como en navegadores
+    }}
+    onContextMenu={(e) => {
+      // Sustituye el menú del navegador (WebKitGTK) por el propio.
+      e.preventDefault();
+      onSelect();
+      onContextMenu(e);
     }}
     title={title}
     className={`group/tab h-7 max-w-[180px] min-w-0 shrink-0 px-2.5 rounded-md flex items-center gap-1.5 text-sm cursor-default select-none ${
@@ -233,6 +241,10 @@ export const TitleBar = ({
   activeTabId,
   onSelectTab,
   onCloseTab,
+  onReloadTab,
+  onCloseOthers,
+  onCloseRight,
+  onDetachTab,
   onReorderTab,
   recentFiles,
   templates,
@@ -245,6 +257,10 @@ export const TitleBar = ({
   activeTabId: number;
   onSelectTab: (id: number) => void;
   onCloseTab: (id: number) => void;
+  onReloadTab: (id: number) => void;
+  onCloseOthers: (id: number) => void;
+  onCloseRight: (id: number) => void;
+  onDetachTab: (id: number) => void;
   onReorderTab: (from: number, to: number) => void;
   recentFiles: string[];
   templates: string[];
@@ -254,6 +270,9 @@ export const TitleBar = ({
   const [section, setSection] = useState<SectionId>('file');
   const [version, setVersion] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
+  // Menú contextual de una pestaña (clic derecho): guarda id y posición.
+  const [tabMenu, setTabMenu] = useState<{ id: number; x: number; y: number } | null>(null);
+  const tabMenuRef = useRef<HTMLDivElement>(null);
 
   // Reorden de pestañas arrastrando. HTML5 drag&drop no funciona dentro de
   // la webview de Tauri (el runtime intercepta los drops), así que se hace
@@ -334,8 +353,33 @@ export const TitleBar = ({
     };
   }, [menuOpen]);
 
+  // Cerrar el menú contextual de pestaña ante clic fuera, Escape o resize.
+  useEffect(() => {
+    if (!tabMenu) return;
+    const onDown = (e: MouseEvent) => {
+      if (tabMenuRef.current && !tabMenuRef.current.contains(e.target as Node)) setTabMenu(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setTabMenu(null);
+    };
+    const close = () => setTabMenu(null);
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('resize', close);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', close);
+    };
+  }, [tabMenu]);
+
   const closeAnd = (fn: () => void) => () => {
     setMenuOpen(false);
+    fn();
+  };
+
+  const runTabAction = (fn: () => void) => () => {
+    setTabMenu(null);
     fn();
   };
 
@@ -577,6 +621,7 @@ export const TitleBar = ({
               onSelect={() => onSelectTab(tab.id)}
               onClose={() => onCloseTab(tab.id)}
               onDragStart={handleTabDragStart(tab.id)}
+              onContextMenu={(e) => setTabMenu({ id: tab.id, x: e.clientX, y: e.clientY })}
             />
           ))}
           <button
@@ -604,6 +649,51 @@ export const TitleBar = ({
           <X className="w-4 h-4" />
         </WindowButton>
       </div>
+
+      {/* Menú contextual de una pestaña */}
+      {tabMenu &&
+        (() => {
+          const menuTab = tabs.find((tb) => tb.id === tabMenu.id);
+          const idx = tabs.findIndex((tb) => tb.id === tabMenu.id);
+          const hasPath = !!menuTab?.path;
+          const hasRight = idx >= 0 && idx < tabs.length - 1;
+          const hasOthers = tabs.length > 1;
+          return (
+            <div
+              ref={tabMenuRef}
+              // Ancla en el cursor; se sube 4px para no quedar bajo el puntero.
+              style={{ top: tabMenu.y + 4, left: tabMenu.x }}
+              className="fixed z-[60] min-w-[210px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl py-1"
+            >
+              <MenuItem
+                label="Recargar"
+                disabled={!hasPath}
+                onClick={runTabAction(() => onReloadTab(tabMenu.id))}
+              />
+              <MenuItem
+                label="Cerrar"
+                shortcut="Ctrl+W"
+                onClick={runTabAction(() => onCloseTab(tabMenu.id))}
+              />
+              <MenuItem
+                label="Cerrar las demás"
+                disabled={!hasOthers}
+                onClick={runTabAction(() => onCloseOthers(tabMenu.id))}
+              />
+              <MenuItem
+                label="Cerrar las de la derecha"
+                disabled={!hasRight}
+                onClick={runTabAction(() => onCloseRight(tabMenu.id))}
+              />
+              <MenuSeparator />
+              <MenuItem
+                label="Desacoplar en ventana nueva"
+                disabled={!hasPath}
+                onClick={runTabAction(() => onDetachTab(tabMenu.id))}
+              />
+            </div>
+          );
+        })()}
     </div>
   );
 };

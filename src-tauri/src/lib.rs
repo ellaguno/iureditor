@@ -1,4 +1,20 @@
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+
+/// Primer argumento de la línea de comandos que sea un archivo existente,
+/// canonicalizado. Se usa tanto al arrancar (`get_cli_file`) como cuando una
+/// segunda instancia le pasa su argv a la instancia viva.
+fn first_file_arg(args: &[String]) -> Option<String> {
+    args.iter().skip(1).find_map(|arg| {
+        let path = std::path::Path::new(arg);
+        if path.is_file() {
+            path.canonicalize()
+                .ok()
+                .map(|p| p.to_string_lossy().into_owned())
+        } else {
+            None
+        }
+    })
+}
 
 /// Permite al asset protocol servir imágenes del directorio del documento
 /// abierto (referencias relativas tipo `assets/img-*.png`).
@@ -15,15 +31,7 @@ fn allow_asset_dir(app: tauri::AppHandle, path: String) -> Result<(), String> {
 /// al arrancar.
 #[tauri::command]
 fn get_cli_file() -> Option<String> {
-    let arg = std::env::args().nth(1)?;
-    let path = std::path::Path::new(&arg);
-    if path.is_file() {
-        path.canonicalize()
-            .ok()
-            .map(|p| p.to_string_lossy().into_owned())
-    } else {
-        None
-    }
+    first_file_arg(&std::env::args().collect::<Vec<_>>())
 }
 
 /// Fallback de impresión: window.print() no es fiable en todos los webviews
@@ -183,6 +191,20 @@ fn enable_spellcheck(app: &tauri::App) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Debe ir primero (recomendación del plugin): si hay otra instancia,
+        // este callback corre en la instancia viva con el argv del proceso
+        // nuevo, que ya se cerró. Enfocamos la ventana principal y, si trae un
+        // archivo, lo abrimos ahí (el frontend deduplica por ruta).
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+                if let Some(file) = first_file_arg(&argv) {
+                    let _ = window.emit("open-file", file);
+                }
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())

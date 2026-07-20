@@ -1,6 +1,6 @@
 [package]
 name = "iureditor"
-version = "1.5.6"
+version = "1.5.7"
 description = "Editor WYSIWYG de Markdown con Mermaid y export a PDF/DOCX"
 authors = ["Eduardo Llaguno"]
 license = "MIT"
@@ -33,6 +33,10 @@ arboard = { version = "3", features = ["wayland-data-control"] }
 png = "0.17"
 tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
+# Instancia única: al abrir un .md con la app ya corriendo, el nuevo proceso
+# le pasa su argv a la instancia viva (que enfoca la ventana y abre el archivo)
+# y se cierra, en lugar de lanzar otra ventana de iureditor.
+tauri-plugin-single-instance = "2"
 
 # Para activar la corrección ortográfica de WebKitGTK (misma versión que
 # usa wry, ver Cargo.lock).

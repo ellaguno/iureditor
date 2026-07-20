@@ -5,6 +5,17 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.5.7 — 2026-07-20
+
+### Nuevo
+- **Instancia única**: abrir un documento con iureditor ya abierto ya no lanza
+  otra ventana. La instancia viva recibe el foco y abre el archivo en una
+  pestaña (si ya estaba abierto, solo la activa).
+- **Menú contextual propio en las pestañas** (reemplaza el del navegador):
+  **Recargar**, **Cerrar**, **Cerrar las demás**, **Cerrar las de la derecha** y
+  **Desacoplar en ventana nueva**.
+- **Desacoplar pestaña**: abre el documento en una ventana propia.
+
 ## v1.5.6 — 2026-07-20
 
 ### Nuevo

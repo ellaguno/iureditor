@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main and print-preview windows",
-  "windows": ["main", "print-preview"],
+  "description": "Capability for the main, print-preview and detached document windows",
+  "windows": ["main", "print-preview", "doc-*"],
   "permissions": [
     "core:default",
     "core:window:allow-close",
