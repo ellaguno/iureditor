@@ -348,9 +348,20 @@ export const markdownToHtml = (markdown: string): string => {
     const out: string[] = [];
     let quoteBuffer: string[] = [];
 
+    // Callout / admonición: primera línea `[!TIPO]` (GitHub/Obsidian).
+    const CALLOUT_TYPES = new Set(['note', 'tip', 'important', 'warning', 'caution']);
     const flushQuote = () => {
       if (quoteBuffer.length === 0) return;
-      out.push(`<blockquote><p>${quoteBuffer.join('<br>')}</p></blockquote>`);
+      const marker = /^\[!(\w+)\]\s*(.*)$/.exec(quoteBuffer[0]);
+      const type = marker?.[1].toLowerCase();
+      if (type && CALLOUT_TYPES.has(type)) {
+        const body: string[] = [];
+        if (marker?.[2]) body.push(marker[2]);
+        for (let i = 1; i < quoteBuffer.length; i++) body.push(quoteBuffer[i]);
+        out.push(`<div data-callout="${type}"><p>${body.join('<br>')}</p></div>`);
+      } else {
+        out.push(`<blockquote><p>${quoteBuffer.join('<br>')}</p></blockquote>`);
+      }
       quoteBuffer = [];
     };
 
@@ -412,6 +423,23 @@ export const buildTurndownService = (): TurndownService => {
   // heading. With escaping on, every save/edit round-trip adds another
   // backslash: "# foo" → "\# foo" → "\\# foo" …
   (service as unknown as { escape: (s: string) => string }).escape = (s: string) => s;
+
+  // Callout → blockquote con marcador `> [!TIPO]`
+  service.addRule('callout', {
+    filter: (node) =>
+      node.nodeName === 'DIV' && node.getAttribute('data-callout') !== null,
+    replacement: (content, node) => {
+      const type = (node as HTMLElement).getAttribute('data-callout') || 'note';
+      const inner = content.trim();
+      const body = inner
+        ? inner
+            .split('\n')
+            .map((l) => (l.trim() ? `> ${l}` : '>'))
+            .join('\n')
+        : '';
+      return `\n\n> [!${type.toUpperCase()}]${body ? `\n${body}` : ''}\n\n`;
+    },
+  });
 
   // Nodo mermaid → fence verbatim
   service.addRule('mermaidNode', {

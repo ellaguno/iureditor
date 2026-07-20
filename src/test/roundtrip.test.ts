@@ -111,4 +111,21 @@ describe('round-trip markdown → HTML → markdown', () => {
     expect(html).toContain('data-type="mermaid"');
     expect(html).toContain('data-code="graph LR');
   });
+
+  it('convierte callouts a div[data-callout] y de vuelta a > [!TIPO]', () => {
+    const html = markdownToHtml('> [!NOTE]\n> Primera línea.\n> Segunda línea.');
+    expect(html).toContain('data-callout="note"');
+    expect(html).not.toContain('<blockquote');
+
+    const service = buildTurndownService();
+    const md = service.turndown(html);
+    expect(md).toContain('> [!NOTE]');
+    expect(md).toContain('> Primera línea.');
+    expect(md).toContain('> Segunda línea.');
+
+    // Un blockquote normal NO debe convertirse en callout.
+    const plain = markdownToHtml('> solo una cita');
+    expect(plain).toContain('<blockquote');
+    expect(plain).not.toContain('data-callout');
+  });
 });

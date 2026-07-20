@@ -12,20 +12,20 @@
    atributo sólo existe en la vista de edición, el export/impresión no se ve
    afectado. */
 [data-page-width] .tiptap-editor,
-[data-page-width] .source-view {
+[data-page-width] .iur-source {
   margin-inline: auto;
   width: 100%;
 }
 [data-page-width='medium'] .tiptap-editor,
-[data-page-width='medium'] .source-view {
+[data-page-width='medium'] .iur-source {
   max-width: 48rem;
 }
 [data-page-width='wide'] .tiptap-editor,
-[data-page-width='wide'] .source-view {
+[data-page-width='wide'] .iur-source {
   max-width: 64rem;
 }
 [data-page-width='full'] .tiptap-editor,
-[data-page-width='full'] .source-view {
+[data-page-width='full'] .iur-source {
   max-width: none;
 }
 
@@ -331,4 +331,110 @@
 .tiptap-editor div[data-fn-def]::before {
   content: '[' attr(data-fn-def) '] ';
   @apply text-primary-600 dark:text-primary-400 font-semibold;
+}
+
+/* ---------- Callouts / admoniciones ---------- */
+.iur-callout {
+  @apply my-4 rounded-lg border-l-4 pl-3 pr-3 py-2;
+}
+.iur-callout-header {
+  @apply mb-1 select-none;
+}
+.iur-callout-title {
+  @apply inline-flex items-center gap-1.5 text-sm font-semibold;
+}
+.iur-callout-body > :first-child {
+  @apply mt-0;
+}
+.iur-callout-body > :last-child {
+  @apply mb-0;
+}
+
+/* Nota (azul) */
+.iur-callout-note {
+  @apply border-blue-400 bg-blue-50 dark:bg-blue-950/40 dark:border-blue-500;
+}
+.iur-callout-note .iur-callout-title {
+  @apply text-blue-700 dark:text-blue-300;
+}
+/* Consejo (verde) */
+.iur-callout-tip {
+  @apply border-green-400 bg-green-50 dark:bg-green-950/40 dark:border-green-500;
+}
+.iur-callout-tip .iur-callout-title {
+  @apply text-green-700 dark:text-green-300;
+}
+/* Importante (morado) */
+.iur-callout-important {
+  @apply border-purple-400 bg-purple-50 dark:bg-purple-950/40 dark:border-purple-500;
+}
+.iur-callout-important .iur-callout-title {
+  @apply text-purple-700 dark:text-purple-300;
+}
+/* Advertencia (ámbar) */
+.iur-callout-warning {
+  @apply border-amber-400 bg-amber-50 dark:bg-amber-950/40 dark:border-amber-500;
+}
+.iur-callout-warning .iur-callout-title {
+  @apply text-amber-700 dark:text-amber-300;
+}
+/* Precaución (rojo) */
+.iur-callout-caution {
+  @apply border-red-400 bg-red-50 dark:bg-red-950/40 dark:border-red-500;
+}
+.iur-callout-caution .iur-callout-title {
+  @apply text-red-700 dark:text-red-300;
+}
+
+/* ---------- Vista fuente con resaltado de sintaxis ---------- */
+/* Fondo oscuro en ambos temas (estilo editor de código); reutiliza la misma
+   paleta de tokens hljs que los bloques de código del WYSIWYG. */
+.iur-source {
+  @apply bg-gray-900 dark:bg-gray-950 text-gray-100;
+}
+.iur-source .hljs-comment,
+.iur-source .hljs-quote {
+  @apply text-gray-500;
+}
+.iur-source .hljs-variable,
+.iur-source .hljs-template-variable,
+.iur-source .hljs-attribute,
+.iur-source .hljs-attr,
+.iur-source .hljs-tag,
+.iur-source .hljs-name,
+.iur-source .hljs-regexp,
+.iur-source .hljs-selector-id,
+.iur-source .hljs-selector-class {
+  @apply text-red-400;
+}
+.iur-source .hljs-number,
+.iur-source .hljs-meta,
+.iur-source .hljs-built_in,
+.iur-source .hljs-builtin-name,
+.iur-source .hljs-literal,
+.iur-source .hljs-type,
+.iur-source .hljs-params {
+  @apply text-orange-400;
+}
+.iur-source .hljs-string,
+.iur-source .hljs-symbol,
+.iur-source .hljs-bullet {
+  @apply text-green-400;
+}
+.iur-source .hljs-title,
+.iur-source .hljs-section {
+  @apply text-yellow-400;
+}
+.iur-source .hljs-keyword,
+.iur-source .hljs-selector-tag {
+  @apply text-purple-400;
+}
+.iur-source .hljs-emphasis {
+  @apply italic;
+}
+.iur-source .hljs-strong {
+  @apply font-bold;
+}
+.iur-source .hljs-link {
+  @apply text-blue-400 underline;
 }

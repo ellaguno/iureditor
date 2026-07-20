@@ -8,6 +8,7 @@ import { TitleBar } from './components/TitleBar';
 import { ResizeHandles } from './components/ResizeHandles';
 import { StatusBar } from './components/StatusBar';
 import { SourceView } from './components/SourceView';
+import { languageForPath } from './lib/highlight';
 import { Sidebar } from './components/Sidebar';
 import type { HeadingInfo } from './lib/outline';
 import { collectHeadings, buildTocHtml } from './lib/outline';
@@ -1262,6 +1263,7 @@ export default function App() {
               value={sourceText}
               onChange={handleSourceChange}
               spellcheck={spellcheck}
+              language={languageForPath(activeTab?.path ?? null)}
             />
           )}
         </div>

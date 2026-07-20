@@ -42,6 +42,8 @@ import { FootnoteRef, FootnoteDef } from '../extensions/footnote';
 import { MathInline, MathBlock } from '../extensions/math';
 import { LocalImage } from '../extensions/localImage';
 import { SearchReplace } from '../extensions/searchReplace';
+import { Callout } from '../extensions/callout';
+import { SlashCommand } from '../extensions/slashCommand';
 import { getSpellcheck } from '../lib/prefs';
 import {
   prepareContent,
@@ -181,6 +183,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
         MathInline,
         MathBlock,
         SearchReplace,
+        Callout,
+        SlashCommand,
       ],
       content: '',
       editorProps: {
