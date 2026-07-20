@@ -5,6 +5,19 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.5.6 — 2026-07-20
+
+### Nuevo
+- **Menú de inserción «/»**: escribe `/` en el editor para insertar títulos,
+  listas (viñetas, numerada, tareas), cita, bloque de código, tabla, diagrama
+  mermaid, fórmula, separador y callouts. Filtrable y navegable con el teclado.
+- **Vista fuente con resaltado de sintaxis** (estilo editor de código). Detecta
+  el lenguaje por extensión, así que los archivos `.json`, `.yaml`, `.xml` y
+  demás se abren coloreados.
+- **Callouts / admoniciones** (nota, consejo, importante, advertencia,
+  precaución) con icono, color y selector de tipo. Se guardan en markdown como
+  `> [!TIPO]`, compatibles con GitHub/Obsidian.
+
 ## v1.5.5 — 2026-07-17
 
 ### Nuevo
