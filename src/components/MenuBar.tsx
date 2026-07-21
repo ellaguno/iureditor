@@ -31,8 +31,8 @@ import {
   Palette,
   Workflow,
   Asterisk,
+  Info,
   Sigma,
-  SquareSigma,
 } from 'lucide-react';
 import { ToolbarButton, ToolbarDivider } from './ToolbarButton';
 import { LinkModal } from './LinkModal';
@@ -314,18 +314,18 @@ export const MenuBar = ({
             <Asterisk className="w-4 h-4" />
           </ToolbarButton>
           <ToolbarButton
+            onClick={() => editor.chain().focus().toggleCallout('note').run()}
+            isActive={editor.isActive('callout')}
+            title={t('editor.insertCallout')}
+          >
+            <Info className="w-4 h-4" />
+          </ToolbarButton>
+          <ToolbarButton
             onClick={() => editor.chain().focus().insertMathInline().run()}
             isActive={editor.isActive('mathInline')}
             title={t('editor.insertMathInline')}
           >
             <Sigma className="w-4 h-4" />
-          </ToolbarButton>
-          <ToolbarButton
-            onClick={() => editor.chain().focus().insertMathBlock().run()}
-            isActive={editor.isActive('mathBlock')}
-            title={t('editor.insertMathBlock')}
-          >
-            <SquareSigma className="w-4 h-4" />
           </ToolbarButton>
 
           <ToolbarDivider />

@@ -61,6 +61,7 @@ import {
 } from './lib/templates';
 import { checkForUpdates } from './lib/updater';
 import { exportToPdf } from './lib/exportPdf';
+import { HELP_TITLE, HELP_MARKDOWN } from './lib/help';
 import { t } from './lib/i18n';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -81,6 +82,9 @@ interface DocTab {
   id: number;
   path: string | null;
   dirty: boolean;
+  /** Título fijo para pestañas sin archivo (p. ej. la ayuda integrada). Si
+   *  está presente sustituye al «Sin título» por defecto. */
+  title?: string;
   sourceMode: boolean;
   /** Texto plano (.txt, .env…): sólo vista fuente, sin pipeline markdown —
    *  convertirlo corrompería el archivo (p. ej. `# comentario` → <h1>). */
@@ -152,9 +156,11 @@ export default function App() {
   // ---------- título de ventana ----------
   useEffect(() => {
     if (!isTauri) return;
-    const name = activeTab?.path ? basename(activeTab.path) : t('app.untitled');
+    const name = activeTab?.path
+      ? basename(activeTab.path)
+      : activeTab?.title ?? t('app.untitled');
     void getCurrentWindow().setTitle(`${activeTab?.dirty ? '• ' : ''}${name} — iureditor`);
-  }, [activeTab?.path, activeTab?.dirty]);
+  }, [activeTab?.path, activeTab?.dirty, activeTab?.title]);
 
   // ---------- contadores ----------
   const updateCounts = useCallback((markdown: string) => {
@@ -352,14 +358,17 @@ export default function App() {
   );
 
   // ---------- pestañas ----------
-  const createTab = useCallback((load?: PendingLoad, path: string | null = null): number => {
-    const id = nextTabId.current++;
-    const plain = !!load?.plain;
-    if (load) pendingLoads.current.set(id, load);
-    setTabs((prev) => [...prev, { id, path, dirty: false, sourceMode: plain, plain }]);
-    setActiveId(id);
-    return id;
-  }, []);
+  const createTab = useCallback(
+    (load?: PendingLoad, path: string | null = null, title?: string): number => {
+      const id = nextTabId.current++;
+      const plain = !!load?.plain;
+      if (load) pendingLoads.current.set(id, load);
+      setTabs((prev) => [...prev, { id, path, dirty: false, title, sourceMode: plain, plain }]);
+      setActiveId(id);
+      return id;
+    },
+    []
+  );
 
   /** ¿La pestaña está "prístina"? (sin archivo, sin cambios, vacía) */
   const isPristine = useCallback((tab: DocTab): boolean => {
@@ -923,6 +932,19 @@ export default function App() {
     if (toc) editor.chain().focus().insertContent(toc).run();
   }, [activeHandle]);
 
+  // ---------- ayuda integrada ----------
+  const handleOpenHelp = useCallback(() => {
+    // Si la ayuda ya está abierta, sólo activa su pestaña.
+    const existing = tabsRef.current.find((tb) => tb.title === HELP_TITLE);
+    if (existing) {
+      setActiveId(existing.id);
+      return;
+    }
+    // Pestaña en memoria (sin ruta): baseline null → nace limpia. Al guardar
+    // pedirá ubicación, así no se sobrescribe nada.
+    createTab({ content: HELP_MARKDOWN, baseline: null }, null, HELP_TITLE);
+  }, [createTab]);
+
   // ---------- preferencias de vista ----------
   useEffect(() => {
     initTheme();
@@ -1328,6 +1350,7 @@ export default function App() {
             onZoomOut: handleZoomOut,
             onZoomReset: handleZoomReset,
             onCheckUpdates: () => void checkForUpdates(false),
+            onOpenHelp: handleOpenHelp,
           }}
           viewPrefs={{
             theme,

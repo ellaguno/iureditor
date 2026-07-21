@@ -10,7 +10,6 @@ import {
   Check,
   Menu as MenuIcon,
   ChevronRight,
-  ChevronDown,
   Plus,
   PanelLeftClose,
   PanelLeftOpen,
@@ -52,6 +51,7 @@ export interface TitleBarActions {
   onZoomOut: () => void;
   onZoomReset: () => void;
   onCheckUpdates: () => void;
+  onOpenHelp: () => void;
 }
 
 export interface ViewPrefs {
@@ -73,6 +73,8 @@ export interface TabInfo {
   id: number;
   path: string | null;
   dirty: boolean;
+  /** Título fijo para pestañas sin archivo (p. ej. la ayuda integrada). */
+  title?: string;
 }
 
 const MenuItem = ({
@@ -122,24 +124,29 @@ const MenuSection = ({
   onToggle: () => void;
   children: ReactNode;
 }) => (
-  <div>
+  <div className="px-1">
     <button
       type="button"
       onClick={onToggle}
-      className={`w-full px-3 py-1.5 text-left text-sm font-medium flex items-center justify-between ${
+      aria-expanded={expanded}
+      className={`w-full px-2 py-2 rounded-md text-left text-sm font-semibold flex items-center gap-2 transition-colors ${
         expanded
-          ? 'text-gray-900 dark:text-gray-100'
+          ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-200'
           : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
       }`}
     >
-      {label}
-      {expanded ? (
-        <ChevronDown className="w-3.5 h-3.5 opacity-60" />
-      ) : (
-        <ChevronRight className="w-3.5 h-3.5 opacity-60" />
-      )}
+      <ChevronRight
+        className={`w-4 h-4 shrink-0 transition-transform ${
+          expanded ? 'rotate-90 text-primary-500 dark:text-primary-300' : 'opacity-50'
+        }`}
+      />
+      <span className="flex-1">{label}</span>
     </button>
-    {expanded && <div className="pb-1">{children}</div>}
+    {expanded && (
+      <div className="mt-0.5 mb-1 ml-3 pl-1 border-l-2 border-primary-200 dark:border-primary-800/70">
+        {children}
+      </div>
+    )}
   </div>
 );
 
@@ -267,7 +274,12 @@ export const TitleBar = ({
   viewPrefs: ViewPrefs;
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [section, setSection] = useState<SectionId>('file');
+  // Secciones del menú expandidas. Set → se pueden abrir varias a la vez y,
+  // sobre todo, cerrarlas TODAS (antes sólo una podía estar abierta y no había
+  // forma de colapsar la que estuviera activa).
+  const [expandedSections, setExpandedSections] = useState<Set<SectionId>>(
+    () => new Set<SectionId>(['file'])
+  );
   const [version, setVersion] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
   // Menú contextual de una pestaña (clic derecho): guarda id y posición.
@@ -383,7 +395,13 @@ export const TitleBar = ({
     fn();
   };
 
-  const toggleSection = (id: SectionId) => () => setSection(id);
+  const toggleSection = (id: SectionId) => () =>
+    setExpandedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const appWindow = getCurrentWindow();
 
@@ -429,8 +447,8 @@ export const TitleBar = ({
           <MenuIcon className="w-5 h-5" />
         </button>
         {menuOpen && (
-          <div className="absolute top-full left-2 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-50 py-1 w-[270px] max-h-[80vh] overflow-y-auto">
-            <MenuSection label="Archivo" expanded={section === 'file'} onToggle={toggleSection('file')}>
+          <div className="absolute top-full left-2 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-50 py-1.5 w-[270px] max-h-[80vh] overflow-y-auto space-y-0.5">
+            <MenuSection label="Archivo" expanded={expandedSections.has('file')} onToggle={toggleSection('file')}>
               <MenuItem label="Nuevo" shortcut="Ctrl+N" onClick={closeAnd(actions.onNew)} />
               <MenuItem label="Abrir…" shortcut="Ctrl+O" onClick={closeAnd(actions.onOpen)} />
               <MenuItem label="Abrir carpeta…" onClick={closeAnd(actions.onOpenFolder)} />
@@ -487,9 +505,7 @@ export const TitleBar = ({
               <MenuItem label="Salir" shortcut="Ctrl+Q" onClick={closeAnd(actions.onQuit)} />
             </MenuSection>
 
-            <MenuSeparator />
-
-            <MenuSection label="Edición" expanded={section === 'edit'} onToggle={toggleSection('edit')}>
+            <MenuSection label="Edición" expanded={expandedSections.has('edit')} onToggle={toggleSection('edit')}>
               <MenuItem label="Deshacer" shortcut="Ctrl+Z" onClick={closeAnd(actions.onUndo)} />
               <MenuItem label="Rehacer" shortcut="Ctrl+Shift+Z" onClick={closeAnd(actions.onRedo)} />
               <MenuSeparator />
@@ -508,9 +524,7 @@ export const TitleBar = ({
               />
             </MenuSection>
 
-            <MenuSeparator />
-
-            <MenuSection label="Ver" expanded={section === 'view'} onToggle={toggleSection('view')}>
+            <MenuSection label="Ver" expanded={expandedSections.has('view')} onToggle={toggleSection('view')}>
               <MenuItem
                 label="Archivos de la carpeta"
                 shortcut="Ctrl+Shift+E"
@@ -580,9 +594,9 @@ export const TitleBar = ({
               />
             </MenuSection>
 
-            <MenuSeparator />
-
-            <MenuSection label="Ayuda" expanded={section === 'help'} onToggle={toggleSection('help')}>
+            <MenuSection label="Ayuda" expanded={expandedSections.has('help')} onToggle={toggleSection('help')}>
+              <MenuItem label="Ayuda de iureditor" onClick={closeAnd(actions.onOpenHelp)} />
+              <MenuSeparator />
               {HELP_LINKS.map(({ label, url }) => (
                 <MenuItem key={url} label={label} onClick={closeAnd(() => void openUrl(url))} />
               ))}
@@ -614,7 +628,7 @@ export const TitleBar = ({
             <Tab
               key={tab.id}
               id={tab.id}
-              title={tab.path ? basename(tab.path) : 'Sin título'}
+              title={tab.path ? basename(tab.path) : tab.title ?? 'Sin título'}
               dirty={tab.dirty}
               active={tab.id === activeTabId}
               dragging={tab.id === draggingId}

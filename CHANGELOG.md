@@ -5,6 +5,26 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.5.8 — 2026-07-21
+
+### Nuevo
+- **Botón de callout en la barra de herramientas**: convierte el bloque actual en
+  una **nota** (callout) con un clic; el tipo (nota, consejo, importante,
+  advertencia, precaución) se cambia luego con el selector del propio bloque.
+- **Ayuda integrada**: *Ayuda → Ayuda de iureditor* abre un documento con la guía
+  de uso del editor (interfaz, barra de herramientas, menús, inserción de
+  contenido, exportación y atajos), con imágenes y un índice navegable desde el
+  panel **Esquema del documento**.
+
+### Cambios
+- **Menú principal más claro**: las secciones (Archivo, Edición, Ver, Ayuda) se
+  ven ahora como cabeceras colapsables bien diferenciadas, con la sección activa
+  resaltada, y se pueden **plegar todas** (antes no era posible cerrar la sección
+  abierta para ver las de abajo).
+- **Nuevo icono** de la aplicación en Windows, Linux y macOS.
+- **Barra de herramientas**: se retira el botón de *fórmula en bloque*; se
+  mantiene la *fórmula en línea*.
+
 ## v1.5.7 — 2026-07-20
 
 ### Nuevo
