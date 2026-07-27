@@ -7,6 +7,9 @@ añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
 ## v1.5.9 — 2026-07-27
 
+### Cambios
+- **Icono de la aplicación actualizado** en todas las plataformas.
+
 ### Corregido
 - **Numeración de listas ordenadas con ítems multilínea**: un ítem cuyo texto
   continúa en líneas indentadas rompía la lista en varias listas de un solo
