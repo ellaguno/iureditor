@@ -128,4 +128,30 @@ describe('round-trip markdown → HTML → markdown', () => {
     expect(plain).toContain('<blockquote');
     expect(plain).not.toContain('data-callout');
   });
+
+  it('lista ordenada con ítems multilínea queda en un solo <ol>', () => {
+    const md = [
+      '1. **Primero** con texto que',
+      '   continúa indentado en otra línea.',
+      '2. **Segundo** también',
+      '   multilínea.',
+      '3. Tercero.',
+      '4. Cuarto.',
+    ].join('\n');
+    const html = markdownToHtml(md);
+    expect(html.match(/<ol>/g)).toHaveLength(1);
+    expect(html.match(/<li>/g)).toHaveLength(4);
+    expect(html).toContain('con texto que continúa indentado en otra línea.');
+  });
+
+  it('línea en blanco entre ítems (lista loose) no rompe la lista', () => {
+    const html = markdownToHtml('1. uno\n\n2. dos\n\n3. tres');
+    expect(html.match(/<ol>/g)).toHaveLength(1);
+    expect(html.match(/<li>/g)).toHaveLength(3);
+  });
+
+  it('lista ordenada que no empieza en 1 conserva el número inicial', () => {
+    const html = markdownToHtml('3. tres\n4. cuatro');
+    expect(html).toContain('<ol start="3">');
+  });
 });

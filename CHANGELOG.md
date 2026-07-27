@@ -5,6 +5,16 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.5.9 — 2026-07-27
+
+### Corregido
+- **Numeración de listas ordenadas con ítems multilínea**: un ítem cuyo texto
+  continúa en líneas indentadas rompía la lista en varias listas de un solo
+  elemento y todos se numeraban «1». Ahora las líneas de continuación se unen a
+  su ítem, las líneas en blanco entre ítems (listas «loose») ya no rompen la
+  lista, y una lista que no empieza en 1 conserva su número inicial
+  (`<ol start="…">`).
+
 ## v1.5.8 — 2026-07-21
 
 ### Nuevo

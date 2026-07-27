@@ -257,11 +257,18 @@ export const markdownToHtml = (markdown: string): string => {
     interface ListItem {
       kind: ListKind;
       indent: number;
+      start?: number; // número del primer ítem de un <ol>
       li: string; // <li> SIN cerrar — las sublistas van dentro
     }
 
-    const openTag = (kind: ListKind) =>
-      kind === 'task' ? '<ul data-type="taskList">' : kind === 'ol' ? '<ol>' : '<ul>';
+    const openTag = (item: ListItem) =>
+      item.kind === 'task'
+        ? '<ul data-type="taskList">'
+        : item.kind === 'ol'
+          ? item.start && item.start !== 1
+            ? `<ol start="${item.start}">`
+            : '<ol>'
+          : '<ul>';
     const closeTag = (kind: ListKind) => (kind === 'ol' ? '</ol>' : '</ul>');
 
     const buildList = (items: ListItem[]): string => {
@@ -269,11 +276,11 @@ export const markdownToHtml = (markdown: string): string => {
       const stack: { kind: ListKind; indent: number }[] = [];
       for (const item of items) {
         if (stack.length === 0) {
-          out.push(openTag(item.kind));
+          out.push(openTag(item));
           stack.push({ kind: item.kind, indent: item.indent });
         } else if (item.indent > stack[stack.length - 1].indent) {
           // Sublista: se abre dentro del <li> aún sin cerrar.
-          out.push(openTag(item.kind));
+          out.push(openTag(item));
           stack.push({ kind: item.kind, indent: item.indent });
         } else {
           out.push('</li>');
@@ -282,7 +289,7 @@ export const markdownToHtml = (markdown: string): string => {
           }
           if (item.kind !== stack[stack.length - 1].kind) {
             out.push(closeTag(stack.pop()!.kind));
-            out.push(openTag(item.kind));
+            out.push(openTag(item));
             stack.push({ kind: item.kind, indent: item.indent });
           }
         }
@@ -308,7 +315,10 @@ export const markdownToHtml = (markdown: string): string => {
       buffer = [];
     };
 
-    for (const line of lines) {
+    const isListLine = (line: string) => /^[ \t]*(?:[-*+]|\d+[.)]) /.test(line);
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
       const taskMatch = /^([ \t]*)[-*+] \[([ xX])\] (.*)$/.exec(line);
       const bulletMatch = /^([ \t]*)[-*+] (.*)$/.exec(line);
       const orderedMatch = /^([ \t]*)(\d+)[.)] (.*)$/.exec(line);
@@ -330,8 +340,20 @@ export const markdownToHtml = (markdown: string): string => {
         buffer.push({
           kind: 'ol',
           indent: indentOf(orderedMatch[1]),
+          start: Number(orderedMatch[2]),
           li: `<li>${orderedMatch[3]}`,
         });
+      } else if (buffer.length > 0 && /^[ \t]+\S/.test(line)) {
+        // Línea de continuación indentada de un ítem multilínea: se une al
+        // ítem anterior (soft wrap). Sin esto, la línea rompía la lista en
+        // varios <ol> de un ítem y la numeración se reiniciaba (1, 1, 1…).
+        const last = buffer[buffer.length - 1];
+        const text = line.trim();
+        last.li = last.li.endsWith('</p>')
+          ? `${last.li.slice(0, -4)} ${text}</p>`
+          : `${last.li} ${text}`;
+      } else if (buffer.length > 0 && !line.trim() && isListLine(lines[i + 1] ?? '')) {
+        // Línea en blanco entre ítems (lista «loose»): no rompe la lista.
       } else {
         flush();
         out.push(line);
