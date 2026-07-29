@@ -8,7 +8,13 @@ import { resolveSrc } from './imageResolve';
 // La resolución de rutas y el estado del directorio del documento viven en
 // `imageResolve.ts` (módulo hoja, para no crear un ciclo con el NodeView).
 // Se re-exportan aquí los helpers que ya consumen fileio.ts y los tests.
-export { setImageBaseDir, joinAndNormalize, resolveSrc, resolveAssetFsPath } from './imageResolve';
+export {
+  setImageBaseDir,
+  getImageBaseDir,
+  joinAndNormalize,
+  resolveSrc,
+  resolveAssetFsPath,
+} from './imageResolve';
 
 export const LocalImage = Image.extend({
   name: 'image',

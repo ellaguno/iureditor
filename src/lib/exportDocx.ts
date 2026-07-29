@@ -24,7 +24,7 @@ import {
 } from 'docx';
 import type { FileChild } from 'docx';
 import { renderFullSizeDiagram } from './mermaid';
-import { basename } from './fileio';
+import { basename, inDir } from './fileio';
 
 // Export a DOCX con mapper propio ProseMirror-JSON → docx (OOXML). El
 // intento anterior con @turbodocx/html-to-docx producía tablas colapsadas a
@@ -547,20 +547,24 @@ export const buildDocxDocument = async (
   });
 };
 
-export const exportToDocx = async (editor: Editor, filePath: string | null): Promise<void> => {
+export const exportToDocx = async (
+  editor: Editor,
+  filePath: string | null,
+  defaultDir?: string | null
+): Promise<void> => {
   const title = filePath
     ? basename(filePath).replace(/\.(md|markdown)$/i, '')
     : 'documento';
 
-  const path = await save({
-    defaultPath: `${title}.docx`,
-    filters: [{ name: 'Word', extensions: ['docx'] }],
-  });
-  if (!path) return;
-
   const docDir = filePath
     ? filePath.slice(0, Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\')))
     : null;
+
+  const path = await save({
+    defaultPath: inDir(docDir ?? defaultDir, `${title}.docx`),
+    filters: [{ name: 'Word', extensions: ['docx'] }],
+  });
+  if (!path) return;
   const doc = await buildDocxDocument(editor.getJSON() as PMNode, docDir, title);
 
   const blob = await Packer.toBlob(doc);

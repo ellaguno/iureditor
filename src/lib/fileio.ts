@@ -51,6 +51,12 @@ export const basename = (path: string): string => {
   return idx >= 0 ? path.slice(idx + 1) : path;
 };
 
+/** `defaultPath` de un diálogo: el nombre sugerido dentro del directorio por
+ *  defecto. Único punto donde se compone, para que todos los diálogos (abrir,
+ *  guardar, imágenes, exportar) arranquen en la misma carpeta. */
+export const inDir = (dir: string | null | undefined, name: string): string =>
+  dir ? `${dir.replace(/[/\\]+$/, '')}/${name}` : name;
+
 /** Habilita el asset protocol para el directorio del documento y configura
  *  la resolución de imágenes relativas. Llamar en open/save-as ANTES de
  *  setContent. */
@@ -168,27 +174,39 @@ export const confirmOverwriteExternal = async (docName: string): Promise<boolean
     }
   );
 
-export const pickOpenPath = async (): Promise<string | null> => {
-  const selected = await open({ multiple: false, filters: OPEN_FILTERS });
+export const pickOpenPath = async (
+  defaultDir?: string | null
+): Promise<string | null> => {
+  const selected = await open({
+    multiple: false,
+    filters: OPEN_FILTERS,
+    defaultPath: defaultDir ?? undefined,
+  });
   return typeof selected === 'string' ? selected : null;
 };
 
-export const pickImagePath = async (): Promise<string | null> => {
+export const pickImagePath = async (
+  defaultDir?: string | null
+): Promise<string | null> => {
   const selected = await open({
     multiple: false,
     filters: [
       { name: 'Imágenes', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] },
     ],
+    defaultPath: defaultDir ?? undefined,
   });
   return typeof selected === 'string' ? selected : null;
 };
 
+/** `suggestedName` es siempre un nombre suelto; el directorio lo pone
+ *  `defaultDir` (directorio del documento o último usado). */
 export const pickSavePath = async (
   suggestedName = 'documento.md',
-  forceMd = true
+  forceMd = true,
+  defaultDir?: string | null
 ): Promise<string | null> => {
   const path = await save({
-    defaultPath: suggestedName,
+    defaultPath: inDir(defaultDir, basename(suggestedName)),
     filters: forceMd ? MD_FILTERS : [{ name: 'Todos los archivos', extensions: ['*'] }],
   });
   if (!path) return null;

@@ -1,6 +1,8 @@
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
+import { inDir } from './fileio';
+import { getImageBaseDir } from '../extensions/imageResolve';
 
 // Export de diagramas mermaid. Portado de MarkdownRenderer.tsx pero
 // refactorizado: en Tauri `<a download>` con blob URL no hace nada (no hay
@@ -127,10 +129,11 @@ export const svgToPngDataUrl = async (svgElement: SVGElement, scale = 2): Promis
   });
 };
 
-/** Diálogo Guardar + escritura del SVG. */
+/** Diálogo Guardar + escritura del SVG. Arranca en la carpeta del documento
+ *  activo (el NodeView no conoce su ruta; la toma del resolvedor de imágenes). */
 export const saveSvg = async (svgElement: SVGElement, suggestedName: string): Promise<void> => {
   const path = await save({
-    defaultPath: suggestedName,
+    defaultPath: inDir(getImageBaseDir(), suggestedName),
     filters: [{ name: 'SVG', extensions: ['svg'] }],
   });
   if (!path) return;
@@ -144,7 +147,7 @@ export const savePng = async (
   scale = 2
 ): Promise<void> => {
   const path = await save({
-    defaultPath: suggestedName,
+    defaultPath: inDir(getImageBaseDir(), suggestedName),
     filters: [{ name: 'PNG', extensions: ['png'] }],
   });
   if (!path) return;

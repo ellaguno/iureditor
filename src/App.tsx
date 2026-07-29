@@ -117,6 +117,8 @@ export default function App() {
   const [pageWidth, setPageWidthState] = useState<PageWidth>(getPageWidth);
   const [sidebar, setSidebar] = useState<SidebarPrefs>(getSidebarPrefs);
   const [workspace, setWorkspace] = useState<string | null>(null);
+  const workspaceRef = useRef<string | null>(null);
+  workspaceRef.current = workspace;
   // Directorio por defecto para archivos nuevos: último abierto/guardado, o el
   // seleccionado en el panel de archivos. Se mantiene también en un ref para
   // usarlo dentro de callbacks (guardado) sin re-crearlos.
@@ -148,6 +150,16 @@ export default function App() {
     () => editorHandles.current.get(activeIdRef.current) ?? null,
     []
   );
+
+  /** Directorio con el que arranca CUALQUIER diálogo de archivo (abrir,
+   *  guardar como, imágenes, exportar): el del documento activo si ya tiene
+   *  ruta —guardar-como lo muda de carpeta y desde entonces manda la nueva— y
+   *  si no, `lastDir`: lo último que el usuario tocó (abrir, guardar o la
+   *  carpeta seleccionada en el panel de archivos). */
+  const defaultDir = useCallback((): string | null => {
+    const path = tabsRef.current.find((tb) => tb.id === activeIdRef.current)?.path;
+    return path ? dirname(path) : lastDirRef.current;
+  }, []);
 
   const updateTab = useCallback((id: number, patch: Partial<DocTab>) => {
     setTabs((prev) => prev.map((tab) => (tab.id === id ? { ...tab, ...patch } : tab)));
@@ -334,7 +346,10 @@ export default function App() {
   // ---------- carpeta de trabajo ----------
   const handlePickWorkspace = useCallback(async () => {
     const { open } = await import('@tauri-apps/plugin-dialog');
-    const selected = await open({ directory: true });
+    const selected = await open({
+      directory: true,
+      defaultPath: workspaceRef.current ?? lastDirRef.current ?? undefined,
+    });
     if (typeof selected !== 'string') return;
     setWorkspace(selected);
     setLastDir(selected);
@@ -590,6 +605,22 @@ export default function App() {
 
   const externalCheckBusy = useRef(false);
 
+  /** ¿La pestaña tiene cambios sin guardar? No basta el flag `dirty`: viaja
+   *  por el estado de React y puede ir un tick por detrás de las últimas
+   *  pulsaciones, y una recarga silenciosa se las llevaría por delante. Se
+   *  compara el contenido real contra el último guardado. */
+  const hasUnsavedChanges = useCallback((tab: DocTab): boolean => {
+    if (tab.dirty) return true;
+    // En vista fuente lo que manda es el textarea: el editor todavía no ha
+    // recibido lo tecleado (sólo se vuelca al guardar o al salir del modo).
+    const current =
+      tab.plain || tab.sourceMode
+        ? sourceTexts.current.get(tab.id)
+        : editorHandles.current.get(tab.id)?.getMarkdown();
+    if (current === undefined) return false;
+    return current !== (savedMd.current.get(tab.id) ?? '');
+  }, []);
+
   /** Al recuperar el foco: ¿algún archivo abierto cambió en disco?
    *  Limpio → recarga silenciosa; con cambios locales → el usuario decide. */
   const checkExternalChanges = useCallback(async () => {
@@ -602,7 +633,11 @@ export default function App() {
         if (known === undefined) continue;
         const m = await getMtime(tab.path);
         if (m === null || m <= known) continue;
-        if (!tab.dirty) {
+        // Relee el estado: el await de arriba da tiempo a que la pestaña se
+        // ensucie (o a que un guardado en curso le cambie la ruta).
+        const fresh = tabsRef.current.find((tb) => tb.id === tab.id);
+        if (!fresh?.path || fresh.path !== tab.path) continue;
+        if (!hasUnsavedChanges(fresh)) {
           await reloadTabFromDisk(tab.id);
         } else if (await confirmReloadExternal(basename(tab.path))) {
           await reloadTabFromDisk(tab.id);
@@ -617,7 +652,7 @@ export default function App() {
     } finally {
       externalCheckBusy.current = false;
     }
-  }, [reloadTabFromDisk]);
+  }, [reloadTabFromDisk, hasUnsavedChanges]);
 
   useEffect(() => {
     if (!isTauri) return;
@@ -739,9 +774,9 @@ export default function App() {
   }, []);
 
   const handleOpen = useCallback(async () => {
-    const path = await pickOpenPath();
+    const path = await pickOpenPath(defaultDir());
     if (path) await loadDocument(path);
-  }, [loadDocument]);
+  }, [loadDocument, defaultDir]);
 
   const handleOpenRecent = useCallback(
     async (path: string) => {
@@ -772,13 +807,13 @@ export default function App() {
       let path = tab?.path ?? null;
       const savingInPlace = !as && !!path;
       if (as || !path) {
-        // Documento sin título: sugerir el último directorio abierto/seleccionado.
-        const suggested = path
-          ? basename(path)
-          : lastDirRef.current
-            ? `${lastDirRef.current}/documento.md`
-            : 'documento.md';
-        path = await pickSavePath(suggested, !tab?.plain);
+        // El diálogo arranca en la carpeta del documento (o, si es nuevo, en
+        // la última usada) y conserva su nombre.
+        path = await pickSavePath(
+          path ? basename(path) : 'documento.md',
+          !tab?.plain,
+          defaultDir()
+        );
         if (!path) return null;
         if (!tab?.plain) await allowDocumentDir(path);
       }
@@ -807,7 +842,7 @@ export default function App() {
       scheduleDraftSave();
       return path;
     },
-    [syncSourceToEditor, updateTab, scheduleDraftSave]
+    [syncSourceToEditor, updateTab, scheduleDraftSave, defaultDir]
   );
 
   const handleSave = useCallback(() => void doSave(false), [doSave]);
@@ -847,7 +882,7 @@ export default function App() {
 
   // ---------- imagen vía diálogo nativo (botón Examinar del modal) ----------
   const handleBrowseImage = useCallback(async (): Promise<string | null> => {
-    const imgPath = await pickImagePath();
+    const imgPath = await pickImagePath(defaultDir());
     if (!imgPath) return null;
     const bytes = await readFile(imgPath);
     const ext = imgPath.split('.').pop()!.toLowerCase();
@@ -855,7 +890,7 @@ export default function App() {
     const file = new File([new Uint8Array(bytes)], basename(imgPath), { type: mime });
     // Copia a assets/ junto al documento (pide guardar primero si es nuevo)
     return handleInsertImageFile(file);
-  }, [handleInsertImageFile]);
+  }, [handleInsertImageFile, defaultDir]);
 
   // ---------- exportar ----------
   const reportExportError = useCallback(async (format: string, err: unknown) => {
@@ -904,9 +939,9 @@ export default function App() {
     if (!editor) return;
     // Import perezoso: docx pesa ~370KB y sólo se usa al exportar.
     import('./lib/exportDocx')
-      .then(({ exportToDocx }) => exportToDocx(editor, activePath()))
+      .then(({ exportToDocx }) => exportToDocx(editor, activePath(), defaultDir()))
       .catch((err) => reportExportError('DOCX', err));
-  }, [reportExportError, syncSourceToEditor, activeHandle, activePath, guardPlainExport]);
+  }, [reportExportError, syncSourceToEditor, activeHandle, activePath, guardPlainExport, defaultDir]);
 
   const handleExportHtml = useCallback(() => {
     if (!guardPlainExport()) return;
@@ -914,9 +949,9 @@ export default function App() {
     const editor = activeHandle()?.editor;
     if (!editor) return;
     import('./lib/exportHtmlFile')
-      .then(({ exportToHtmlFile }) => exportToHtmlFile(editor, activePath()))
+      .then(({ exportToHtmlFile }) => exportToHtmlFile(editor, activePath(), defaultDir()))
       .catch((err) => reportExportError('HTML', err));
-  }, [reportExportError, syncSourceToEditor, activeHandle, activePath, guardPlainExport]);
+  }, [reportExportError, syncSourceToEditor, activeHandle, activePath, guardPlainExport, defaultDir]);
 
   const handleQuit = useCallback(() => {
     // close() dispara onCloseRequested, donde vive el guard de dirty.
@@ -1163,10 +1198,11 @@ export default function App() {
         // 2) Pestañas de la sesión anterior (en su orden), aplicando encima
         //    el borrador si lo hay para esa ruta.
         const session = await loadSession();
-        if (session?.workspace) {
-          setWorkspace(session.workspace);
-          setLastDir(session.workspace);
-        }
+        if (session?.workspace) setWorkspace(session.workspace);
+        // El directorio por defecto sobrevive al reinicio: sin esto, la app
+        // arrancaba apuntando al home hasta abrir o guardar algo.
+        const restoredDir = session?.lastDir ?? session?.workspace ?? null;
+        if (restoredDir) setLastDir(restoredDir);
         const openedByPath = new Map<string, number>();
         for (const path of session?.paths ?? []) {
           if (openedByPath.has(path)) continue;
@@ -1247,10 +1283,10 @@ export default function App() {
       // más de una vez: la sesión guardada nunca debe multiplicar archivos.
       const paths = [...new Set(tabs.filter((tb) => tb.path).map((tb) => tb.path!))];
       const activePath = tabs.find((tb) => tb.id === activeId)?.path ?? null;
-      void saveSession({ paths, activePath, workspace });
+      void saveSession({ paths, activePath, workspace, lastDir });
     }, 800);
     return () => clearTimeout(timer);
-  }, [tabs, activeId, workspace]);
+  }, [tabs, activeId, workspace, lastDir]);
 
   // ---------- guard al cerrar ----------
   useEffect(() => {

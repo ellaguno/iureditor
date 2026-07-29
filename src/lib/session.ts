@@ -12,6 +12,10 @@ export interface SessionState {
   activePath: string | null;
   /** Carpeta de trabajo del panel de archivos (null = sin carpeta). */
   workspace?: string | null;
+  /** Último directorio usado (abrir/guardar/selección en el panel). Es el
+   *  destino por defecto de los diálogos; se persiste para que la app no
+   *  arranque apuntando al home tras reiniciar. */
+  lastDir?: string | null;
 }
 
 const getStore = () => load(STORE_FILE, { autoSave: true, defaults: {} });
@@ -34,6 +38,7 @@ export const loadSession = async (): Promise<SessionState | null> => {
       paths: state.paths.filter(Boolean),
       activePath: state.activePath ?? null,
       workspace: state.workspace ?? null,
+      lastDir: state.lastDir ?? null,
     };
   } catch {
     return null;

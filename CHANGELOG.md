@@ -5,6 +5,24 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.5.10 — 2026-07-29
+
+### Corregido
+- **Directorio por defecto de los diálogos, unificado**: «Guardar como…» sólo
+  sugería el nombre del archivo, sin carpeta, así que el diálogo del sistema
+  abría donde le apetecía y era fácil acabar guardando en el sitio equivocado;
+  abrir, examinar imágenes y exportar (DOCX, HTML, SVG/PNG de diagramas)
+  tampoco fijaban carpeta. Ahora todos parten del mismo sitio: la carpeta del
+  documento activo si ya tiene ruta —tras un «guardar como» manda la carpeta
+  nueva— y, si es un documento sin título, la última usada (abrir, guardar o la
+  seleccionada en el panel de archivos).
+- **El directorio por defecto sobrevive al reinicio**: se guarda en la sesión,
+  en vez de volver al home hasta abrir o guardar algo.
+- **Recarga por cambio externo**: al detectar que un archivo cambió en disco, se
+  comprueba el contenido real de la pestaña en vez del indicador de «modificado»
+  (que va un tick por detrás del teclado); las últimas pulsaciones ya no pueden
+  perderse en una recarga silenciosa.
+
 ## v1.5.9 — 2026-07-27
 
 ### Cambios

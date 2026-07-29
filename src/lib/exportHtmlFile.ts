@@ -2,6 +2,7 @@ import type { Editor } from '@tiptap/react';
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { buildExportHtml } from './exportHtml';
+import { dirname, inDir } from './fileio';
 
 // CSS embebido para el HTML exportado: autosuficiente, sin dependencias.
 const EXPORT_CSS = `
@@ -78,12 +79,13 @@ const EXPORT_CSS = `
  */
 export const exportToHtmlFile = async (
   editor: Editor,
-  filePath: string | null
+  filePath: string | null,
+  defaultDir?: string | null
 ): Promise<void> => {
   const { html, title } = await buildExportHtml(editor, filePath, { mermaidAs: 'svg' });
 
   const path = await save({
-    defaultPath: `${title}.html`,
+    defaultPath: inDir(filePath ? dirname(filePath) : defaultDir, `${title}.html`),
     filters: [{ name: 'HTML', extensions: ['html'] }],
   });
   if (!path) return;

@@ -37,6 +37,11 @@ export const setImageBaseDir = async (dir: string | null) => {
   }
 };
 
+/** Directorio del documento activo (null fuera de Tauri o sin archivo). Lo
+ *  usan los diálogos que no tienen la ruta a mano (export de diagramas) para
+ *  arrancar en la carpeta del documento. */
+export const getImageBaseDir = (): string | null => docDir;
+
 const isRelative = (src: string): boolean =>
   !!src && !/^(?:[a-z]+:)?\/\//i.test(src) && !src.startsWith('data:') &&
   !src.startsWith('asset:') && !src.startsWith('/') && !src.startsWith('http');
