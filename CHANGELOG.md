@@ -5,6 +5,28 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## Sin publicar
+
+### Corregido
+- **Las imágenes ya no se rompen al «guardar como» en otra carpeta**: el
+  documento conserva rutas relativas (`assets/logo.png`) para ser portable, así
+  que al mudarlo de carpeta pasaban a buscarse donde no había nada y quedaban
+  rotas en el editor y en los exports. Ahora, al guardar en una carpeta
+  distinta:
+  - Las imágenes que viven **dentro** de la carpeta del documento se **copian**
+    a la misma ruta relativa bajo la carpeta nueva. El markdown no cambia y el
+    documento sigue siendo portable. El original se queda donde estaba.
+  - Las que viven **fuera** (p. ej. `../instance/img.png`, una biblioteca
+    compartida) **no se duplican**: se reapunta la referencia a donde ya están.
+  - Nunca se sobrescribe un archivo del destino: si ya hay uno distinto con ese
+    nombre, la copia va a un nombre libre (`logo-1.png`) y se reapunta.
+  - Las referencias que ya estaban rotas se dejan como estaban, y los ejemplos
+    dentro de bloques de código no se tocan.
+
+  Si hubo que reescribir rutas dentro del documento, se avisa (y con ello se
+  reinicia el historial de deshacer). En el caso normal —copiar— no cambia nada
+  para el usuario.
+
 ## v1.5.10 — 2026-07-29
 
 ### Corregido

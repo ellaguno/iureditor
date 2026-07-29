@@ -3,6 +3,8 @@ import {
   readTextFile,
   writeTextFile,
   writeFile,
+  readFile,
+  copyFile,
   mkdir,
   exists,
   stat,
@@ -10,6 +12,15 @@ import {
 import { invoke } from '@tauri-apps/api/core';
 import { load } from '@tauri-apps/plugin-store';
 import { setImageBaseDir, joinAndNormalize } from '../extensions/localImage';
+import {
+  extractImageSrcs,
+  isRelativeImg,
+  rewriteImageSrcs,
+  encodeImgSrc,
+  decodeImgSrc,
+  isInsideDir,
+  relativeFrom,
+} from './imageRefs';
 
 export const MD_FILTERS = [{ name: 'Markdown', extensions: ['md', 'markdown'] }];
 
@@ -71,21 +82,6 @@ export const allowDocumentDir = async (filePath: string): Promise<string> => {
   return dir;
 };
 
-/** Extrae los `src` de imágenes markdown `![alt](src)` y HTML `<img src=…>`. */
-const extractImageSrcs = (content: string): string[] => {
-  const srcs: string[] = [];
-  const mdImg = /!\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+["'][^"']*["'])?\s*\)/g;
-  const htmlImg = /<img\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/gi;
-  let m: RegExpExecArray | null;
-  while ((m = mdImg.exec(content)) !== null) srcs.push(m[1]);
-  while ((m = htmlImg.exec(content)) !== null) srcs.push(m[1]);
-  return srcs;
-};
-
-const isRelativeImg = (src: string): boolean =>
-  !!src && !/^(?:[a-z]+:)?\/\//i.test(src) && !src.startsWith('data:') &&
-  !src.startsWith('asset:') && !src.startsWith('/');
-
 /** Habilita el asset protocol para TODOS los directorios donde viven las
  *  imágenes referenciadas, no sólo el del documento. Las rutas relativas
  *  pueden apuntar fuera de `docDir` (p. ej. `../instance/…/img.png`); sin
@@ -103,6 +99,117 @@ export const allowImageDirs = async (content: string, docDir: string): Promise<v
       )
     )
   );
+};
+
+// ---------- reubicación de imágenes al «guardar como» ----------
+
+/** ¿Mismo contenido? Compara tamaño y, sólo si coincide, los bytes. Evita
+ *  copiar (y duplicar con otro nombre) una imagen que ya está en destino. */
+const sameContent = async (a: string, b: string): Promise<boolean> => {
+  try {
+    const [sa, sb] = await Promise.all([stat(a), stat(b)]);
+    if (sa.size !== sb.size) return false;
+    const [ba, bb] = await Promise.all([readFile(a), readFile(b)]);
+    return ba.length === bb.length && ba.every((byte, i) => byte === bb[i]);
+  } catch {
+    return false;
+  }
+};
+
+/** Primer nombre libre a partir de `path`: `logo.png` → `logo-1.png`. */
+const freeName = async (path: string): Promise<string> => {
+  const dot = basename(path).lastIndexOf('.');
+  const ext = dot > 0 ? basename(path).slice(dot) : '';
+  const stem = path.slice(0, path.length - ext.length);
+  for (let n = 1; n < 100; n++) {
+    const candidate = `${stem}-${n}${ext}`;
+    if (!(await exists(candidate))) return candidate;
+  }
+  return `${stem}-${Date.now()}${ext}`;
+};
+
+export interface ImageRelocation {
+  /** Markdown a guardar: igual al de entrada salvo que haya hecho falta
+   *  reapuntar alguna referencia. */
+  markdown: string;
+  /** Imágenes copiadas junto al documento en su nueva carpeta. */
+  copied: number;
+  /** Copiadas con otro nombre porque el suyo ya estaba ocupado por un archivo
+   *  distinto (subconjunto de `copied`). */
+  renamed: number;
+  /** Referencias reapuntadas a la ubicación original de la imagen. */
+  relinked: number;
+  /** Referencias que ya estaban rotas antes de mover: se dejan como estaban. */
+  broken: string[];
+}
+
+/**
+ * Al mover un documento a otra carpeta («guardar como»), sus imágenes
+ * relativas dejarían de resolver: `assets/logo.png` pasaría a buscarse en la
+ * carpeta nueva, donde no hay nada. Esto lo arregla, con dos políticas:
+ *
+ * - La imagen vive DENTRO de la carpeta del documento (el caso normal: la
+ *   `assets/` que crea la propia app) → se copia a la misma ruta relativa bajo
+ *   la carpeta nueva. El markdown no cambia y el documento sigue siendo
+ *   portable.
+ * - La imagen vive FUERA (p. ej. `../instance/img.png`, una biblioteca
+ *   compartida) → NO se duplica: se reapunta la referencia a donde ya está,
+ *   relativa a la carpeta nueva.
+ *
+ * Nunca sobrescribe un archivo existente en destino: si ya hay uno distinto
+ * con ese nombre, la copia va a un nombre libre y se reapunta la referencia.
+ */
+export const relocateImages = async (
+  markdown: string,
+  oldDir: string,
+  newDir: string
+): Promise<ImageRelocation> => {
+  const result: ImageRelocation = {
+    markdown,
+    copied: 0,
+    renamed: 0,
+    relinked: 0,
+    broken: [],
+  };
+  if (!oldDir || !newDir || oldDir === newDir) return result;
+
+  const rewrites = new Map<string, string>();
+  for (const src of extractImageSrcs(markdown)) {
+    if (!isRelativeImg(src)) continue;
+    const from = joinAndNormalize(oldDir, decodeImgSrc(src));
+    // Una referencia ya rota antes de mover no es cosa nuestra: se deja igual
+    // para no enmascarar el problema con una ruta nueva igual de rota.
+    if (!(await exists(from))) {
+      result.broken.push(src);
+      continue;
+    }
+    try {
+      if (isInsideDir(oldDir, from)) {
+        const rel = relativeFrom(oldDir, from)!;
+        let to = joinAndNormalize(newDir, rel);
+        let renamed = false;
+        if (await exists(to)) {
+          if (await sameContent(from, to)) continue; // ya está ahí: nada que hacer
+          to = await freeName(to);
+          rewrites.set(src, encodeImgSrc(relativeFrom(newDir, to) ?? to));
+          renamed = true;
+        }
+        await mkdir(dirname(to), { recursive: true });
+        await copyFile(from, to);
+        result.copied++;
+        if (renamed) result.renamed++;
+      } else {
+        rewrites.set(src, encodeImgSrc(relativeFrom(newDir, from) ?? from));
+        result.relinked++;
+      }
+    } catch (err) {
+      console.error('No se pudo reubicar la imagen:', src, err);
+      result.broken.push(src);
+      rewrites.delete(src);
+    }
+  }
+  result.markdown = rewriteImageSrcs(markdown, rewrites);
+  return result;
 };
 
 export const readDocument = async (path: string): Promise<string> => {

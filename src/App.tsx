@@ -42,6 +42,8 @@ import {
   confirmRecoverDrafts,
   saveImageToAssets,
   allowDocumentDir,
+  allowImageDirs,
+  relocateImages,
   getRecentFiles,
   addRecentFile,
   basename,
@@ -51,6 +53,7 @@ import {
   confirmReloadExternal,
   confirmOverwriteExternal,
 } from './lib/fileio';
+import type { ImageRelocation } from './lib/fileio';
 import { saveDrafts, loadDrafts, clearDrafts } from './lib/autosave';
 import { saveSession, loadSession } from './lib/session';
 import {
@@ -790,6 +793,25 @@ export default function App() {
   );
 
   // ---------- guardar ----------
+  /** Sólo se avisa cuando el documento se reescribió por dentro: el usuario
+   *  merece saber por qué su historial de deshacer empieza de cero. Si todo se
+   *  resolvió copiando (el caso normal), no hay nada que contar. */
+  const reportRelocation = useCallback(async (moved: ImageRelocation) => {
+    const lineas = [
+      moved.copied && `• ${moved.copied} copiada(s) a la carpeta nueva`,
+      moved.renamed &&
+        `• ${moved.renamed} guardada(s) con otro nombre (ya había un archivo distinto con el suyo)`,
+      moved.relinked &&
+        `• ${moved.relinked} reapuntada(s) a su ubicación original, por vivir fuera de la carpeta del documento`,
+    ].filter(Boolean);
+    const { message } = await import('@tauri-apps/plugin-dialog');
+    await message(
+      `El documento cambió de carpeta y se ajustaron sus imágenes:\n\n${lineas.join('\n')}\n\n` +
+        'Como se reescribieron rutas dentro del documento, el historial de deshacer empieza de cero.',
+      { title: 'iureditor — Imágenes del documento', kind: 'info' }
+    );
+  }, []);
+
   const doSave = useCallback(
     async (as: boolean): Promise<string | null> => {
       const id = activeIdRef.current;
@@ -809,13 +831,49 @@ export default function App() {
       if (as || !path) {
         // El diálogo arranca en la carpeta del documento (o, si es nuevo, en
         // la última usada) y conserva su nombre.
+        const previousDir = path ? dirname(path) : null;
         path = await pickSavePath(
           path ? basename(path) : 'documento.md',
           !tab?.plain,
           defaultDir()
         );
         if (!path) return null;
-        if (!tab?.plain) await allowDocumentDir(path);
+        if (!tab?.plain) {
+          const newDir = dirname(path);
+          // El orden importa: primero el documento pasa a vivir en la carpeta
+          // nueva (allowDocumentDir fija el directorio base de las imágenes),
+          // y sólo entonces se reubican y se re-renderizan; al revés, las
+          // rutas reapuntadas se resolverían contra la carpeta vieja.
+          await allowDocumentDir(path);
+          // Mudar el documento de carpeta dejaría sus imágenes relativas
+          // apuntando al vacío: se copian (o se reapuntan) antes de guardar.
+          let moved: ImageRelocation | null = null;
+          let rewritten = false;
+          if (previousDir && previousDir !== newDir) {
+            try {
+              moved = await relocateImages(md, previousDir, newDir);
+              rewritten = moved.markdown !== md;
+              md = moved.markdown;
+            } catch (err) {
+              console.error('No se pudieron reubicar las imágenes:', err);
+            }
+          }
+          // Las reapuntadas viven fuera de la carpeta nueva: sin permitir su
+          // directorio, la webview las bloquea al dibujarlas.
+          await allowImageDirs(md, newDir);
+          if (moved && rewritten) {
+            // Alguna referencia cambió: el editor todavía tiene la ruta vieja,
+            // así que se le devuelve el markdown reescrito para que lo que se
+            // ve y lo que va al disco sean lo mismo. Cuesta el historial de
+            // deshacer, pero sólo en este caso.
+            const handle = editorHandles.current.get(id);
+            if (handle) {
+              handle.setMarkdown(md);
+              md = handle.getMarkdown(); // canónico: evita un «sucio» espurio
+            }
+            void reportRelocation(moved);
+          }
+        }
       }
       // Cinturón: si el archivo cambió en disco desde que se cargó, avisar
       // antes de sobrescribir los cambios externos.
@@ -842,7 +900,7 @@ export default function App() {
       scheduleDraftSave();
       return path;
     },
-    [syncSourceToEditor, updateTab, scheduleDraftSave, defaultDir]
+    [syncSourceToEditor, updateTab, scheduleDraftSave, defaultDir, reportRelocation]
   );
 
   const handleSave = useCallback(() => void doSave(false), [doSave]);
