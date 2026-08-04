@@ -9,17 +9,30 @@ import { highlightCode } from '../lib/highlight';
 export const SourceView = ({
   value,
   onChange,
+  onCursorLine,
   spellcheck,
   language = 'markdown',
 }: {
   value: string;
   onChange: (markdown: string) => void;
+  /** Línea (1-based) donde está el caret, para la barra de estado. */
+  onCursorLine?: (line: number) => void;
   spellcheck: boolean;
   /** Lenguaje de resaltado (null = sin resaltar). */
   language?: string | null;
 }) => {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
+
+  // Aquí la línea sí es la del archivo: basta contar saltos hasta el caret.
+  const reportLine = () => {
+    const ta = taRef.current;
+    if (!ta || !onCursorLine) return;
+    let line = 1;
+    const end = ta.selectionStart;
+    for (let i = 0; i < end; i++) if (ta.value.charCodeAt(i) === 10) line++;
+    onCursorLine(line);
+  };
 
   const syncScroll = () => {
     if (taRef.current && preRef.current) {
@@ -48,7 +61,11 @@ export const SourceView = ({
         autoFocus
         value={value}
         spellCheck={spellcheck && language === 'markdown'}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => {
+          onChange(e.target.value);
+          reportLine();
+        }}
+        onSelect={reportLine}
         onScroll={syncScroll}
         className={`${shared} absolute inset-0 w-full h-full resize-none overflow-auto bg-transparent text-transparent focus:outline-none`}
         style={{ WebkitTextFillColor: 'transparent', caretColor: '#f3f4f6' }}

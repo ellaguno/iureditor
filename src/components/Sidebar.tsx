@@ -11,6 +11,7 @@ export const Sidebar = ({
   onViewChange,
   sourceMode,
   headings,
+  outlinePos,
   onSelectHeading,
   workspace,
   activePath,
@@ -26,6 +27,8 @@ export const Sidebar = ({
   onViewChange: (view: SidebarView) => void;
   sourceMode: boolean;
   headings: HeadingInfo[];
+  /** Posición del documento que marca la sección activa en el esquema. */
+  outlinePos: number;
   onSelectHeading: (heading: HeadingInfo) => void;
   workspace: string | null;
   activePath: string | null;
@@ -72,7 +75,7 @@ export const Sidebar = ({
           {t('outline.sourceMode')}
         </div>
       ) : (
-        <OutlinePanel headings={headings} onSelect={onSelectHeading} />
+        <OutlinePanel headings={headings} activePos={outlinePos} onSelect={onSelectHeading} />
       )}
     </div>
   </div>

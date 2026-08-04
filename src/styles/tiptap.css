@@ -33,6 +33,16 @@
   @apply outline-none;
 }
 
+/* Documentos largos: los nodos pesados (diagramas SVG e imágenes) fuera del
+   viewport no se pintan ni participan en el layout hasta acercarse. El
+   contain-intrinsic-size reserva una altura estimada para que el scroll no
+   salte. En WebKitGTK sin soporte de content-visibility se ignora sin daño. */
+.tiptap-editor .iur-mermaid-node,
+.tiptap-editor .iur-image-node {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 320px;
+}
+
 /* Placeholder */
 .tiptap-editor p.is-editor-empty:first-child::before {
   @apply text-gray-400 dark:text-gray-500 float-left h-0 pointer-events-none;

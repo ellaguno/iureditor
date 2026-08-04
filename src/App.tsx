@@ -12,7 +12,7 @@ import { SourceView } from './components/SourceView';
 import { languageForPath } from './lib/highlight';
 import { Sidebar } from './components/Sidebar';
 import type { HeadingInfo } from './lib/outline';
-import { collectHeadings, buildTocHtml } from './lib/outline';
+import { collectHeadings, buildTocHtml, lineAtPos } from './lib/outline';
 import {
   initTheme,
   getTheme,
@@ -129,11 +129,19 @@ export default function App() {
   const lastDirRef = useRef<string | null>(null);
   lastDirRef.current = lastDir;
   const [headings, setHeadings] = useState<HeadingInfo[]>([]);
+  // Línea del cursor (barra de estado) y posición que marca la sección activa
+  // en el esquema (la del cursor, o la del encabezado visible al hacer scroll).
+  const [cursorLine, setCursorLine] = useState(1);
+  const [outlinePos, setOutlinePos] = useState(0);
   const [sourceText, setSourceText] = useState('');
 
   // Estado por pestaña que vive fuera de React (mapas por id).
   const editorHandles = useRef(new Map<number, EditorHandle | null>());
   const savedMd = useRef(new Map<number, string>());
+  // Último markdown emitido por cada editor: los borradores lo reutilizan
+  // para no re-serializar documentos grandes (getMarkdown recorre todo el
+  // documento y en 300KB cuesta cientos de ms).
+  const emittedMd = useRef(new Map<number, string>());
   const sourceTexts = useRef(new Map<number, string>());
   const pendingLoads = useRef(new Map<number, PendingLoad>());
   // mtime del archivo en disco cuando lo cargamos/guardamos: si el disco
@@ -194,9 +202,13 @@ export default function App() {
         .filter((tab) => tab.dirty)
         .map((tab) => ({
           path: tab.path,
+          // El emitido más reciente basta: este timer siempre corre después
+          // del emit que marcó la pestaña como sucia.
           markdown: tab.plain
             ? sourceTexts.current.get(tab.id) ?? ''
-            : editorHandles.current.get(tab.id)?.getMarkdown() ?? '',
+            : emittedMd.current.get(tab.id) ??
+              editorHandles.current.get(tab.id)?.getMarkdown() ??
+              '',
           savedAt: Date.now(),
         }))
         .filter((d) => d.markdown.trim());
@@ -214,6 +226,7 @@ export default function App() {
   // ---------- cambios del editor → dirty + borradores ----------
   const handleChangeFor = useCallback(
     (tabId: number, markdown: string) => {
+      emittedMd.current.set(tabId, markdown);
       const isDirty = markdown !== (savedMd.current.get(tabId) ?? '');
       const tab = tabsRef.current.find((tb) => tb.id === tabId);
       if (tab && tab.dirty !== isDirty) updateTab(tabId, { dirty: isDirty });
@@ -272,6 +285,8 @@ export default function App() {
       setSourceText(text);
       updateCounts(text);
       setHeadings([]);
+      setCursorLine(1);
+      setOutlinePos(0);
       return;
     }
     const handle = editorHandles.current.get(activeId);
@@ -279,7 +294,13 @@ export default function App() {
     const md = handle.getMarkdown();
     updateCounts(md);
     setSourceText(sourceTexts.current.get(activeId) ?? md);
-    if (handle.editor) setHeadings(collectHeadings(handle.editor.state.doc));
+    if (handle.editor) {
+      setHeadings(collectHeadings(handle.editor.state.doc));
+      // La barra de estado y el esquema retoman el cursor de esta pestaña.
+      const pos = handle.editor.state.selection.from;
+      setCursorLine(lineAtPos(handle.editor.state.doc, pos));
+      setOutlinePos(pos);
+    }
     // Las imágenes relativas se resuelven contra el directorio del doc activo.
     if (tab?.path) void allowDocumentDir(tab.path);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -398,6 +419,7 @@ export default function App() {
   const removeTab = useCallback((id: number) => {
     editorHandles.current.delete(id);
     savedMd.current.delete(id);
+    emittedMd.current.delete(id);
     sourceTexts.current.delete(id);
     pendingLoads.current.delete(id);
     diskMtime.current.delete(id);
@@ -1469,6 +1491,7 @@ export default function App() {
             onViewChange={(view) => applySidebar((prev) => ({ ...prev, view }))}
             sourceMode={sourceMode}
             headings={headings}
+            outlinePos={outlinePos}
             onSelectHeading={handleOutlineSelect}
             workspace={workspace}
             activePath={activeTab?.path ?? null}
@@ -1503,6 +1526,14 @@ export default function App() {
                 onHeadingsChange={(hs) => {
                   if (tab.id === activeIdRef.current) setHeadings(hs);
                 }}
+                onCursorChange={({ line, pos }) => {
+                  if (tab.id !== activeIdRef.current) return;
+                  setCursorLine(line);
+                  setOutlinePos(pos);
+                }}
+                onScrollHeading={(pos) => {
+                  if (tab.id === activeIdRef.current) setOutlinePos(pos);
+                }}
                 onInsertImageFile={handleInsertImageFile}
                 onBrowseImage={handleBrowseImage}
                 onReadClipboardImage={readClipboardImageFile}
@@ -1513,6 +1544,7 @@ export default function App() {
             <SourceView
               value={sourceText}
               onChange={handleSourceChange}
+              onCursorLine={setCursorLine}
               spellcheck={spellcheck}
               language={languageForPath(activeTab?.path ?? null)}
             />
@@ -1520,6 +1552,7 @@ export default function App() {
         </div>
       </div>
       <StatusBar
+        line={cursorLine}
         words={counts.words}
         chars={counts.chars}
         dirty={activeTab?.dirty ?? false}

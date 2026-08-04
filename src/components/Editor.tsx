@@ -52,7 +52,7 @@ import {
   splitFrontMatter,
   joinFrontMatter,
 } from '../lib/markdown';
-import { collectHeadings } from '../lib/outline';
+import { collectHeadings, lineAtPos } from '../lib/outline';
 import type { HeadingInfo } from '../lib/outline';
 import { t } from '../lib/i18n';
 
@@ -88,6 +88,12 @@ interface EditorProps {
   onChange?: (markdown: string) => void;
   /** Encabezados del documento (mismo debounce que onChange, y al cargar). */
   onHeadingsChange?: (headings: HeadingInfo[]) => void;
+  /** Movimiento del cursor (debounced): línea visual y posición PM. Alimenta
+   *  el nº de línea de la barra de estado y el resaltado del esquema. */
+  onCursorChange?: (info: { line: number; pos: number }) => void;
+  /** Al hacer scroll: posición PM del encabezado visible arriba del viewport
+   *  (para resaltar la sección en el esquema sin mover el cursor). */
+  onScrollHeading?: (pos: number) => void;
   /**
    * Imagen pegada/soltada: la app la persiste (assets/ junto al .md) y
    * devuelve el src a insertar (ruta relativa), o null para cancelar.
@@ -104,14 +110,31 @@ interface EditorProps {
 }
 
 export const Editor = forwardRef<EditorHandle, EditorProps>(
-  ({ onChange, onHeadingsChange, onInsertImageFile, onBrowseImage, onReadClipboardImage }, ref) => {
+  (
+    {
+      onChange,
+      onHeadingsChange,
+      onCursorChange,
+      onScrollHeading,
+      onInsertImageFile,
+      onBrowseImage,
+      onReadClipboardImage,
+    },
+    ref
+  ) => {
     const turndown = useMemo(() => buildTurndownService(), []);
     const [showSearch, setShowSearch] = useState(false);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const cursorDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const scrollRafRef = useRef<number | null>(null);
     const onChangeRef = useRef(onChange);
     onChangeRef.current = onChange;
     const onHeadingsRef = useRef(onHeadingsChange);
     onHeadingsRef.current = onHeadingsChange;
+    const onCursorRef = useRef(onCursorChange);
+    onCursorRef.current = onCursorChange;
+    const onScrollHeadingRef = useRef(onScrollHeading);
+    onScrollHeadingRef.current = onScrollHeading;
     const insertFileRef = useRef(onInsertImageFile);
     insertFileRef.current = onInsertImageFile;
     const readClipboardImageRef = useRef(onReadClipboardImage);
@@ -239,9 +262,48 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
       },
       onUpdate: ({ editor: e }) => {
         if (debounceRef.current) clearTimeout(debounceRef.current);
-        debounceRef.current = setTimeout(() => emit(e), 250);
+        // emit() serializa el documento COMPLETO (getHTML + turndown): en
+        // documentos grandes cuesta cientos de ms, así que el debounce crece
+        // con el tamaño. Nada de lo que alimenta es urgente (dirty-tracking,
+        // contadores, borradores); getMarkdown() sigue siendo inmediato.
+        const delay = e.state.doc.content.size > 100_000 ? 1200 : 250;
+        debounceRef.current = setTimeout(() => emit(e), delay);
+      },
+      onSelectionUpdate: ({ editor: e }) => {
+        if (!onCursorRef.current) return;
+        if (cursorDebounceRef.current) clearTimeout(cursorDebounceRef.current);
+        cursorDebounceRef.current = setTimeout(() => {
+          const pos = e.state.selection.from;
+          onCursorRef.current?.({ line: lineAtPos(e.state.doc, pos), pos });
+        }, 120);
       },
     });
+
+    // Scroll del editor → encabezado visible (resaltado del esquema). Se
+    // busca el último h1–h6 cuyo tope quedó en o por encima del viewport.
+    const handleScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+      if (!onScrollHeadingRef.current || scrollRafRef.current !== null) return;
+      const container = event.currentTarget;
+      scrollRafRef.current = requestAnimationFrame(() => {
+        scrollRafRef.current = null;
+        const view = editorRef.current?.view;
+        if (!view || !container.isConnected) return;
+        const top = container.getBoundingClientRect().top;
+        let current: HTMLElement | null = null;
+        for (const el of view.dom.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6')) {
+          if (el.getBoundingClientRect().top <= top + 16) current = el;
+          else break;
+        }
+        if (!current) return; // antes del primer encabezado: sin sección
+        try {
+          // posAtDOM devuelve el inicio del contenido (nodePos + 1); el
+          // esquema guarda nodePos, de ahí el -1.
+          onScrollHeadingRef.current?.(view.posAtDOM(current, 0) - 1);
+        } catch {
+          // nodo desmontado a mitad de scroll: se ignora este tick
+        }
+      });
+    }, []);
 
     editorRef.current = editor;
 
@@ -280,6 +342,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
     useEffect(
       () => () => {
         if (debounceRef.current) clearTimeout(debounceRef.current);
+        if (cursorDebounceRef.current) clearTimeout(cursorDebounceRef.current);
+        if (scrollRafRef.current !== null) cancelAnimationFrame(scrollRafRef.current);
       },
       []
     );
@@ -345,7 +409,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
           </ToolbarButton>
         </BubbleMenu>
 
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 overflow-auto" onScroll={handleScroll}>
           <EditorContent editor={editor} />
         </div>
       </div>

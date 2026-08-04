@@ -117,6 +117,10 @@ export const ImageNodeView = ({ node, selected, deleteNode }: NodeViewProps) => 
         src={displaySrc}
         alt={alt}
         title={title}
+        // En documentos largos (decenas de imágenes) no se decodifica ni
+        // descarga lo que está lejos del viewport.
+        loading="lazy"
+        decoding="async"
         data-orig-src={src}
         className={`max-w-full h-auto rounded-lg ${
           selected ? 'ring-2 ring-primary-400 dark:ring-primary-600' : ''

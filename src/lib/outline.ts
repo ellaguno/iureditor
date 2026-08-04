@@ -67,6 +67,46 @@ export const buildTocHtml = (headings: HeadingInfo[]): string => {
   return out.join('');
 };
 
+/** Línea (1-based) en la que cae una posición del documento. Cada bloque de
+ *  texto cuenta como una línea; dentro de un bloque de código cuentan además
+ *  sus saltos de línea internos. Es la noción de «línea» que puede ofrecer un
+ *  editor WYSIWYG (no la línea del archivo markdown en disco). */
+export const lineAtPos = (doc: PMNode, pos: number): number => {
+  let line = 0;
+  let found = 0;
+  doc.descendants((node, nodePos) => {
+    if (found) return false;
+    if (!node.isTextblock) return true;
+    if (nodePos > pos) {
+      // La posición quedó entre bloques (p. ej. un diagrama seleccionado):
+      // cuenta como la línea del último bloque de texto anterior.
+      found = Math.max(1, line);
+      return false;
+    }
+    line += 1;
+    if (pos < nodePos + node.nodeSize) {
+      const offset = Math.max(0, Math.min(pos - (nodePos + 1), node.content.size));
+      line += (node.textBetween(0, offset).match(/\n/g) ?? []).length;
+      found = line;
+    } else {
+      line += (node.textContent.match(/\n/g) ?? []).length;
+    }
+    return false; // los bloques de texto no anidan otros bloques
+  });
+  return found || Math.max(1, line);
+};
+
+/** Índice del encabezado «activo» para una posición: el último cuyo inicio
+ *  queda en o antes de `pos` (-1 si la posición precede a todos). */
+export const activeHeadingIndex = (headings: HeadingInfo[], pos: number): number => {
+  let active = -1;
+  for (let i = 0; i < headings.length; i++) {
+    if (headings[i].pos <= pos) active = i;
+    else break;
+  }
+  return active;
+};
+
 export const collectHeadings = (doc: PMNode): HeadingInfo[] => {
   const headings: HeadingInfo[] = [];
   doc.descendants((node, pos) => {
