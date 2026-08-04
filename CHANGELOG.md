@@ -5,6 +5,44 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.5.12 — 2026-08-04
+
+### Añadido
+- **El esquema sigue al cursor**: con el panel lateral en «Esquema», la
+  sección donde está el cursor se resalta y se mantiene a la vista; al hacer
+  scroll sin mover el cursor, se resalta la sección visible en pantalla.
+- **Número de línea en la barra de estado**: junto a palabras y caracteres se
+  muestra la línea del cursor. En el editor visual cada bloque de texto cuenta
+  como una línea (los bloques de código suman sus saltos internos); en la
+  vista fuente es la línea exacta del archivo.
+
+### Corregido
+- **Contraste en mapas mentales mermaid**: el tema por defecto invertía el
+  color del texto en dos de las secciones (blanco sobre relleno pastel,
+  ilegible); ahora todas las etiquetas van en oscuro.
+- **Etiquetas mermaid descentradas o recortadas al exportar PNG/DOCX**: el
+  texto se medía con la fuente de la aplicación pero se rasterizaba con
+  DejaVu Sans (más ancha). Los diagramas usan ahora la misma fuente en
+  pantalla y en el export, así lo que se mide es lo que se dibuja.
+- **HTML literal en diagramas mermaid**: etiquetas como `<b>` o `<i>`
+  aparecían tal cual en el diagrama (los labels se dibujan como texto SVG, sin
+  HTML); ahora se eliminan antes de renderizar. `<br>` se conserva como salto
+  de línea.
+
+### Rendimiento (documentos grandes)
+- La serialización a markdown tras teclear (dirty-tracking, contadores)
+  espacia su frecuencia en documentos de más de ~100 KB: la escritura ya no se
+  congela a cada pausa.
+- El autoguardado de borradores reutiliza el markdown ya emitido en vez de
+  volver a serializar todo el documento.
+- Los diagramas mermaid se renderizan en cola, uno a la vez y cediendo el hilo
+  entre cada uno: al abrir un documento con decenas de diagramas la app pinta
+  progresivamente en vez de congelarse. La cola también evita que un render
+  normal se cuele en medio de un export con configuración temporal.
+- Las imágenes cargan de forma perezosa (`loading="lazy"`) y, junto con los
+  diagramas, no se pintan mientras están lejos del viewport
+  (`content-visibility: auto`).
+
 ## v1.5.11 — 2026-07-29
 
 ### Corregido
