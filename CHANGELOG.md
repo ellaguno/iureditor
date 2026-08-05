@@ -5,6 +5,23 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.5.13 — 2026-08-05
+
+### Añadido
+- **Pegar tablas ASCII como tablas reales**: al pegar salida de terminal con
+  tablas de bordes `+---+` (MySQL, CLIs), cajas Unicode `┌─┬─┐` o el formato
+  de psql (`----+----`), se convierten automáticamente en tablas markdown
+  editables. La prosa alrededor se conserva intacta.
+- **Pegar diagramas ASCII sin romper el alineado**: los bloques con pinta de
+  diagrama (cajas con flechas, árboles `├──`) se envuelven en un bloque de
+  código monoespaciado al pegar, en vez de deshacerse en párrafos.
+
+### Corregido
+- **Retornos de carro al pegar desde terminal**: el texto copiado con CRLF o
+  CR sueltos rompía la conversión markdown (fences sin cerrar, párrafos
+  fantasma). Ahora los fines de línea se normalizan antes de procesar el
+  pegado.
+
 ## v1.5.12 — 2026-08-04
 
 ### Añadido

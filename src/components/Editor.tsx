@@ -52,6 +52,7 @@ import {
   splitFrontMatter,
   joinFrontMatter,
 } from '../lib/markdown';
+import { normalizePastedText, asciiToMarkdown, plainTextToHtml } from '../lib/asciiPaste';
 import { collectHeadings, lineAtPos } from '../lib/outline';
 import type { HeadingInfo } from '../lib/outline';
 import { t } from '../lib/i18n';
@@ -231,14 +232,29 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
               }
             }
           }
-          // 2) Texto plano con pinta de markdown → convertir a nodos reales
+          // 2) Texto plano. Primero se normalizan los fines de línea (las
+          //    terminales entregan CRLF/CR que rompen los regex multilinea
+          //    del pipeline) y se convierten tablas/diagramas ASCII. Si tras
+          //    eso el texto parece markdown —o hubo conversión—, entra por
+          //    markdownToHtml como nodos reales.
           const html = event.clipboardData?.getData('text/html');
-          const text = event.clipboardData?.getData('text/plain');
-          if (!html && text && looksLikeMarkdown(text)) {
-            event.preventDefault();
+          const rawText = event.clipboardData?.getData('text/plain');
+          const text = rawText ? normalizePastedText(rawText) : rawText;
+          if (!html && text) {
             const inst = editorRef.current;
-            if (inst) inst.chain().focus().insertContent(markdownToHtml(text)).run();
-            return true;
+            const { text: md, changed } = asciiToMarkdown(text);
+            if (inst && (changed || looksLikeMarkdown(md))) {
+              event.preventDefault();
+              inst.chain().focus().insertContent(markdownToHtml(md)).run();
+              return true;
+            }
+            // Sólo había CRs que limpiar: insertar como párrafos planos para
+            // que los \r no lleguen al documento.
+            if (inst && rawText !== text) {
+              event.preventDefault();
+              inst.chain().focus().insertContent(plainTextToHtml(text)).run();
+              return true;
+            }
           }
           // 3) Respaldo: en Linux/WebKitGTK las capturas del portapapeles no
           //    llegan por clipboardData. Si no había ni imagen ni texto en el
