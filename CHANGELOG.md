@@ -5,6 +5,26 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.5.14 — 2026-08-06
+
+### Corregido
+- **Diagramas ASCII con las líneas rotas**: los bloques de código heredaban el
+  interlineado del texto normal (1.6), así que los caracteres de dibujo de
+  caja (`│ ┌ ┴ …`) quedaban separados por un hueco vertical y las cajas no
+  cerraban. Ahora el interlineado de todo bloque monoespaciado es ajustado y
+  los diagramas se ven continuos.
+- **Cajas descuadradas horizontalmente**: la fuente de los bloques de código
+  era `Courier New`, que no incluye los caracteres de dibujo de caja; el
+  sistema los sustituía por otra tipografía de ancho distinto. El nuevo stack
+  monoespaciado sí los trae, así que las columnas alinean.
+- El arreglo se aplica en los cinco sitios donde se ve código: editor visual,
+  vista de código fuente, vista previa markdown, vista previa/export a PDF y
+  export a HTML y DOCX. La vista previa de impresión no tenía ninguna regla
+  propia para los bloques de código y heredaba el interlineado configurable
+  del documento.
+- Se desactivan las ligaduras tipográficas dentro de los bloques de código
+  (fuentes como Fira Code fusionaban `--` o `|>` dentro de un diagrama).
+
 ## v1.5.13 — 2026-08-05
 
 ### Añadido

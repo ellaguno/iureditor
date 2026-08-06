@@ -253,6 +253,37 @@
   font-weight: 600;
 }
 
+/* Código y diagramas ASCII: interlineado ajustado y fuente con glifos de
+   dibujo de caja, para que las líneas (│ ┌ ┴ …) se encadenen sin huecos. */
+.print-content pre {
+  font-family: var(--iur-mono);
+  font-size: 0.85em;
+  line-height: var(--iur-code-leading);
+  font-variant-ligatures: none;
+  tab-size: 4;
+  background: #f3f4f6;
+  border-radius: 4px;
+  padding: 0.6em 0.8em;
+  margin: 0.6em 0;
+  overflow-x: auto;
+}
+
+.print-content pre code {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  background: none;
+  padding: 0;
+}
+
+.print-content code {
+  font-family: var(--iur-mono);
+  font-size: 0.9em;
+  background: #f3f4f6;
+  border-radius: 3px;
+  padding: 0.1em 0.3em;
+}
+
 .print-content blockquote {
   border-left: 3px solid #d1d5db;
   margin: 0.8em 0;

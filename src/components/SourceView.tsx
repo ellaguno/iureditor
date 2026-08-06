@@ -45,7 +45,7 @@ export const SourceView = ({
   const html = highlightCode(value, language) + '\n';
   // Tipografía/espaciado IDÉNTICOS en ambas capas para que el texto alinee.
   const shared =
-    'm-0 border-0 p-4 font-mono text-sm leading-relaxed whitespace-pre-wrap break-words';
+    'm-0 border-0 p-4 text-sm iur-mono-block whitespace-pre-wrap break-words';
 
   return (
     <div className="iur-source relative flex-1 w-full overflow-hidden">

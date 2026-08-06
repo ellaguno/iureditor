@@ -6,7 +6,11 @@ import { dirname, inDir } from './fileio';
 
 // CSS embebido para el HTML exportado: autosuficiente, sin dependencias.
 const EXPORT_CSS = `
-  :root { color-scheme: light; }
+  :root {
+    color-scheme: light;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono',
+      'Liberation Mono', monospace;
+  }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
       'Helvetica Neue', Arial, sans-serif;
@@ -26,18 +30,31 @@ const EXPORT_CSS = `
     background: #f3f4f6;
     border-radius: 4px;
     padding: 0.15em 0.35em;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-family: var(--mono);
     font-size: 0.9em;
     color: #be185d;
   }
+  /* Interlineado ajustado en bloques: los diagramas ASCII (│ ┌ ┴ …) deben
+     encadenarse sin huecos entre líneas. */
   pre {
     background: #1f2937;
     color: #f9fafb;
     border-radius: 8px;
     padding: 1em;
     overflow-x: auto;
+    font-family: var(--mono);
+    line-height: 1.2;
+    font-variant-ligatures: none;
+    tab-size: 4;
   }
-  pre code { background: none; color: inherit; padding: 0; font-size: 0.85em; }
+  pre code {
+    background: none;
+    color: inherit;
+    padding: 0;
+    font-size: 0.85em;
+    font-family: inherit;
+    line-height: inherit;
+  }
   blockquote {
     border-left: 4px solid #d1d5db;
     margin: 1em 0;

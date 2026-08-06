@@ -148,10 +148,16 @@
 .tiptap-editor pre {
   @apply bg-gray-900 dark:bg-gray-950 text-gray-100 p-4 rounded-lg
          overflow-x-auto my-4 text-sm font-mono;
+  /* Interlineado ajustado: los diagramas ASCII (│ ┌ ┴ …) deben encadenarse
+     sin huecos verticales. */
+  line-height: var(--iur-code-leading);
+  font-variant-ligatures: none;
+  tab-size: 4;
 }
 
 .tiptap-editor pre code {
   @apply bg-transparent text-inherit p-0 rounded-none;
+  line-height: inherit;
 }
 
 /* Syntax Highlighting (lowlight) */

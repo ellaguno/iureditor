@@ -9,6 +9,24 @@ body,
   margin: 0;
 }
 
+/* Tipografía monoespaciada compartida (editor, vista previa, exportaciones).
+   El interlineado es ajustado a propósito: con el 1.6 del texto normal los
+   caracteres de dibujo de caja (│ ┌ ┴ …) quedan cortados entre líneas y los
+   diagramas ASCII se ven "rotos". */
+:root {
+  --iur-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono',
+    'Liberation Mono', monospace;
+  --iur-code-leading: 1.2;
+}
+
+/* Bloque monoespaciado "fluido": sin huecos entre líneas. */
+.iur-mono-block {
+  font-family: var(--iur-mono);
+  line-height: var(--iur-code-leading);
+  font-variant-ligatures: none;
+  tab-size: 4;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
     'Helvetica Neue', Arial, sans-serif;

@@ -11,6 +11,7 @@ import {
   HeadingLevel,
   ImageRun,
   LevelFormat,
+  LineRuleType,
   Math as DocxMath,
   MathRun,
   Packer,
@@ -243,7 +244,11 @@ const codeBlockParagraphs = (code: string): Paragraph[] => {
         spacing: {
           before: i === 0 ? 120 : 0,
           after: i === lines.length - 1 ? 120 : 0,
-          line: 240,
+          // Interlineado exacto de 10.8pt para una fuente de 9pt (×1.2): los
+          // caracteres de dibujo de caja (│ ┌ ┴ …) de los diagramas ASCII se
+          // encadenan sin huecos entre líneas.
+          line: 216,
+          lineRule: LineRuleType.EXACT,
         },
         keepLines: true,
       })

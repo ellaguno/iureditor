@@ -4,6 +4,19 @@ export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
+      fontFamily: {
+        // Fuentes con glifos de dibujo de caja (U+2500…) y ancho uniforme, para
+        // que los diagramas ASCII no queden descuadrados por sustitución.
+        mono: [
+          'ui-monospace',
+          'SFMono-Regular',
+          'Menlo',
+          'Consolas',
+          'DejaVu Sans Mono',
+          'Liberation Mono',
+          'monospace',
+        ],
+      },
       colors: {
         primary: {
           50: '#f0f9ff',
