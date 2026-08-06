@@ -1,57 +1,64 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import type { Editor } from '@tiptap/react';
 import { ChevronDown, ChevronUp, X, CaseSensitive } from 'lucide-react';
 import { t } from '../lib/i18n';
 
-// Barra de búsqueda y reemplazo (Ctrl+F). Vive bajo la toolbar.
-export const SearchBar = ({ editor, onClose }: { editor: Editor; onClose: () => void }) => {
+/** Motor de búsqueda que la barra maneja. Lo implementan el editor WYSIWYG
+ *  (decoraciones de ProseMirror) y la vista fuente (texto del textarea). */
+export interface SearchDriver {
+  /** Término o sensibilidad a mayúsculas cambiados. */
+  setQuery: (term: string, caseSensitive: boolean) => void;
+  next: () => void;
+  prev: () => void;
+  replaceOne: (replacement: string) => void;
+  replaceAll: (replacement: string) => void;
+  /** Se llama al cerrar la barra, para limpiar el resaltado. */
+  clear: () => void;
+}
+
+// Barra de búsqueda y reemplazo (Ctrl+F). Vive bajo la toolbar. Es sólo la
+// interfaz: quién busca de verdad es el `driver`.
+export const SearchBarUI = ({
+  driver,
+  total,
+  current,
+  onClose,
+  inputRef: externalInputRef,
+}: {
+  driver: SearchDriver;
+  /** Nº de coincidencias. */
+  total: number;
+  /** Coincidencia activa, 1-based (0 si no hay). */
+  current: number;
+  onClose: () => void;
+  /** Para que el padre pueda reenfocar el campo (Ctrl+F con la barra abierta). */
+  inputRef?: RefObject<HTMLInputElement | null>;
+}) => {
   const [term, setTerm] = useState('');
   const [replacement, setReplacement] = useState('');
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [showReplace, setShowReplace] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const storage = editor.storage.searchReplace;
-  const total = storage.results.length;
-  const current = total ? storage.index + 1 : 0;
+  const ownInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = externalInputRef ?? ownInputRef;
+  // El driver cambia de identidad en cada render del padre; el efecto de
+  // limpieza debe usar el último, no el que había al montar.
+  const driverRef = useRef(driver);
+  driverRef.current = driver;
 
   useEffect(() => {
     inputRef.current?.focus();
     inputRef.current?.select();
-    return () => {
-      editor.commands.clearSearch();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => driverRef.current.clear();
   }, []);
 
   useEffect(() => {
-    editor.commands.setSearch(term, caseSensitive);
-    if (term) scrollToCurrent();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    driverRef.current.setQuery(term, caseSensitive);
   }, [term, caseSensitive]);
 
-  const scrollToCurrent = () => {
-    const hit = editor.storage.searchReplace.results[editor.storage.searchReplace.index];
-    if (!hit) return;
-    const el = editor.view.domAtPos(hit.from).node;
-    const target = el instanceof Element ? el : el.parentElement;
-    target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  };
-
-  const next = () => {
-    editor.commands.findNext();
-    scrollToCurrent();
-  };
-  const prev = () => {
-    editor.commands.findPrev();
-    scrollToCurrent();
-  };
-
-  const replaceOne = () => {
-    editor.commands.replaceCurrent(replacement);
-    scrollToCurrent();
-  };
-  const replaceEverything = () => editor.commands.replaceAll(replacement);
+  const next = () => driver.next();
+  const prev = () => driver.prev();
+  const replaceOne = () => driver.replaceOne(replacement);
+  const replaceEverything = () => driver.replaceAll(replacement);
 
   const BTN =
     'p-1.5 rounded text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40';
@@ -141,5 +148,50 @@ export const SearchBar = ({ editor, onClose }: { editor: Editor; onClose: () => 
         <X className="w-4 h-4" />
       </button>
     </div>
+  );
+};
+
+// Adaptador para el editor WYSIWYG: la búsqueda son decoraciones de
+// ProseMirror y el estado vive en editor.storage.searchReplace.
+export const SearchBar = ({ editor, onClose }: { editor: Editor; onClose: () => void }) => {
+  const storage = editor.storage.searchReplace;
+  const total = storage.results.length;
+
+  const scrollToCurrent = () => {
+    const hit = editor.storage.searchReplace.results[editor.storage.searchReplace.index];
+    if (!hit) return;
+    const el = editor.view.domAtPos(hit.from).node;
+    const target = el instanceof Element ? el : el.parentElement;
+    target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  };
+
+  const driver: SearchDriver = {
+    setQuery: (term, caseSensitive) => {
+      editor.commands.setSearch(term, caseSensitive);
+      if (term) scrollToCurrent();
+    },
+    next: () => {
+      editor.commands.findNext();
+      scrollToCurrent();
+    },
+    prev: () => {
+      editor.commands.findPrev();
+      scrollToCurrent();
+    },
+    replaceOne: (replacement) => {
+      editor.commands.replaceCurrent(replacement);
+      scrollToCurrent();
+    },
+    replaceAll: (replacement) => editor.commands.replaceAll(replacement),
+    clear: () => editor.commands.clearSearch(),
+  };
+
+  return (
+    <SearchBarUI
+      driver={driver}
+      total={total}
+      current={total ? storage.index + 1 : 0}
+      onClose={onClose}
+    />
   );
 };

@@ -8,7 +8,7 @@ import type { EditorHandle } from './components/Editor';
 import { TitleBar } from './components/TitleBar';
 import { ResizeHandles } from './components/ResizeHandles';
 import { StatusBar } from './components/StatusBar';
-import { SourceView } from './components/SourceView';
+import { SourceView, type SourceViewHandle } from './components/SourceView';
 import { languageForPath } from './lib/highlight';
 import { Sidebar } from './components/Sidebar';
 import type { HeadingInfo } from './lib/outline';
@@ -137,6 +137,7 @@ export default function App() {
 
   // Estado por pestaña que vive fuera de React (mapas por id).
   const editorHandles = useRef(new Map<number, EditorHandle | null>());
+  const sourceViewRef = useRef<SourceViewHandle>(null);
   const savedMd = useRef(new Map<number, string>());
   // Último markdown emitido por cada editor: los borradores lo reutilizan
   // para no re-serializar documentos grandes (getMarkdown recorre todo el
@@ -1099,10 +1100,11 @@ export default function App() {
   }, [handlePageWidthChange]);
 
   const handleFind = useCallback(() => {
-    // La búsqueda opera sobre el editor WYSIWYG; en modo fuente no aplica.
+    // Cada vista busca a su manera: el editor WYSIWYG con decoraciones de
+    // ProseMirror, la vista fuente sobre el texto del textarea.
     const tab = tabsRef.current.find((tb) => tb.id === activeIdRef.current);
-    if (tab?.sourceMode) return;
-    activeHandle()?.openSearch();
+    if (tab?.sourceMode) sourceViewRef.current?.openSearch();
+    else activeHandle()?.openSearch();
   }, [activeHandle]);
 
   const cycleTab = useCallback((delta: number) => {
@@ -1542,6 +1544,7 @@ export default function App() {
           ))}
           {sourceMode && (
             <SourceView
+              ref={sourceViewRef}
               value={sourceText}
               onChange={handleSourceChange}
               onCursorLine={setCursorLine}

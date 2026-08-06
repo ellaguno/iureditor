@@ -5,6 +5,16 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.5.15 — 2026-08-06
+
+### Añadido
+- **Buscar y reemplazar en la vista de código fuente** (Ctrl+F). Antes la
+  búsqueda solo existía en el editor visual, así que en un archivo que no es
+  markdown (un `.sh`, un `.json`…), que siempre se abre en vista fuente,
+  Ctrl+F no hacía nada. También estaba muerta al pasar un `.md` a vista
+  fuente. Incluye navegación entre coincidencias, distinguir mayúsculas y
+  reemplazar uno o todos, igual que en el editor visual.
+
 ## v1.5.14 — 2026-08-06
 
 ### Corregido
