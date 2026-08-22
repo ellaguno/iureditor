@@ -5,6 +5,40 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.6.0 — 2026-08-22
+
+### Añadido
+- **Buscar en los archivos de la carpeta de trabajo** (Ctrl+Shift+F, tercera
+  vista del panel lateral). Busca el término en todos los markdown y textos
+  de la carpeta, agrupa los resultados por archivo con número de línea y
+  vista previa, y al hacer clic abre el archivo en vista fuente saltando a
+  esa línea.
+- **Ir a línea** (Ctrl+L, menú Edición). En una pestaña en modo visual
+  primero cambia a la vista de código fuente, que es donde las líneas del
+  archivo existen tal cual.
+- **La posición del cursor se recuerda por archivo**: al restaurar la sesión
+  cada documento reabre donde se quedó el cursor, centrado en pantalla.
+
+### Corregido
+- **Pegar texto desde una terminal ya no añade retornos de más**. Las líneas
+  contiguas de un párrafo (texto envuelto a 80 columnas, salida de comandos)
+  se pegaban como párrafos sueltos, que al guardar ganaban una línea en
+  blanco entre cada una. Ahora un salto simple se conserva como salto simple,
+  tanto al pegar como en el viaje completo archivo → editor → archivo.
+- **Los finales de línea CRLF (Windows) se conservan al guardar**. Antes,
+  abrir y guardar un `.txt` o `.md` con finales CRLF los convertía todos a
+  LF en silencio; ahora el estilo del archivo original se detecta al abrir
+  y se repone al escribir.
+- **Números de línea en la vista de código fuente** (menú Ver → Números de
+  línea). Aplica tanto a archivos de texto plano como al fuente de un
+  markdown; las líneas largas se envuelven con sangría bajo su número y la
+  preferencia se recuerda entre sesiones.
+- **"Guardar como" respeta extensiones de texto**: guardar un documento nuevo
+  como `notas.txt` (o `.env`, `.csv`…) ya no le añade `.md` a la fuerza — se
+  guarda el texto tal cual y la pestaña pasa a modo texto plano, igual que si
+  el archivo se hubiera abierto del disco. El diálogo ofrece ahora también el
+  filtro "Texto".
+
 ## v1.5.15 — 2026-08-06
 
 ### Añadido

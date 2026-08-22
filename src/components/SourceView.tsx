@@ -6,8 +6,11 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
 } from 'react';
-import { highlightCode } from '../lib/highlight';
+import { X } from 'lucide-react';
+import { highlightCode, splitHighlightedLines } from '../lib/highlight';
+import { t } from '../lib/i18n';
 import {
   findMatches,
   injectSearchMarks,
@@ -19,6 +22,13 @@ import { SearchBarUI, type SearchDriver } from './SearchBar';
 export interface SourceViewHandle {
   /** Abre la barra de búsqueda (Ctrl+F). */
   openSearch: () => void;
+  /** Abre la barrita "Ir a línea" (Ctrl+L). */
+  openGoToLine: () => void;
+  /** Lleva el caret al inicio de la línea dada (1-based) y la centra. */
+  goToLine: (line: number) => void;
+  /** Coloca el caret en un offset absoluto del texto y centra su línea
+   *  (restauración de sesión). */
+  setCaret: (offset: number) => void;
 }
 
 // Vista de código fuente: el markdown crudo (o un archivo no-markdown) en un
@@ -31,17 +41,23 @@ export const SourceView = forwardRef<
   {
     value: string;
     onChange: (markdown: string) => void;
-    /** Línea (1-based) donde está el caret, para la barra de estado. */
-    onCursorLine?: (line: number) => void;
+    /** Línea (1-based) y offset absoluto del caret, para la barra de estado
+     *  y la memoria de posición por archivo. */
+    onCursorLine?: (line: number, offset?: number) => void;
     spellcheck: boolean;
     /** Lenguaje de resaltado (null = sin resaltar). */
     language?: string | null;
+    /** Mostrar números de línea en el margen izquierdo. */
+    lineNumbers?: boolean;
   }
->(({ value, onChange, onCursorLine, spellcheck, language = 'markdown' }, ref) => {
+>(({ value, onChange, onCursorLine, spellcheck, language = 'markdown', lineNumbers = false }, ref) => {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
 
   const [showSearch, setShowSearch] = useState(false);
+  const [showGoTo, setShowGoTo] = useState(false);
+  const [goToValue, setGoToValue] = useState('');
+  const goToInputRef = useRef<HTMLInputElement>(null);
   const [term, setTerm] = useState('');
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [index, setIndex] = useState(0);
@@ -51,6 +67,44 @@ export const SourceView = forwardRef<
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // Caret en un offset dado y scroll para centrar su línea. Con números de
+  // línea activos el span de la línea da la posición exacta (incluye el
+  // wrap); sin ellos se aproxima por altura de línea.
+  const caretToOffset = useCallback((offset: number, line: number) => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.focus();
+    ta.setSelectionRange(offset, offset);
+    const el = preRef.current?.querySelector<HTMLElement>(`.iur-line[data-ln="${line}"]`);
+    if (el) {
+      ta.scrollTop = Math.max(0, el.offsetTop - ta.clientHeight / 2);
+    } else {
+      const lh = parseFloat(getComputedStyle(ta).lineHeight) || 20;
+      ta.scrollTop = Math.max(0, (line - 1) * lh - ta.clientHeight / 2);
+    }
+    syncScroll();
+    onCursorLine?.(line, offset);
+  }, [onCursorLine]);
+
+  const goToLine = useCallback((line: number) => {
+    const ta = taRef.current;
+    if (!ta) return;
+    const lines = ta.value.split('\n');
+    const target = Math.min(Math.max(1, Math.floor(line)), lines.length);
+    let offset = 0;
+    for (let i = 0; i < target - 1; i++) offset += lines[i].length + 1;
+    caretToOffset(offset, target);
+  }, [caretToOffset]);
+
+  const setCaret = useCallback((offset: number) => {
+    const ta = taRef.current;
+    if (!ta) return;
+    const clamped = Math.max(0, Math.min(offset, ta.value.length));
+    let line = 1;
+    for (let i = 0; i < clamped; i++) if (ta.value.charCodeAt(i) === 10) line++;
+    caretToOffset(clamped, line);
+  }, [caretToOffset]);
+
   useImperativeHandle(ref, () => ({
     openSearch: () => {
       // Si ya está abierta, Ctrl+F devuelve el foco al campo (como el
@@ -58,6 +112,12 @@ export const SourceView = forwardRef<
       if (showSearch) searchInputRef.current?.select();
       setShowSearch(true);
     },
+    openGoToLine: () => {
+      if (showGoTo) goToInputRef.current?.select();
+      setShowGoTo(true);
+    },
+    goToLine,
+    setCaret,
   }));
 
   const matches = useMemo(
@@ -75,7 +135,7 @@ export const SourceView = forwardRef<
     let line = 1;
     const end = ta.selectionStart;
     for (let i = 0; i < end; i++) if (ta.value.charCodeAt(i) === 10) line++;
-    onCursorLine(line);
+    onCursorLine(line, end);
   };
 
   const syncScroll = () => {
@@ -139,14 +199,67 @@ export const SourceView = forwardRef<
     },
   };
 
-  // El '\n' final conserva la altura de la última línea al terminar en salto.
-  const html = highlightCode(value, language) + '\n';
-  const marked = showSearch ? injectSearchMarks(html, matches, safeIndex) : html;
+  const marked = (() => {
+    const html = highlightCode(value, language);
+    return showSearch ? injectSearchMarks(html, matches, safeIndex) : html;
+  })();
+  // Con números de línea, cada línea lógica se envuelve en un bloque con su
+  // número en un ::before absoluto dentro del hueco (--iur-gutter); el
+  // textarea recibe el mismo hueco como padding, así ambas capas parten del
+  // mismo x y las líneas envueltas quedan sangradas bajo el número.
+  const lines = lineNumbers ? splitHighlightedLines(marked) : null;
+  const digits = lines ? Math.max(2, String(lines.length).length) : 0;
+  const gutter = `${digits + 2}ch`;
+  const html = lines
+    ? lines
+        .map((line, idx) => `<span class="iur-line" data-ln="${idx + 1}">${line}</span>`)
+        .join('')
+    : // El '\n' final conserva la altura de la última línea al terminar en salto.
+      marked + '\n';
   // Tipografía/espaciado IDÉNTICOS en ambas capas para que el texto alinee.
   const shared = 'm-0 border-0 p-4 text-sm iur-mono-block whitespace-pre-wrap break-words';
 
   return (
     <div className="flex-1 flex flex-col min-h-0 w-full">
+      {showGoTo && (
+        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 no-select">
+          <input
+            ref={goToInputRef}
+            autoFocus
+            type="number"
+            min={1}
+            value={goToValue}
+            onChange={(e) => setGoToValue(e.target.value)}
+            placeholder={t('goto.placeholder')}
+            className="px-2.5 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-1 focus:ring-primary-500 focus:outline-none w-36"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                const n = parseInt(goToValue, 10);
+                if (Number.isFinite(n)) {
+                  setShowGoTo(false);
+                  goToLine(n);
+                }
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                setShowGoTo(false);
+                taRef.current?.focus();
+              }
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => {
+              setShowGoTo(false);
+              taRef.current?.focus();
+            }}
+            className="p-1.5 rounded text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+            title="Cerrar"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
       {showSearch && (
         <SearchBarUI
           inputRef={searchInputRef}
@@ -159,13 +272,16 @@ export const SourceView = forwardRef<
           }}
         />
       )}
-      <div className="iur-source relative flex-1 w-full overflow-hidden">
+      <div
+        className={`iur-source relative flex-1 w-full overflow-hidden${lines ? ' iur-lines' : ''}`}
+        style={lines ? ({ '--iur-gutter': gutter } as CSSProperties) : undefined}
+      >
         <pre
           ref={preRef}
           aria-hidden="true"
           className={`${shared} absolute inset-0 overflow-auto pointer-events-none`}
         >
-          <code className="hljs bg-transparent" dangerouslySetInnerHTML={{ __html: marked }} />
+          <code className="hljs bg-transparent" dangerouslySetInnerHTML={{ __html: html }} />
         </pre>
         <textarea
           ref={taRef}
@@ -179,7 +295,11 @@ export const SourceView = forwardRef<
           onSelect={reportLine}
           onScroll={syncScroll}
           className={`${shared} absolute inset-0 w-full h-full resize-none overflow-auto bg-transparent text-transparent focus:outline-none`}
-          style={{ WebkitTextFillColor: 'transparent', caretColor: '#f3f4f6' }}
+          style={{
+            WebkitTextFillColor: 'transparent',
+            caretColor: '#f3f4f6',
+            ...(lines ? { paddingLeft: `calc(1rem + ${gutter})` } : null),
+          }}
         />
       </div>
     </div>

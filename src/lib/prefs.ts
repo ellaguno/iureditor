@@ -54,7 +54,7 @@ export const setZoom = (zoom: number): number => {
 
 // ---------- panel lateral (archivos / esquema) ----------
 
-export type SidebarView = 'files' | 'outline';
+export type SidebarView = 'files' | 'outline' | 'search';
 
 export interface SidebarPrefs {
   visible: boolean;
@@ -72,7 +72,7 @@ export const getSidebarPrefs = (): SidebarPrefs => {
       const parsed = JSON.parse(raw) as Partial<SidebarPrefs>;
       return {
         visible: parsed.visible === true,
-        view: parsed.view === 'files' ? 'files' : 'outline',
+        view: parsed.view === 'files' || parsed.view === 'search' ? parsed.view : 'outline',
       };
     }
   } catch {
@@ -109,4 +109,15 @@ export const getSpellcheck = (): boolean => localStorage.getItem(SPELL_KEY) !== 
 
 export const setSpellcheck = (enabled: boolean): void => {
   localStorage.setItem(SPELL_KEY, String(enabled));
+};
+
+// ---------- números de línea (vista fuente) ----------
+
+const LINE_NUMBERS_KEY = 'iur-line-numbers';
+
+export const getLineNumbers = (): boolean =>
+  localStorage.getItem(LINE_NUMBERS_KEY) === 'true';
+
+export const setLineNumbers = (enabled: boolean): void => {
+  localStorage.setItem(LINE_NUMBERS_KEY, String(enabled));
 };

@@ -47,6 +47,7 @@ export interface TitleBarActions {
   onSelectAll: () => void;
   onInsertToc: () => void;
   onFind: () => void;
+  onGoToLine: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onZoomReset: () => void;
@@ -59,10 +60,14 @@ export interface ViewPrefs {
   onThemeChange: (theme: Theme) => void;
   spellcheck: boolean;
   onSpellcheckChange: (enabled: boolean) => void;
+  lineNumbers: boolean;
+  onLineNumbersChange: (enabled: boolean) => void;
   outline: boolean;
   onOutlineToggle: () => void;
   files: boolean;
   onFilesToggle: () => void;
+  search: boolean;
+  onSearchToggle: () => void;
   sourceMode: boolean;
   onSourceModeToggle: () => void;
   pageWidth: PageWidth;
@@ -514,6 +519,11 @@ export const TitleBar = ({
                 shortcut="Ctrl+F"
                 onClick={closeAnd(actions.onFind)}
               />
+              <MenuItem
+                label="Ir a línea…"
+                shortcut="Ctrl+L"
+                onClick={closeAnd(actions.onGoToLine)}
+              />
               <MenuSeparator />
               <MenuItem label="Insertar índice" onClick={closeAnd(actions.onInsertToc)} />
               <MenuSeparator />
@@ -532,6 +542,12 @@ export const TitleBar = ({
                 onClick={viewPrefs.onFilesToggle}
               />
               <MenuItem
+                label="Buscar en archivos"
+                shortcut="Ctrl+Shift+F"
+                checked={viewPrefs.search}
+                onClick={viewPrefs.onSearchToggle}
+              />
+              <MenuItem
                 label="Esquema del documento"
                 shortcut="Ctrl+Shift+O"
                 checked={viewPrefs.outline}
@@ -542,6 +558,11 @@ export const TitleBar = ({
                 shortcut="Ctrl+Shift+M"
                 checked={viewPrefs.sourceMode}
                 onClick={viewPrefs.onSourceModeToggle}
+              />
+              <MenuItem
+                label="Números de línea"
+                checked={viewPrefs.lineNumbers}
+                onClick={() => viewPrefs.onLineNumbersChange(!viewPrefs.lineNumbers)}
               />
               <MenuSeparator />
               <MenuItem label="Aumentar zoom" shortcut="Ctrl++" onClick={actions.onZoomIn} />

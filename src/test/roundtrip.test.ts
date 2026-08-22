@@ -154,4 +154,20 @@ describe('round-trip markdown → HTML → markdown', () => {
     const html = markdownToHtml('3. tres\n4. cuatro');
     expect(html).toContain('<ol start="3">');
   });
+
+  it('líneas contiguas forman un párrafo con saltos duros, no párrafos sueltos', () => {
+    const html = markdownToHtml('línea uno\nlínea dos\nlínea tres');
+    expect(html).toBe('<p>línea uno<br>línea dos<br>línea tres</p>');
+  });
+
+  it('los saltos simples de un párrafo sobreviven el round-trip sin ganar líneas en blanco', () => {
+    const md = 'línea uno\nlínea dos\n\notro párrafo';
+    expect(roundTrip(md).trim()).toBe(md);
+  });
+
+  it('una línea contigua a un encabezado no se fusiona con él', () => {
+    const html = markdownToHtml('# Título\ntexto seguido');
+    expect(html).toContain('<h1');
+    expect(html).toContain('<p>texto seguido</p>');
+  });
 });

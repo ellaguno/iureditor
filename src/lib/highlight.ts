@@ -70,3 +70,38 @@ export const highlightCode = (code: string, language: string | null): string => 
   }
   return escapeHtml(code);
 };
+
+/**
+ * Parte HTML resaltado en líneas (una por `\n` del texto original). Los spans
+ * de highlight.js pueden cruzar saltos de línea (p. ej. un bloque de código
+ * dentro de markdown): al cortar se cierran los abiertos y se reabren al
+ * inicio de la línea siguiente, para que cada línea sea HTML bien formado.
+ * Sólo maneja `<span>` (lo único que emiten hljs y la búsqueda).
+ */
+export const splitHighlightedLines = (html: string): string[] => {
+  const stack: string[] = []; // etiquetas de apertura vigentes
+  const lines: string[] = [];
+  let current = '';
+  let i = 0;
+  while (i < html.length) {
+    const ch = html[i];
+    if (ch === '<') {
+      const close = html.indexOf('>', i);
+      const end = close === -1 ? html.length : close + 1;
+      const tag = html.slice(i, end);
+      if (tag[1] === '/') stack.pop();
+      else stack.push(tag);
+      current += tag;
+      i = end;
+    } else if (ch === '\n') {
+      lines.push(current + '</span>'.repeat(stack.length));
+      current = stack.join('');
+      i++;
+    } else {
+      current += ch;
+      i++;
+    }
+  }
+  lines.push(current);
+  return lines;
+};

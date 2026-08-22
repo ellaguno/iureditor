@@ -2,10 +2,11 @@ import type { SidebarView } from '../lib/prefs';
 import type { HeadingInfo } from '../lib/outline';
 import { FilesPanel } from './FilesPanel';
 import { OutlinePanel } from './OutlinePanel';
+import { SearchPanel } from './SearchPanel';
 import { t } from '../lib/i18n';
 
-// Panel lateral con dos vistas: árbol de archivos de la carpeta de trabajo
-// y esquema del documento (estilo Obsidian/Zettlr).
+// Panel lateral con tres vistas: árbol de archivos de la carpeta de trabajo,
+// búsqueda en esos archivos y esquema del documento (estilo Obsidian/Zettlr).
 export const Sidebar = ({
   view,
   onViewChange,
@@ -22,6 +23,7 @@ export const Sidebar = ({
   onSelectDir,
   onGoUp,
   onEnterDir,
+  onOpenSearchResult,
 }: {
   view: SidebarView;
   onViewChange: (view: SidebarView) => void;
@@ -39,10 +41,12 @@ export const Sidebar = ({
   onSelectDir: (dir: string) => void;
   onGoUp: () => void;
   onEnterDir: (dir: string) => void;
+  /** Abre un resultado de la búsqueda en archivos (ruta + línea). */
+  onOpenSearchResult: (path: string, line: number) => void;
 }) => (
   <div className="w-64 shrink-0 flex flex-col border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 no-select">
     <div className="flex shrink-0 border-b border-gray-200 dark:border-gray-700">
-      {(['files', 'outline'] as const).map((v) => (
+      {(['files', 'search', 'outline'] as const).map((v) => (
         <button
           key={v}
           type="button"
@@ -53,12 +57,14 @@ export const Sidebar = ({
               : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
           }`}
         >
-          {v === 'files' ? t('files.title') : t('outline.title')}
+          {v === 'files' ? t('files.title') : v === 'search' ? t('fsearch.title') : t('outline.title')}
         </button>
       ))}
     </div>
     <div className="flex-1 min-h-0">
-      {view === 'files' ? (
+      {view === 'search' ? (
+        <SearchPanel workspace={workspace} onOpenResult={onOpenSearchResult} />
+      ) : view === 'files' ? (
         <FilesPanel
           root={workspace}
           activePath={activePath}

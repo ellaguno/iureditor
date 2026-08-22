@@ -21,6 +21,8 @@ import {
   setZoom,
   getSpellcheck,
   setSpellcheck,
+  getLineNumbers,
+  setLineNumbers,
   getSidebarPrefs,
   setSidebarPrefs,
   getPageWidth,
@@ -32,6 +34,10 @@ import { getMermaid } from './lib/mermaid';
 import {
   readDocument,
   writeDocument,
+  detectEol,
+  normalizeEol,
+  applyEol,
+  type Eol,
   createFile,
   createFolder,
   dirname,
@@ -102,6 +108,8 @@ interface PendingLoad {
    *  string = markdown guardado en disco (recuperación de borrador sucio). */
   baseline: string | null;
   plain?: boolean;
+  /** Posición del cursor a restaurar (sesión anterior). */
+  cursor?: number;
 }
 
 export default function App() {
@@ -116,6 +124,7 @@ export default function App() {
   const [counts, setCounts] = useState({ words: 0, chars: 0 });
   const [theme, setThemeState] = useState<Theme>(getTheme);
   const [spellcheck, setSpellcheckState] = useState<boolean>(getSpellcheck);
+  const [lineNumbers, setLineNumbersState] = useState<boolean>(getLineNumbers);
   const [zoom, setZoomState] = useState<number>(getZoom);
   const [pageWidth, setPageWidthState] = useState<PageWidth>(getPageWidth);
   const [sidebar, setSidebar] = useState<SidebarPrefs>(getSidebarPrefs);
@@ -148,6 +157,20 @@ export default function App() {
   // mtime del archivo en disco cuando lo cargamos/guardamos: si el disco
   // tiene uno más nuevo, alguien lo modificó por fuera.
   const diskMtime = useRef(new Map<number, number>());
+  // Estilo de fin de línea del archivo en disco, por pestaña. El contenido en
+  // memoria siempre es LF; al guardar se repone (applyEol) el estilo original
+  // para no reescribir en silencio un archivo CRLF de Windows.
+  const tabEol = useRef(new Map<number, Eol>());
+  const eolFor = (id: number): Eol => tabEol.current.get(id) ?? 'lf';
+  // Última posición del cursor por pestaña (PM pos en markdown, offset de
+  // texto en pestañas plain). Viaja a session.json para reabrir donde estaba.
+  const cursorPos = useRef(new Map<number, number>());
+  // Caret pendiente de aplicar a una pestaña plain restaurada (la vista
+  // fuente sólo existe para la pestaña activa).
+  const pendingCaret = useRef(new Map<number, number>());
+  // Pestañas markdown restauradas cuyo scroll al cursor está pendiente (el
+  // editor oculto no puede hacer scrollIntoView).
+  const pendingScrollMd = useRef(new Set<number>());
 
   // Refs espejo para handlers estables (listeners de ventana, atajos).
   const tabsRef = useRef(tabs);
@@ -237,6 +260,17 @@ export default function App() {
     [updateCounts, updateTab, scheduleDraftSave]
   );
 
+  // Aplica el caret restaurado a la vista fuente de una pestaña plain (la
+  // vista se monta/actualiza en el siguiente render, de ahí el doble rAF).
+  const applyPendingCaret = useCallback((id: number) => {
+    const caret = pendingCaret.current.get(id);
+    if (caret === undefined) return;
+    pendingCaret.current.delete(id);
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => sourceViewRef.current?.setCaret(caret))
+    );
+  }, []);
+
   // ---------- cargas pendientes (pestañas recién montadas) ----------
   useEffect(() => {
     for (const tab of tabs) {
@@ -247,11 +281,17 @@ export default function App() {
         pendingLoads.current.delete(tab.id);
         savedMd.current.set(tab.id, pending.baseline ?? pending.content);
         sourceTexts.current.set(tab.id, pending.content);
+        if (pending.cursor !== undefined) {
+          const caret = Math.min(pending.cursor, pending.content.length);
+          cursorPos.current.set(tab.id, caret);
+          pendingCaret.current.set(tab.id, caret);
+        }
         if (pending.baseline !== null) updateTab(tab.id, { dirty: true });
         if (tab.id === activeIdRef.current) {
           setSourceText(pending.content);
           updateCounts(pending.content);
           setHeadings([]);
+          applyPendingCaret(tab.id);
         }
         continue;
       }
@@ -267,6 +307,19 @@ export default function App() {
       } else {
         handle.setMarkdown(pending.content);
         savedMd.current.set(tab.id, handle.getMarkdown());
+      }
+      if (pending.cursor !== undefined && handle.editor) {
+        // Reabrir donde estaba el cursor. El editor puede estar oculto
+        // (pestaña inactiva): el scroll queda pendiente para su activación.
+        const size = handle.editor.state.doc.content.size;
+        const pos = Math.max(0, Math.min(pending.cursor, size));
+        handle.editor.commands.setTextSelection(pos);
+        cursorPos.current.set(tab.id, pos);
+        pendingScrollMd.current.add(tab.id);
+        if (tab.id === activeIdRef.current) {
+          handle.editor.commands.scrollIntoView();
+          pendingScrollMd.current.delete(tab.id);
+        }
       }
       if (tab.id === activeIdRef.current) {
         const md = handle.getMarkdown();
@@ -288,10 +341,15 @@ export default function App() {
       setHeadings([]);
       setCursorLine(1);
       setOutlinePos(0);
+      applyPendingCaret(activeId);
       return;
     }
     const handle = editorHandles.current.get(activeId);
     if (!handle) return;
+    if (pendingScrollMd.current.delete(activeId)) {
+      // Primera activación tras restaurar sesión: centrar el cursor.
+      requestAnimationFrame(() => handle.editor?.commands.scrollIntoView());
+    }
     const md = handle.getMarkdown();
     updateCounts(md);
     setSourceText(sourceTexts.current.get(activeId) ?? md);
@@ -424,6 +482,10 @@ export default function App() {
     sourceTexts.current.delete(id);
     pendingLoads.current.delete(id);
     diskMtime.current.delete(id);
+    tabEol.current.delete(id);
+    cursorPos.current.delete(id);
+    pendingCaret.current.delete(id);
+    pendingScrollMd.current.delete(id);
     setTabs((prev) => {
       const idx = prev.findIndex((tab) => tab.id === id);
       const rest = prev.filter((tab) => tab.id !== id);
@@ -461,13 +523,16 @@ export default function App() {
         setActiveId(existing.id);
         return;
       }
-      const raw = await readDocument(path);
+      const rawDisk = await readDocument(path);
+      const eol = detectEol(rawDisk);
+      const raw = normalizeEol(rawDisk);
       setRecentFiles(await addRecentFile(path));
       setLastDir(dirname(path));
       const plain = !isMarkdownPath(path);
       const mtime = await getMtime(path);
       const rememberMtime = (id: number) => {
         if (mtime !== null) diskMtime.current.set(id, mtime);
+        tabEol.current.set(id, eol);
       };
 
       const active = tabsRef.current.find((tab) => tab.id === activeIdRef.current);
@@ -509,7 +574,9 @@ export default function App() {
     async (id: number) => {
       const tab = tabsRef.current.find((tb) => tb.id === id);
       if (!tab?.path) return;
-      const raw = await readDocument(tab.path);
+      const rawDisk = await readDocument(tab.path);
+      tabEol.current.set(id, detectEol(rawDisk));
+      const raw = normalizeEol(rawDisk);
       const m = await getMtime(tab.path);
       if (m !== null) diskMtime.current.set(id, m);
       if (tab.plain) {
@@ -587,7 +654,7 @@ export default function App() {
       if (known !== undefined && current !== null && current > known) {
         if (!(await confirmOverwriteExternal(basename(tab.path)))) return false;
       }
-      await writeDocument(tab.path, md);
+      await writeDocument(tab.path, applyEol(md, eolFor(id)));
       const savedMtime = await getMtime(tab.path);
       if (savedMtime !== null) diskMtime.current.set(id, savedMtime);
       savedMd.current.set(id, md);
@@ -861,6 +928,23 @@ export default function App() {
           defaultDir()
         );
         if (!path) return null;
+        if (!tab?.plain && !isMarkdownPath(path)) {
+          // El usuario eligió una extensión de texto (p. ej. `.txt`): el
+          // archivo deja de ser markdown. Se guarda el fuente tal cual y la
+          // pestaña pasa a modo texto plano (sin pipeline markdown).
+          await writeDocument(path, applyEol(md, eolFor(id)));
+          const savedMtime = await getMtime(path);
+          if (savedMtime !== null) diskMtime.current.set(id, savedMtime);
+          savedMd.current.set(id, md);
+          sourceTexts.current.set(id, md);
+          setSourceText(md);
+          setHeadings([]);
+          updateTab(id, { path, dirty: false, plain: true, sourceMode: true });
+          setLastDir(dirname(path));
+          setRecentFiles(await addRecentFile(path));
+          scheduleDraftSave();
+          return path;
+        }
         if (!tab?.plain) {
           const newDir = dirname(path);
           // El orden importa: primero el documento pasa a vivir en la carpeta
@@ -907,7 +991,7 @@ export default function App() {
           if (!(await confirmOverwriteExternal(basename(path)))) return null;
         }
       }
-      await writeDocument(path, md);
+      await writeDocument(path, applyEol(md, eolFor(id)));
       const savedMtime = await getMtime(path);
       if (savedMtime !== null) diskMtime.current.set(id, savedMtime);
       savedMd.current.set(id, md);
@@ -1071,6 +1155,11 @@ export default function App() {
     setThemeState(next);
   }, []);
 
+  const handleLineNumbersChange = useCallback((enabled: boolean) => {
+    setLineNumbers(enabled);
+    setLineNumbersState(enabled);
+  }, []);
+
   const handleSpellcheckChange = useCallback((enabled: boolean) => {
     setSpellcheck(enabled);
     setSpellcheckState(enabled);
@@ -1106,6 +1195,51 @@ export default function App() {
     if (tab?.sourceMode) sourceViewRef.current?.openSearch();
     else activeHandle()?.openSearch();
   }, [activeHandle]);
+
+  /** Abre un resultado de la búsqueda en archivos: carga el documento, lo
+   *  pasa a vista fuente (la línea es un concepto del texto) y salta a ella. */
+  const handleOpenSearchResult = useCallback(
+    async (path: string, line: number) => {
+      try {
+        await loadDocument(path);
+      } catch (err) {
+        console.error('No se pudo abrir el resultado:', err);
+        return;
+      }
+      const tab = tabsRef.current.find((tb) => tb.path === path);
+      if (!tab) return;
+      if (!tab.plain && !tab.sourceMode) {
+        const handle = editorHandles.current.get(tab.id);
+        // Pestaña recién creada: el contenido lo pone la carga pendiente.
+        if (handle && !pendingLoads.current.has(tab.id)) {
+          const md = handle.getMarkdown();
+          setSourceText(md);
+          sourceTexts.current.set(tab.id, md);
+        }
+        updateTab(tab.id, { sourceMode: true });
+      }
+      // La vista fuente (y su contenido, si la pestaña es nueva) se montan en
+      // los renders siguientes.
+      setTimeout(() => sourceViewRef.current?.goToLine(line), 150);
+    },
+    [loadDocument, updateTab]
+  );
+
+  const handleGoToLine = useCallback(() => {
+    // "Ir a línea" es un concepto de la vista fuente: si la pestaña está en
+    // modo visual, primero se cambia a fuente y luego se abre la barrita.
+    const tab = tabsRef.current.find((tb) => tb.id === activeIdRef.current);
+    if (!tab) return;
+    if (tab.sourceMode || tab.plain) {
+      sourceViewRef.current?.openGoToLine();
+    } else {
+      handleToggleSource();
+      // La vista fuente se monta en el siguiente render.
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => sourceViewRef.current?.openGoToLine())
+      );
+    }
+  }, [handleToggleSource]);
 
   const cycleTab = useCallback((delta: number) => {
     const list = tabsRef.current;
@@ -1169,6 +1303,9 @@ export default function App() {
       } else if (key === 'e' && e.shiftKey) {
         e.preventDefault();
         handleSidebarView('files');
+      } else if (key === 'f' && e.shiftKey) {
+        e.preventDefault();
+        handleSidebarView('search');
       } else if (key === 'm' && e.shiftKey) {
         e.preventDefault();
         handleToggleSource();
@@ -1190,6 +1327,9 @@ export default function App() {
       } else if (key === 'f' && !e.shiftKey) {
         e.preventDefault();
         handleFind();
+      } else if (key === 'l' && !e.shiftKey) {
+        e.preventDefault();
+        handleGoToLine();
       } else if (key === '+' || key === '=') {
         e.preventDefault();
         handleZoomIn();
@@ -1212,6 +1352,7 @@ export default function App() {
     handleExportPdf,
     handleQuit,
     handleFind,
+    handleGoToLine,
     handleZoomIn,
     handleZoomOut,
     handleZoomReset,
@@ -1289,15 +1430,18 @@ export default function App() {
         for (const path of session?.paths ?? []) {
           if (openedByPath.has(path)) continue;
           try {
-            const raw = await readDocument(path);
+            const rawDisk = await readDocument(path);
+            const raw = normalizeEol(rawDisk);
             const plain = !isMarkdownPath(path);
             const draft = draftByPath.get(path);
+            const cursor = session?.cursors?.[path];
             const id = createTab(
               draft
-                ? { content: draft.markdown, baseline: raw, plain }
-                : { content: raw, baseline: null, plain },
+                ? { content: draft.markdown, baseline: raw, plain, cursor }
+                : { content: raw, baseline: null, plain, cursor },
               path
             );
+            tabEol.current.set(id, detectEol(rawDisk));
             const m = await getMtime(path);
             if (m !== null) diskMtime.current.set(id, m);
             openedByPath.set(path, id);
@@ -1311,15 +1455,19 @@ export default function App() {
           for (const draft of drafts) {
             if (draft.path && openedByPath.has(draft.path)) continue;
             let baseline = '';
+            let baselineEol: Eol = 'lf';
             if (draft.path) {
               try {
-                baseline = await readDocument(draft.path);
+                const rawDisk = await readDocument(draft.path);
+                baselineEol = detectEol(rawDisk);
+                baseline = normalizeEol(rawDisk);
               } catch {
                 baseline = '';
               }
             }
             const plain = draft.path ? !isMarkdownPath(draft.path) : false;
             const id = createTab({ content: draft.markdown, baseline, plain }, draft.path);
+            tabEol.current.set(id, baselineEol);
             if (draft.path) {
               const m = await getMtime(draft.path);
               if (m !== null) diskMtime.current.set(id, m);
@@ -1365,15 +1513,39 @@ export default function App() {
       // más de una vez: la sesión guardada nunca debe multiplicar archivos.
       const paths = [...new Set(tabs.filter((tb) => tb.path).map((tb) => tb.path!))];
       const activePath = tabs.find((tb) => tb.id === activeId)?.path ?? null;
-      void saveSession({ paths, activePath, workspace, lastDir });
+      void saveSession({ paths, activePath, workspace, lastDir, cursors: collectCursors() });
     }, 800);
     return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs, activeId, workspace, lastDir]);
+
+  /** Cursor por ruta de las pestañas abiertas (para session.json). */
+  const collectCursors = (): Record<string, number> => {
+    const cursors: Record<string, number> = {};
+    for (const tb of tabsRef.current) {
+      if (!tb.path) continue;
+      const pos = cursorPos.current.get(tb.id);
+      if (pos !== undefined) cursors[tb.path] = pos;
+    }
+    return cursors;
+  };
 
   // ---------- guard al cerrar ----------
   useEffect(() => {
     if (!isTauri) return;
     const unlisten = getCurrentWindow().onCloseRequested(async (event) => {
+      // Sesión final con la posición del cursor al día (el guardado por
+      // efecto sólo corre cuando cambian pestañas, no al mover el cursor).
+      if (!detachPath && sessionReady.current) {
+        const list = tabsRef.current;
+        await saveSession({
+          paths: [...new Set(list.filter((tb) => tb.path).map((tb) => tb.path!))],
+          activePath: list.find((tb) => tb.id === activeIdRef.current)?.path ?? null,
+          workspace: workspaceRef.current,
+          lastDir: lastDirRef.current,
+          cursors: collectCursors(),
+        });
+      }
       const dirtyTabs = tabsRef.current.filter((tab) => tab.dirty);
       if (dirtyTabs.length === 0) return;
       if (await confirmDiscard()) {
@@ -1464,6 +1636,7 @@ export default function App() {
             onSelectAll: () => activeHandle()?.editor?.chain().focus().selectAll().run(),
             onInsertToc: handleInsertToc,
             onFind: handleFind,
+            onGoToLine: handleGoToLine,
             onZoomIn: handleZoomIn,
             onZoomOut: handleZoomOut,
             onZoomReset: handleZoomReset,
@@ -1475,10 +1648,14 @@ export default function App() {
             onThemeChange: handleThemeChange,
             spellcheck,
             onSpellcheckChange: handleSpellcheckChange,
+            lineNumbers,
+            onLineNumbersChange: handleLineNumbersChange,
             outline: sidebar.visible && sidebar.view === 'outline',
             onOutlineToggle: () => handleSidebarView('outline'),
             files: sidebar.visible && sidebar.view === 'files',
             onFilesToggle: () => handleSidebarView('files'),
+            search: sidebar.visible && sidebar.view === 'search',
+            onSearchToggle: () => handleSidebarView('search'),
             sourceMode,
             onSourceModeToggle: handleToggleSource,
             pageWidth,
@@ -1503,6 +1680,7 @@ export default function App() {
               )
             }
             onPickFolder={() => void handlePickWorkspace()}
+            onOpenSearchResult={(path, line) => void handleOpenSearchResult(path, line)}
             onCreateFile={handleCreateFile}
             onCreateFolder={handleCreateFolder}
             onSelectDir={handleSelectDir}
@@ -1529,6 +1707,7 @@ export default function App() {
                   if (tab.id === activeIdRef.current) setHeadings(hs);
                 }}
                 onCursorChange={({ line, pos }) => {
+                  cursorPos.current.set(tab.id, pos);
                   if (tab.id !== activeIdRef.current) return;
                   setCursorLine(line);
                   setOutlinePos(pos);
@@ -1547,9 +1726,18 @@ export default function App() {
               ref={sourceViewRef}
               value={sourceText}
               onChange={handleSourceChange}
-              onCursorLine={setCursorLine}
+              onCursorLine={(line, offset) => {
+                setCursorLine(line);
+                // Sólo pestañas plain: en modo fuente de un markdown el
+                // offset del textarea no es una posición de ProseMirror.
+                const tab = tabsRef.current.find((tb) => tb.id === activeIdRef.current);
+                if (tab?.plain && offset !== undefined) {
+                  cursorPos.current.set(tab.id, offset);
+                }
+              }}
               spellcheck={spellcheck}
               language={languageForPath(activeTab?.path ?? null)}
+              lineNumbers={lineNumbers}
             />
           )}
         </div>

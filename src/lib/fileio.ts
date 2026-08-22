@@ -46,6 +46,35 @@ export const OPEN_FILTERS = [
 export const isMarkdownPath = (path: string): boolean =>
   /\.(md|markdown)$/i.test(path);
 
+/** ¿El nombre termina en una extensión de texto plano conocida? */
+export const hasTextExtension = (path: string): boolean => {
+  const name = basename(path).toLowerCase();
+  return TEXT_EXTENSIONS.some((ext) => name.endsWith(`.${ext}`));
+};
+
+// ---------- finales de línea ----------
+// El editor trabaja SIEMPRE en LF (el textarea normaliza CRLF al vuelo, y el
+// pipeline markdown ancla sus regex en `\n`). Para no reescribir en silencio
+// los finales de un archivo ajeno (un .txt de Windows), se detecta el estilo
+// al cargar y se repone al guardar.
+
+export type Eol = 'lf' | 'crlf';
+
+export const detectEol = (text: string): Eol => (text.includes('\r\n') ? 'crlf' : 'lf');
+
+/** CRLF y CR sueltos → LF (forma canónica interna). */
+export const normalizeEol = (text: string): string => text.replace(/\r\n?/g, '\n');
+
+/** Repone el estilo de fin de línea original antes de escribir a disco. */
+export const applyEol = (text: string, eol: Eol): string =>
+  eol === 'crlf' ? text.replace(/\n/g, '\r\n') : text;
+
+/** Extensión final para "Guardar como" de un documento markdown: se añade
+ *  `.md` salvo que el usuario haya escrito una extensión de texto conocida
+ *  (guardar `notas.txt` debe producir `notas.txt`, no `notas.txt.md`). */
+export const ensureSaveExtension = (path: string): string =>
+  isMarkdownPath(path) || hasTextExtension(path) ? path : `${path}.md`;
+
 /** ¿Extensión de texto editable? (para drag & drop de archivos sueltos) */
 export const isTextPath = (path: string): boolean => {
   const name = basename(path).toLowerCase();
@@ -314,13 +343,14 @@ export const pickSavePath = async (
 ): Promise<string | null> => {
   const path = await save({
     defaultPath: inDir(defaultDir, basename(suggestedName)),
-    filters: forceMd ? MD_FILTERS : [{ name: 'Todos los archivos', extensions: ['*'] }],
+    filters: forceMd
+      ? [...MD_FILTERS, { name: 'Texto', extensions: TEXT_EXTENSIONS }]
+      : [{ name: 'Todos los archivos', extensions: ['*'] }],
   });
   if (!path) return null;
-  // Asegura extensión .md sólo para documentos markdown; un .env/.txt
-  // conserva su nombre tal cual.
-  if (forceMd && !/\.(md|markdown)$/i.test(path)) return `${path}.md`;
-  return path;
+  // Un documento markdown recibe `.md` salvo extensión de texto explícita
+  // (que lo convierte a texto plano); un .env/.txt conserva su nombre tal cual.
+  return forceMd ? ensureSaveExtension(path) : path;
 };
 
 export const confirmDiscard = async (): Promise<boolean> =>

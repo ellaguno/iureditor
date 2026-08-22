@@ -19,13 +19,16 @@ export const normalizePastedText = (text: string): string => text.replace(/\r\n?
 const escapeHtml = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-/** Texto plano → párrafos HTML (mismo criterio que el paste por defecto de
- *  ProseMirror: cada tanda de saltos de línea separa párrafos). */
+/** Texto plano → párrafos HTML. Sólo las líneas EN BLANCO separan párrafos;
+ *  un salto simple queda como salto duro (<br>) dentro del mismo párrafo.
+ *  (El paste por defecto de ProseMirror convierte cada salto en un párrafo
+ *  nuevo, que al serializar gana una línea en blanco — texto pegado desde
+ *  una terminal acababa con "retornos de más".) */
 export const plainTextToHtml = (text: string): string =>
   text
-    .split(/\n+/)
+    .split(/\n{2,}/)
     .filter(p => p.trim() !== '')
-    .map(p => `<p>${escapeHtml(p)}</p>`)
+    .map(p => `<p>${p.replace(/^\n+|\n+$/g, '').split('\n').map(escapeHtml).join('<br>')}</p>`)
     .join('');
 
 // ── Clasificación de líneas ─────────────────────────────────────────────────

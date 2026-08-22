@@ -401,22 +401,47 @@ export const markdownToHtml = (markdown: string): string => {
   }
 
   // STEP 7 — Wrap remaining plain-text lines into <p> tags. Lines that
-  // are empty or already an HTML block element are left alone.
+  // are empty or already an HTML block element are left alone. Las líneas
+  // CONTIGUAS se fusionan en un único párrafo con <br> (salto duro): así un
+  // salto simple del archivo sigue siendo un salto simple al guardar (la
+  // regla softLineBreak de Turndown lo emite como `\n`), en vez de explotar
+  // en párrafos sueltos que se serializan con línea en blanco de por medio
+  // — el origen de los "retornos de más" al pegar texto de una terminal.
   const blockElementStart = /^<(?:h[1-6]|ul|ol|li|table|tr|td|th|thead|tbody|tfoot|blockquote|pre|hr|p|div|figure)\b/i;
   const blockElementEnd = /<\/(?:h[1-6]|ul|ol|li|table|tr|td|th|thead|tbody|tfoot|blockquote|pre|p|div|figure)>$/i;
-  html = html.split('\n').map(line => {
-    const trimmed = line.trim();
-    if (!trimmed) return '';
-    if (blockElementStart.test(trimmed) || blockElementEnd.test(trimmed) || trimmed === '<hr>') {
-      return line;
+  {
+    const outLines: string[] = [];
+    let para: string[] = [];
+    const flushPara = () => {
+      if (para.length) {
+        outLines.push(`<p>${para.join('<br>')}</p>`);
+        para = [];
+      }
+    };
+    for (const line of html.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        flushPara();
+        outLines.push('');
+        continue;
+      }
+      if (blockElementStart.test(trimmed) || blockElementEnd.test(trimmed) || trimmed === '<hr>') {
+        flushPara();
+        outLines.push(line);
+        continue;
+      }
+      if (trimmed.startsWith('<!--IUR-CODEBLOCK-')) {
+        // Leave the placeholder bare on its own line — STEP 8 swaps it for
+        // the actual block. Wrapping it in <p> would produce invalid HTML.
+        flushPara();
+        outLines.push(trimmed);
+        continue;
+      }
+      para.push(trimmed);
     }
-    if (trimmed.startsWith('<!--IUR-CODEBLOCK-')) {
-      // Leave the placeholder bare on its own line — STEP 8 swaps it for
-      // the actual block. Wrapping it in <p> would produce invalid HTML.
-      return trimmed;
-    }
-    return `<p>${trimmed}</p>`;
-  }).join('\n');
+    flushPara();
+    html = outLines.join('\n');
+  }
 
   // STEP 8 — Restore placeholders (átomos e inline code, luego bloques).
   html = html.replace(/<!--IUR-ATOM-(\d+)-->/g, (_m, i) => inlineAtoms[Number(i)] || '');
@@ -445,6 +470,14 @@ export const buildTurndownService = (): TurndownService => {
   // heading. With escaping on, every save/edit round-trip adds another
   // backslash: "# foo" → "\# foo" → "\\# foo" …
   (service as unknown as { escape: (s: string) => string }).escape = (s: string) => s;
+
+  // Salto duro (<br>) → salto de línea simple. El default de Turndown emite
+  // "  \n" (dos espacios), que nuestro parser no reconoce; con `\n` el par
+  // markdownToHtml/turndown es identidad para líneas contiguas de un párrafo.
+  service.addRule('softLineBreak', {
+    filter: 'br',
+    replacement: () => '\n',
+  });
 
   // Callout → blockquote con marcador `> [!TIPO]`
   service.addRule('callout', {

@@ -248,9 +248,12 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
               inst.chain().focus().insertContent(markdownToHtml(md)).run();
               return true;
             }
-            // Sólo había CRs que limpiar: insertar como párrafos planos para
-            // que los \r no lleguen al documento.
-            if (inst && rawText !== text) {
+            // Prosa plana multilínea: siempre por plainTextToHtml, que
+            // respeta los saltos simples como saltos duros (el paste por
+            // defecto de ProseMirror haría un párrafo por línea, añadiendo
+            // retornos al serializar). Con una sola línea y sin CRs que
+            // limpiar, el paste por defecto ya hace lo correcto.
+            if (inst && (rawText !== text || text.includes('\n'))) {
               event.preventDefault();
               inst.chain().focus().insertContent(plainTextToHtml(text)).run();
               return true;

@@ -16,6 +16,10 @@ export interface SessionState {
    *  destino por defecto de los diálogos; se persiste para que la app no
    *  arranque apuntando al home tras reiniciar. */
   lastDir?: string | null;
+  /** Posición del cursor por ruta, para reabrir donde se quedó el usuario:
+   *  offset de texto en pestañas de texto plano, posición de ProseMirror en
+   *  pestañas markdown. */
+  cursors?: Record<string, number>;
 }
 
 const getStore = () => load(STORE_FILE, { autoSave: true, defaults: {} });
@@ -39,6 +43,7 @@ export const loadSession = async (): Promise<SessionState | null> => {
       activePath: state.activePath ?? null,
       workspace: state.workspace ?? null,
       lastDir: state.lastDir ?? null,
+      cursors: state.cursors ?? {},
     };
   } catch {
     return null;

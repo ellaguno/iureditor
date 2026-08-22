@@ -408,6 +408,25 @@
 .iur-source {
   @apply bg-gray-900 dark:bg-gray-950 text-gray-100;
 }
+/* Números de línea: cada línea lógica es un bloque con hueco a la izquierda
+   (--iur-gutter, lo fija SourceView según los dígitos) y su número en un
+   ::before absoluto. min-height mantiene la altura de las líneas vacías
+   (un bloque cuyo único contenido era un salto colapsaría a 0). */
+.iur-lines .iur-line {
+  display: block;
+  position: relative;
+  padding-left: var(--iur-gutter);
+  min-height: calc(1em * var(--iur-code-leading));
+}
+.iur-lines .iur-line::before {
+  content: attr(data-ln);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(var(--iur-gutter) - 1ch);
+  text-align: right;
+  @apply text-gray-600;
+}
 .iur-source .hljs-comment,
 .iur-source .hljs-quote {
   @apply text-gray-500;
