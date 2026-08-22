@@ -5,6 +5,16 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.6.1 — 2026-08-22
+
+### Corregido
+- **El panel de archivos sigue al documento activo**. Antes solo mostraba la
+  carpeta de trabajo elegida a mano (botón de carpeta o navegación dentro del
+  panel), así que al abrir un archivo sin haber elegido carpeta el panel
+  quedaba vacío. Ahora, al abrir un archivo, guardarlo como o cambiar de
+  pestaña, el panel muestra la carpeta de ese documento; la navegación manual
+  del panel se respeta mientras no cambie la ruta del documento activo.
+
 ## v1.6.0 — 2026-08-22
 
 ### Añadido

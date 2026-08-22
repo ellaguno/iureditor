@@ -181,6 +181,16 @@ export default function App() {
   sourceTextRef.current = sourceText;
 
   const activeTab = tabs.find((tab) => tab.id === activeId) ?? tabs[0];
+
+  // El panel de archivos sigue al documento activo: abrir, «guardar como» o
+  // cambiar de pestaña apuntan la carpeta de trabajo a la del archivo. La
+  // navegación manual del panel (subir, doble clic, elegir carpeta) manda
+  // hasta que el documento activo vuelva a cambiar de ruta.
+  const activeTabPath = activeTab?.path ?? null;
+  useEffect(() => {
+    if (activeTabPath) setWorkspace(dirname(activeTabPath));
+  }, [activeTabPath]);
+
   const activeHandle = useCallback(
     () => editorHandles.current.get(activeIdRef.current) ?? null,
     []
