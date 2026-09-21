@@ -73,7 +73,10 @@
     ],
     "linux": {
       "deb": {
-        "desktopTemplate": "./iureditor.desktop"
+        "desktopTemplate": "./linux/app.desktop"
+      },
+      "rpm": {
+        "desktopTemplate": "./linux/app.desktop"
       }
     },
     "icon": [
