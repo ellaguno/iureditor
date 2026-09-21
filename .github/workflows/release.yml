@@ -13,12 +13,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `asset`: sufijo con el que se publican los instaladores. GitHub los lista
+          # por nombre (orden ASCII): el número deja Windows, macOS y Linux en ese orden.
           - platform: ubuntu-22.04
             args: ''
+            asset: 3-linux-x64
           - platform: windows-latest
             args: ''
+            asset: 1-windows-x64
           - platform: macos-latest
             args: '--target universal-apple-darwin'
+            asset: 2-macos-universal
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v5
@@ -67,16 +72,83 @@ jobs:
             echo "__NOTES_EOF__"
           } >> "$GITHUB_OUTPUT"
 
+      # Sólo compila y empaqueta: la release y los assets (con nombre uniforme) se
+      # suben en el paso siguiente, y latest.json lo genera el job `manifest`.
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Firma de los artefactos del updater (latest.json + .sig)
+          # Firma de los artefactos del updater (.sig)
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'iureditor ${{ github.ref_name }}'
-          releaseBody: ${{ steps.notes.outputs.body }}
-          releaseDraft: false
-          prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Publicar en la release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NOTES: ${{ steps.notes.outputs.body }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="$GITHUB_REF_NAME"
+          mkdir -p dist-release
+          # iureditor_<versión>_<orden>-<plataforma>.<ext>; bash 3.2 en macOS: sin globstar ni mapfile.
+          find src-tauri/target -path '*/release/bundle/*' -type f \
+            \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.dmg' -o -name '*.msi' -o -name '*-setup.exe' \
+               -o -name '*.sig' -o -name '*.app.tar.gz' \) -print | while read -r f; do
+            base="$(basename "$f")"
+            case "$base" in
+              *.app.tar.gz.sig) ext="app.tar.gz.sig" ;;
+              *.app.tar.gz)     ext="app.tar.gz" ;;
+              *.AppImage.sig)   ext="AppImage.sig" ;;
+              *-setup.exe.sig)  ext="exe.sig" ;;
+              *.msi.sig)        ext="msi.sig" ;;
+              *.deb.sig)        ext="deb.sig" ;;
+              *.rpm.sig)        ext="rpm.sig" ;;
+              *)                ext="${base##*.}" ;;
+            esac
+            cp "$f" "dist-release/iureditor_${VERSION}_${{ matrix.asset }}.${ext}"
+          done
+          ls -la dist-release
+          printf '%s\n' "$NOTES" > release-notes.md
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "iureditor $TAG" --notes-file release-notes.md || true
+          gh release upload "$TAG" dist-release/* --clobber
+
+  # Manifiesto del actualizador (latest.json): una entrada por plataforma con la
+  # firma de su instalador. macOS es universal: la misma entrada para ambas arquitecturas.
+  manifest:
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Generar y subir latest.json
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p firmas && cd firmas
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern '*.sig' || true
+          cd ..
+          python3 - <<'PY'
+          import json, os, glob, datetime
+          tag = os.environ["GITHUB_REF_NAME"]; version = tag.lstrip("v")
+          base = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/"
+          platforms = {}
+          for sig in glob.glob("firmas/*.sig"):
+              asset = os.path.basename(sig)[:-4]
+              entry = {"url": base + asset, "signature": open(sig).read().strip()}
+              if asset.endswith(".AppImage"):
+                  platforms["linux-x86_64"] = entry
+              elif asset.endswith(".exe"):
+                  platforms["windows-x86_64"] = entry
+              elif asset.endswith(".app.tar.gz"):
+                  platforms["darwin-aarch64"] = entry
+                  platforms["darwin-x86_64"] = entry
+          manifest = {"version": version, "notes": f"iureditor {version}",
+                      "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                      "platforms": platforms}
+          json.dump(manifest, open("latest.json", "w"), indent=2)
+          print(json.dumps(manifest, indent=2))
+          PY
+          gh release upload "$GITHUB_REF_NAME" latest.json --repo "$GITHUB_REPOSITORY" --clobber

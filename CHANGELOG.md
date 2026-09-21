@@ -5,6 +5,27 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.8.1 — 2026-09-21
+
+### Cambiado
+- Los instaladores de la release se publican con nombre uniforme
+  `iureditor_<versión>_1-windows-x64.exe`, `2-macos-universal.dmg`,
+  `3-linux-x64.deb`… GitHub los lista por nombre, y así aparecen primero
+  Windows, luego macOS y al final Linux. El `latest.json` del actualizador lo
+  genera el propio flujo de publicación.
+
+## v1.8.0 — 2026-09-21
+
+### Añadido
+- **Apps de Iurefficient** al pie del panel «Iurefficient»: las tres apps de
+  escritorio (IureTranscribe, IureEditor e IureDav), cuáles están instaladas en
+  este equipo, la última versión publicada y botones para abrirlas o descargarlas.
+- **Enlaces `iureditor://`.** `iureditor://open?path=/ruta/doc.md` abre un
+  archivo local (IureTranscribe lo usa para «Abrir con IureEditor») e
+  `iureditor://iurefficient/doc?case=…&doc=…&name=…` descarga un documento de
+  la instancia como espejo local y lo abre vinculado, listo para subir versiones.
+- Usa el conector común `iurefficient-connect` 0.4.2.
+
 ## v1.7.0 — 2026-09-21
 
 ### Añadido
