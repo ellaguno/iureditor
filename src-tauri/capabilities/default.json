@@ -2,7 +2,11 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main, print-preview and detached document windows",
-  "windows": ["main", "print-preview", "doc-*"],
+  "windows": [
+    "main",
+    "print-preview",
+    "doc-*"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-close",
@@ -19,6 +23,7 @@
     "core:webview:allow-print",
     "core:event:default",
     "core:menu:default",
+    "deep-link:default",
     "opener:default",
     "dialog:default",
     "updater:default",
@@ -28,7 +33,14 @@
     "fs:default",
     {
       "identifier": "fs:scope",
-      "allow": [{ "path": "$HOME/**" }, { "path": "$TEMP/**" }]
+      "allow": [
+        {
+          "path": "$HOME/**"
+        },
+        {
+          "path": "$TEMP/**"
+        }
+      ]
     },
     "fs:allow-read-file",
     "fs:allow-write-file",
@@ -43,9 +55,15 @@
     {
       "identifier": "opener:allow-open-path",
       "allow": [
-        { "path": "$APPDATA" },
-        { "path": "$APPDATA/**" },
-        { "path": "$HOME/**" }
+        {
+          "path": "$APPDATA"
+        },
+        {
+          "path": "$APPDATA/**"
+        },
+        {
+          "path": "$HOME/**"
+        }
       ]
     }
   ]

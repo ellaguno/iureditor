@@ -65,6 +65,32 @@ export const iure = {
     invoke<IureMirror>('iure_save_new', { path, caseId, caseTitle }),
 };
 
+/** Documento de Iurefficient pedido por un enlace `iureditor://iurefficient/doc?…`. */
+export interface IureDocLink {
+  case_id: string | null;
+  case_title: string | null;
+  document_id: string;
+  file_name: string;
+}
+
+export type AppId = 'transcribe' | 'editor' | 'dav';
+export interface AppStatus {
+  id: AppId;
+  name: string;
+  description: string;
+  installed: boolean;
+  path: string | null;
+  downloadUrl: string;
+  latestVersion: string | null;
+}
+
+/** Apps de escritorio de Iurefficient (IureTranscribe, IureEditor, IureDav). */
+export const apps = {
+  status: (withNetwork: boolean) => invoke<AppStatus[]>('apps_status', { withNetwork }),
+  launch: (app: AppId, path?: string) => invoke<void>('launch_app', { app, path: path ?? null }),
+  cliIureDoc: () => invoke<IureDocLink | null>('get_cli_iure_doc'),
+};
+
 const AUTOSYNC_KEY = 'iur-iure-autosync';
 
 /** ¿Subir automáticamente una versión al guardar un documento vinculado? */

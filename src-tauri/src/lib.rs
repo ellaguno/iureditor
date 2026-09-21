@@ -7,7 +7,9 @@ use tauri::{Emitter, Manager};
 /// segunda instancia le pasa su argv a la instancia viva.
 fn first_file_arg(args: &[String]) -> Option<String> {
     args.iter().skip(1).find_map(|arg| {
-        let path = std::path::Path::new(arg);
+        // Enlace `iureditor://open?path=/ruta/doc.md` (desde otra app o el navegador).
+        let candidate = deep_link_path(arg).unwrap_or_else(|| arg.clone());
+        let path = std::path::Path::new(&candidate);
         if path.is_file() {
             path.canonicalize()
                 .ok()
@@ -16,6 +18,70 @@ fn first_file_arg(args: &[String]) -> Option<String> {
             None
         }
     })
+}
+
+/// Ruta local de un enlace `iureditor://open?path=…` (o `file://…`); None si no lo es.
+fn deep_link_path(arg: &str) -> Option<String> {
+    let lower = arg.to_ascii_lowercase();
+    if lower.starts_with("file:") {
+        return url::Url::parse(arg).ok().and_then(|u| u.to_file_path().ok()).map(|p| p.to_string_lossy().into_owned());
+    }
+    if !lower.starts_with("iureditor:") {
+        return None;
+    }
+    let u = url::Url::parse(arg).ok()?;
+    u.query_pairs().find(|(k, _)| k == "path").map(|(_, v)| v.into_owned())
+}
+
+/// Enlace `iureditor://iurefficient/doc?case=<id>&doc=<id>&name=<archivo>&title=<proyecto>`:
+/// abrir un documento de la instancia (se descarga como espejo local).
+#[derive(Clone, serde::Serialize)]
+struct IureDocLink {
+    case_id: Option<String>,
+    case_title: Option<String>,
+    document_id: String,
+    file_name: String,
+}
+
+fn iure_doc_link(arg: &str) -> Option<IureDocLink> {
+    if !arg.to_ascii_lowercase().starts_with("iureditor:") {
+        return None;
+    }
+    let u = url::Url::parse(arg).ok()?;
+    let route = format!("{}{}", u.host_str().unwrap_or(""), u.path());
+    if !route.trim_end_matches('/').ends_with("iurefficient/doc") {
+        return None;
+    }
+    let get = |k: &str| u.query_pairs().find(|(q, _)| q == k).map(|(_, v)| v.into_owned()).filter(|v| !v.is_empty());
+    Some(IureDocLink {
+        case_id: get("case"),
+        case_title: get("title"),
+        document_id: get("doc")?,
+        file_name: get("name").unwrap_or_else(|| "documento.md".into()),
+    })
+}
+
+/// Enlace `iureditor://iurefficient/doc…` con el que se abrió la app, si lo hubo.
+#[tauri::command]
+fn get_cli_iure_doc() -> Option<IureDocLink> {
+    std::env::args().skip(1).find_map(|a| iure_doc_link(&a))
+}
+
+/// Apps de escritorio de Iurefficient en este equipo y su última versión publicada.
+#[tauri::command]
+async fn apps_status(with_network: bool) -> Vec<iurefficient_connect::apps::AppStatus> {
+    if with_network {
+        iurefficient_connect::apps::status(&iurefficient_connect::user_agent("IureEditor", env!("CARGO_PKG_VERSION"))).await
+    } else {
+        iurefficient_connect::apps::installed()
+    }
+}
+
+#[tauri::command]
+fn launch_app(app: String, path: Option<String>) -> Result<(), String> {
+    let id = iurefficient_connect::apps::AppId::parse(&app).ok_or_else(|| format!("app desconocida: {app}"))?;
+    let args: Vec<String> = path.into_iter().collect();
+    iurefficient_connect::apps::launch(id, &args).map_err(|e| format!("{e:#}"))
 }
 
 /// Permite al asset protocol servir imágenes del directorio del documento
@@ -204,9 +270,12 @@ pub fn run() {
                 let _ = window.set_focus();
                 if let Some(file) = first_file_arg(&argv) {
                     let _ = window.emit("open-file", file);
+                } else if let Some(link) = argv.iter().find_map(|a| iure_doc_link(a)) {
+                    let _ = window.emit("iure-open-doc", link);
                 }
             }
         }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
@@ -228,6 +297,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             allow_asset_dir,
             get_cli_file,
+            get_cli_iure_doc,
+            apps_status,
+            launch_app,
             print_webview,
             render_svg_png,
             read_clipboard_image,
@@ -244,6 +316,15 @@ pub fn run() {
         .setup(|app| {
             #[cfg(target_os = "linux")]
             enable_spellcheck(app);
+            // Esquema `iureditor://` (Linux y Windows lo registran en tiempo de
+            // ejecución; en macOS va en el Info.plist del bundle).
+            #[cfg(any(windows, target_os = "linux"))]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                if let Err(e) = app.deep_link().register_all() {
+                    eprintln!("no se pudo registrar el esquema iureditor://: {e}");
+                }
+            }
             iurefficient::init(app)?;
             Ok(())
         })

@@ -10,6 +10,7 @@ import {
   type IureStatus,
   type SyncEvent,
 } from '../lib/iurefficient';
+import { IureAppsSection } from './IureAppsSection';
 
 // Panel lateral «Iurefficient»: conectar con la cuenta, abrir documentos de un
 // proyecto (se descargan como espejo local) y guardarlos de vuelta como versión.
@@ -191,7 +192,8 @@ export const IurefficientPanel = ({
 
   if (!status.loggedIn) {
     return (
-      <div className="flex flex-col gap-2 px-3 py-3 text-xs">
+      <div className="flex flex-col h-full text-xs">
+      <div className="flex flex-col gap-2 px-3 py-3 text-xs flex-1 min-h-0 overflow-y-auto">
         <p className="text-gray-600 dark:text-gray-300">
           Conecta tu cuenta para abrir documentos de tus {status.caseLabel}s y guardarlos como versiones. La contraseña no se guarda; sólo la sesión, en el llavero del sistema.
         </p>
@@ -206,6 +208,8 @@ export const IurefficientPanel = ({
           {busy ? <RefreshCw size={12} className="animate-spin" /> : <Check size={12} />} {totpToken ? 'Verificar' : 'Conectar'}
         </button>
         {(error ?? status.error) && <p className="text-red-600 dark:text-red-400">{error ?? status.error}</p>}
+      </div>
+      <IureAppsSection />
       </div>
     );
   }
@@ -306,6 +310,7 @@ export const IurefficientPanel = ({
         )}
       </div>
       {error && <div className="px-3 py-2 text-red-600 dark:text-red-400 border-t border-gray-200 dark:border-gray-700">{error}</div>}
+      <IureAppsSection />
     </div>
   );
 };

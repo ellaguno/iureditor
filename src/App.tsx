@@ -60,7 +60,7 @@ import {
   confirmOverwriteExternal,
 } from './lib/fileio';
 import type { ImageRelocation } from './lib/fileio';
-import { syncAfterSave } from './lib/iurefficient';
+import { syncAfterSave, type IureDocLink } from './lib/iurefficient';
 import { saveDrafts, loadDrafts, clearDrafts } from './lib/autosave';
 import { saveSession, loadSession } from './lib/session';
 import {
@@ -778,6 +778,27 @@ export default function App() {
       const path = event.payload;
       if (path) void loadDocument(path);
     });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, [loadDocument]);
+
+  // Enlace `iureditor://iurefficient/doc?case=…&doc=…`: abrir un documento de la
+  // instancia (se descarga como espejo local y se vincula para subir versiones).
+  useEffect(() => {
+    if (!isTauri || detachPath) return;
+    const open = async (link: IureDocLink | null) => {
+      if (!link) return;
+      try {
+        const { iure } = await import('./lib/iurefficient');
+        const path = await iure.openDocument(link.case_id, link.case_title, link.document_id, link.file_name);
+        await loadDocument(path);
+      } catch (e) {
+        console.error('iure-open-doc', e);
+      }
+    };
+    const unlisten = listen<IureDocLink>('iure-open-doc', (event) => void open(event.payload));
+    void import('./lib/iurefficient').then(({ apps }) => apps.cliIureDoc().then(open).catch(() => {}));
     return () => {
       void unlisten.then((fn) => fn());
     };

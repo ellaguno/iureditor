@@ -1,6 +1,6 @@
 [package]
 name = "iureditor"
-version = "1.7.0"
+version = "1.8.0"
 description = "Editor WYSIWYG de Markdown con Mermaid y export a PDF/DOCX"
 authors = ["Eduardo Llaguno"]
 license = "MIT"
@@ -23,6 +23,7 @@ tauri-plugin-store = "2"
 tauri-plugin-window-state = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+url = "2"
 resvg = "0.47.0"
 base64 = "0.22.1"
 # Lectura de imágenes del portapapeles del sistema (pegar capturas). En Linux
@@ -36,9 +37,10 @@ tauri-plugin-process = "2.3.1"
 # Instancia única: al abrir un .md con la app ya corriendo, el nuevo proceso
 # le pasa su argv a la instancia viva (que enfoca la ventana y abre el archivo)
 # y se cierra, en lugar de lanzar otra ventana de iureditor.
-tauri-plugin-single-instance = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+tauri-plugin-deep-link = "2"
 # Conector común con Iurefficient (sesión REST, documentos, llavero compartido).
-iurefficient-connect = { git = "https://github.com/ellaguno/iurefficient-connect", tag = "v0.3.0" }
+iurefficient-connect = { git = "https://github.com/ellaguno/iurefficient-connect", tag = "v0.4.2" }
 anyhow = "1"
 tokio = { version = "1", features = ["sync"] }
 
