@@ -5,6 +5,20 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.8.2 — 2026-09-21
+
+### Cambiado
+- **Iurefficient al principio del menú.** La conexión con la instancia ya no
+  está escondida dentro de «Ver»: es la primera entrada del menú (Ctrl+Shift+I).
+- **El archivo que abres se muestra primero.** Al abrir un documento con doble
+  clic, desde la terminal o desde otra app, aparece y toma el foco de inmediato;
+  las pestañas de la sesión anterior se restauran por detrás sin robárselo.
+
+### Corregido
+- La barra de búsqueda (Ctrl+F) dejaba el último contador (p. ej. «3/7») cuando
+  ya no había coincidencias; ahora muestra «Sin coincidencias» y el contador se
+  actualiza con cada Siguiente/Anterior y reemplazo.
+
 ## v1.8.1 — 2026-09-21
 
 ### Cambiado

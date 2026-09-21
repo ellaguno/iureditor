@@ -527,12 +527,12 @@ export default function App() {
 
   // ---------- abrir / nuevo ----------
   const loadDocument = useCallback(
-    async (path: string) => {
+    async (path: string): Promise<number> => {
       // Si ya está abierto, sólo activa su pestaña.
       const existing = tabsRef.current.find((tab) => tab.path === path);
       if (existing) {
         setActiveId(existing.id);
-        return;
+        return existing.id;
       }
       const rawDisk = await readDocument(path);
       const eol = detectEol(rawDisk);
@@ -557,7 +557,7 @@ export default function App() {
           updateCounts(raw);
           setHeadings([]);
           updateTab(active.id, { path, dirty: false, plain: true, sourceMode: true });
-          return;
+          return active.id;
         }
         // Reutiliza la pestaña vacía actual (comportamiento clásico).
         const handle = editorHandles.current.get(active.id);
@@ -573,9 +573,11 @@ export default function App() {
           pendingLoads.current.set(active.id, { content: raw, baseline: null });
         }
         updateTab(active.id, { path, dirty: false });
-        return;
+        return active.id;
       }
-      rememberMtime(createTab({ content: raw, baseline: null, plain }, path));
+      const id = createTab({ content: raw, baseline: null, plain }, path);
+      rememberMtime(id);
+      return id;
     },
     [createTab, isPristine, updateCounts, updateTab]
   );
@@ -1442,6 +1444,20 @@ export default function App() {
           }
           return;
         }
+        // 0) El archivo con el que se abrió la app (doble clic, `iureditor doc.md`,
+        //    `iureditor://open?path=…`) va primero: se abre y se muestra ya, y la
+        //    sesión anterior se restaura por detrás sin robarle el foco.
+        const { invoke } = await import('@tauri-apps/api/core');
+        const cliFile = await invoke<string | null>('get_cli_file');
+        let cliTabId: number | null = null;
+        if (cliFile) {
+          try {
+            cliTabId = await loadDocument(cliFile);
+          } catch (err) {
+            console.error('No se pudo abrir el archivo pedido:', err);
+          }
+        }
+
         // 1) ¿Quedaron borradores de una sesión que terminó mal?
         const drafts = await loadDrafts();
         let recovered = false;
@@ -1465,7 +1481,7 @@ export default function App() {
         if (restoredDir) setLastDir(restoredDir);
         const openedByPath = new Map<string, number>();
         for (const path of session?.paths ?? []) {
-          if (openedByPath.has(path)) continue;
+          if (openedByPath.has(path) || path === cliFile) continue;
           try {
             const rawDisk = await readDocument(path);
             const raw = normalizeEol(rawDisk);
@@ -1513,19 +1529,20 @@ export default function App() {
           }
         }
 
-        // 4) La pestaña vacía inicial sobra si se restauró algo.
+        // 4) La pestaña vacía inicial sobra si se restauró algo (salvo que la
+        //    haya reutilizado el archivo pedido al abrir).
         if (openedByPath.size > 0 || (recovered && drafts.length)) {
-          setTabs((prev) => (prev.length > 1 ? prev.filter((tb) => tb.id !== 0) : prev));
+          if (cliTabId !== 0) {
+            setTabs((prev) => (prev.length > 1 ? prev.filter((tb) => tb.id !== 0) : prev));
+          }
           const activeRestored = session?.activePath
             ? openedByPath.get(session.activePath)
             : undefined;
-          if (activeRestored !== undefined) setActiveId(activeRestored);
+          if (cliTabId !== null) setActiveId(cliTabId);
+          else if (activeRestored !== undefined) setActiveId(activeRestored);
+        } else if (cliTabId !== null) {
+          setActiveId(cliTabId);
         }
-
-        // 5) Archivo pasado por línea de comandos (dedupe vía loadDocument).
-        const { invoke } = await import('@tauri-apps/api/core');
-        const cliFile = await invoke<string | null>('get_cli_file');
-        if (cliFile) await loadDocument(cliFile);
       } finally {
         sessionReady.current = true;
       }

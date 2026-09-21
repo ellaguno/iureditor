@@ -83,8 +83,8 @@ export const SearchBarUI = ({
           if (e.key === 'Escape') onClose();
         }}
       />
-      <span className="text-xs text-gray-500 dark:text-gray-400 min-w-[52px] text-center tabular-nums">
-        {term ? `${current}/${total}` : ''}
+      <span className={`text-xs text-gray-500 dark:text-gray-400 min-w-[52px] text-center tabular-nums ${term && !total ? 'text-amber-600 dark:text-amber-400' : ''}`}>
+        {term ? (total ? `${current}/${total}` : t('search.none')) : ''}
       </span>
       <button type="button" title={t('search.prev')} onClick={prev} disabled={!total} className={BTN}>
         <ChevronUp className="w-4 h-4" />
@@ -154,8 +154,23 @@ export const SearchBarUI = ({
 // Adaptador para el editor WYSIWYG: la búsqueda son decoraciones de
 // ProseMirror y el estado vive en editor.storage.searchReplace.
 export const SearchBar = ({ editor, onClose }: { editor: Editor; onClose: () => void }) => {
-  const storage = editor.storage.searchReplace;
-  const total = storage.results.length;
+  // El estado vive en editor.storage y cambia sin que este componente se vuelva
+  // a dibujar (findNext ni siquiera despacha transacción): se copia a estado de
+  // React tras cada orden y tras cada transacción, para que el contador nunca
+  // se quede con el dato anterior (p. ej. 3/7 cuando ya no hay coincidencias).
+  const read = () => {
+    const st = editor.storage.searchReplace;
+    return { total: st.results.length, index: st.index };
+  };
+  const [{ total, index }, setCounts] = useState(read);
+  const sync = () => setCounts(read());
+  useEffect(() => {
+    editor.on('transaction', sync);
+    return () => {
+      editor.off('transaction', sync);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor]);
 
   const scrollToCurrent = () => {
     const hit = editor.storage.searchReplace.results[editor.storage.searchReplace.index];
@@ -168,21 +183,28 @@ export const SearchBar = ({ editor, onClose }: { editor: Editor; onClose: () => 
   const driver: SearchDriver = {
     setQuery: (term, caseSensitive) => {
       editor.commands.setSearch(term, caseSensitive);
+      sync();
       if (term) scrollToCurrent();
     },
     next: () => {
       editor.commands.findNext();
+      sync();
       scrollToCurrent();
     },
     prev: () => {
       editor.commands.findPrev();
+      sync();
       scrollToCurrent();
     },
     replaceOne: (replacement) => {
       editor.commands.replaceCurrent(replacement);
+      sync();
       scrollToCurrent();
     },
-    replaceAll: (replacement) => editor.commands.replaceAll(replacement),
+    replaceAll: (replacement) => {
+      editor.commands.replaceAll(replacement);
+      sync();
+    },
     clear: () => editor.commands.clearSearch(),
   };
 
@@ -190,7 +212,7 @@ export const SearchBar = ({ editor, onClose }: { editor: Editor; onClose: () => 
     <SearchBarUI
       driver={driver}
       total={total}
-      current={total ? storage.index + 1 : 0}
+      current={total ? index + 1 : 0}
       onClose={onClose}
     />
   );

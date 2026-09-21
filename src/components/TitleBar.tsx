@@ -455,6 +455,14 @@ export const TitleBar = ({
         </button>
         {menuOpen && (
           <div className="absolute top-full left-2 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-50 py-1.5 w-[270px] max-h-[80vh] overflow-y-auto space-y-0.5">
+            {/* La conexión con Iurefficient va al principio, fuera de las secciones plegables. */}
+            <MenuItem
+              label="Iurefficient"
+              shortcut="Ctrl+Shift+I"
+              checked={viewPrefs.iurefficient}
+              onClick={viewPrefs.onIurefficientToggle}
+            />
+            <MenuSeparator />
             <MenuSection label="Archivo" expanded={expandedSections.has('file')} onToggle={toggleSection('file')}>
               <MenuItem label="Nuevo" shortcut="Ctrl+N" onClick={closeAnd(actions.onNew)} />
               <MenuItem label="Abrir…" shortcut="Ctrl+O" onClick={closeAnd(actions.onOpen)} />
@@ -554,12 +562,6 @@ export const TitleBar = ({
                 shortcut="Ctrl+Shift+O"
                 checked={viewPrefs.outline}
                 onClick={viewPrefs.onOutlineToggle}
-              />
-              <MenuItem
-                label="Iurefficient"
-                shortcut="Ctrl+Shift+I"
-                checked={viewPrefs.iurefficient}
-                onClick={viewPrefs.onIurefficientToggle}
               />
               <MenuItem
                 label="Código fuente"
