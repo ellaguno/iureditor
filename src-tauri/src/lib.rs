@@ -1,3 +1,5 @@
+mod iurefficient;
+
 use tauri::{Emitter, Manager};
 
 /// Primer argumento de la línea de comandos que sea un archivo existente,
@@ -228,11 +230,21 @@ pub fn run() {
             get_cli_file,
             print_webview,
             render_svg_png,
-            read_clipboard_image
+            read_clipboard_image,
+            iurefficient::iure_status,
+            iurefficient::iure_login,
+            iurefficient::iure_logout,
+            iurefficient::iure_cases,
+            iurefficient::iure_case_documents,
+            iurefficient::iure_open_document,
+            iurefficient::iure_mirror_of,
+            iurefficient::iure_upload_version,
+            iurefficient::iure_save_new
         ])
         .setup(|app| {
             #[cfg(target_os = "linux")]
             enable_spellcheck(app);
+            iurefficient::init(app)?;
             Ok(())
         })
         .run(tauri::generate_context!())

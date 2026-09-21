@@ -5,6 +5,23 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.7.0 — 2026-09-21
+
+### Añadido
+- **Panel «Iurefficient»** en la barra lateral (Ctrl+Shift+I, menú Ver). Conecta
+  tu cuenta con correo y contraseña (y el código de dos pasos si lo tienes; la
+  contraseña no se guarda, sólo la sesión en el llavero del sistema, compartida
+  con IureTranscribe e IureDav), busca un proyecto y abre sus documentos Markdown
+  o de texto directamente en el editor.
+- **Guardar de vuelta como versión.** Un documento abierto desde Iurefficient se
+  trabaja como un archivo normal (deshacer, borradores, imágenes) y, al guardar
+  con Ctrl+S, sube una versión nueva a la instancia; se puede desactivar en el
+  panel o subir a mano con «Subir versión ahora». Cualquier archivo local se
+  puede enviar con «Guardar en Iurefficient…» a un proyecto o a General, y a
+  partir de ahí queda vinculado.
+- Usa el conector común
+  [`iurefficient-connect`](https://github.com/ellaguno/iurefficient-connect).
+
 ## v1.6.1 — 2026-08-22
 
 ### Corregido

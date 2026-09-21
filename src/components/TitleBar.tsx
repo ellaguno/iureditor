@@ -68,6 +68,8 @@ export interface ViewPrefs {
   onFilesToggle: () => void;
   search: boolean;
   onSearchToggle: () => void;
+  iurefficient: boolean;
+  onIurefficientToggle: () => void;
   sourceMode: boolean;
   onSourceModeToggle: () => void;
   pageWidth: PageWidth;
@@ -552,6 +554,12 @@ export const TitleBar = ({
                 shortcut="Ctrl+Shift+O"
                 checked={viewPrefs.outline}
                 onClick={viewPrefs.onOutlineToggle}
+              />
+              <MenuItem
+                label="Iurefficient"
+                shortcut="Ctrl+Shift+I"
+                checked={viewPrefs.iurefficient}
+                onClick={viewPrefs.onIurefficientToggle}
               />
               <MenuItem
                 label="Código fuente"

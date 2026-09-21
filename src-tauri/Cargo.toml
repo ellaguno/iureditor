@@ -1,6 +1,6 @@
 [package]
 name = "iureditor"
-version = "1.6.1"
+version = "1.7.0"
 description = "Editor WYSIWYG de Markdown con Mermaid y export a PDF/DOCX"
 authors = ["Eduardo Llaguno"]
 license = "MIT"
@@ -37,6 +37,10 @@ tauri-plugin-process = "2.3.1"
 # le pasa su argv a la instancia viva (que enfoca la ventana y abre el archivo)
 # y se cierra, en lugar de lanzar otra ventana de iureditor.
 tauri-plugin-single-instance = "2"
+# Conector común con Iurefficient (sesión REST, documentos, llavero compartido).
+iurefficient-connect = { git = "https://github.com/ellaguno/iurefficient-connect", tag = "v0.3.0" }
+anyhow = "1"
+tokio = { version = "1", features = ["sync"] }
 
 # Para activar la corrección ortográfica de WebKitGTK (misma versión que
 # usa wry, ver Cargo.lock).

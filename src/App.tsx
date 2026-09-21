@@ -60,6 +60,7 @@ import {
   confirmOverwriteExternal,
 } from './lib/fileio';
 import type { ImageRelocation } from './lib/fileio';
+import { syncAfterSave } from './lib/iurefficient';
 import { saveDrafts, loadDrafts, clearDrafts } from './lib/autosave';
 import { saveSession, loadSession } from './lib/session';
 import {
@@ -1015,6 +1016,8 @@ export default function App() {
       setRecentFiles(await addRecentFile(path));
       // Guardado exitoso: re-generar borradores (sólo pestañas aún sucias).
       scheduleDraftSave();
+      // Si el archivo está vinculado a un documento de Iurefficient, sube la versión.
+      void syncAfterSave(path);
       return path;
     },
     [syncSourceToEditor, updateTab, scheduleDraftSave, defaultDir, reportRelocation]
@@ -1316,6 +1319,9 @@ export default function App() {
       } else if (key === 'f' && e.shiftKey) {
         e.preventDefault();
         handleSidebarView('search');
+      } else if (key === 'i' && e.shiftKey) {
+        e.preventDefault();
+        handleSidebarView('iurefficient');
       } else if (key === 'm' && e.shiftKey) {
         e.preventDefault();
         handleToggleSource();
@@ -1666,6 +1672,8 @@ export default function App() {
             onFilesToggle: () => handleSidebarView('files'),
             search: sidebar.visible && sidebar.view === 'search',
             onSearchToggle: () => handleSidebarView('search'),
+            iurefficient: sidebar.visible && sidebar.view === 'iurefficient',
+            onIurefficientToggle: () => handleSidebarView('iurefficient'),
             sourceMode,
             onSourceModeToggle: handleToggleSource,
             pageWidth,
@@ -1696,6 +1704,8 @@ export default function App() {
             onSelectDir={handleSelectDir}
             onGoUp={handleGoUp}
             onEnterDir={handleEnterDir}
+            activeDirty={!!activeTab?.dirty}
+            onSaveActive={() => doSave(false)}
           />
         )}
         <div className="flex-1 min-w-0 flex flex-col" style={{ zoom }} data-page-width={pageWidth}>

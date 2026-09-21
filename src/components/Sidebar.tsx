@@ -3,6 +3,7 @@ import type { HeadingInfo } from '../lib/outline';
 import { FilesPanel } from './FilesPanel';
 import { OutlinePanel } from './OutlinePanel';
 import { SearchPanel } from './SearchPanel';
+import { IurefficientPanel } from './IurefficientPanel';
 import { t } from '../lib/i18n';
 
 // Panel lateral con tres vistas: árbol de archivos de la carpeta de trabajo,
@@ -24,6 +25,8 @@ export const Sidebar = ({
   onGoUp,
   onEnterDir,
   onOpenSearchResult,
+  activeDirty,
+  onSaveActive,
 }: {
   view: SidebarView;
   onViewChange: (view: SidebarView) => void;
@@ -43,10 +46,13 @@ export const Sidebar = ({
   onEnterDir: (dir: string) => void;
   /** Abre un resultado de la búsqueda en archivos (ruta + línea). */
   onOpenSearchResult: (path: string, line: number) => void;
+  /** Para el panel de Iurefficient: estado y guardado de la pestaña activa. */
+  activeDirty: boolean;
+  onSaveActive: () => Promise<string | null>;
 }) => (
   <div className="w-64 shrink-0 flex flex-col border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 no-select">
     <div className="flex shrink-0 border-b border-gray-200 dark:border-gray-700">
-      {(['files', 'search', 'outline'] as const).map((v) => (
+      {(['files', 'search', 'outline', 'iurefficient'] as const).map((v) => (
         <button
           key={v}
           type="button"
@@ -57,12 +63,14 @@ export const Sidebar = ({
               : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
           }`}
         >
-          {v === 'files' ? t('files.title') : v === 'search' ? t('fsearch.title') : t('outline.title')}
+          {v === 'files' ? t('files.title') : v === 'search' ? t('fsearch.title') : v === 'iurefficient' ? t('iure.title') : t('outline.title')}
         </button>
       ))}
     </div>
     <div className="flex-1 min-h-0">
-      {view === 'search' ? (
+      {view === 'iurefficient' ? (
+        <IurefficientPanel activePath={activePath} activeDirty={activeDirty} onOpenFile={onOpenFile} onSaveActive={onSaveActive} />
+      ) : view === 'search' ? (
         <SearchPanel workspace={workspace} onOpenResult={onOpenSearchResult} />
       ) : view === 'files' ? (
         <FilesPanel
