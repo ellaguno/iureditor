@@ -83,6 +83,75 @@ jobs:
         with:
           args: ${{ matrix.args }}
 
+      # --- Firma Authenticode (Windows) con SignPath -------------------------------
+      # Solo se activa cuando existen el token (secreto SIGNPATH_API_TOKEN) y los
+      # identificadores del proyecto (variables SIGNPATH_ORGANIZATION_ID,
+      # SIGNPATH_PROJECT_SLUG y SIGNPATH_SIGNING_POLICY_SLUG). Sin ellos se publica
+      # sin firmar, como hasta ahora. SignPath recibe el instalador como artefacto
+      # de esta ejecución, lo firma con el certificado de SignPath Foundation tras
+      # la aprobación manual y lo devuelve; la firma Authenticode cambia los bytes,
+      # así que la firma minisign del actualizador (.sig) se rehace después.
+      - name: Instaladores de Windows por firmar
+        id: sin_firmar
+        if: runner.os == 'Windows' && env.SIGNPATH_API_TOKEN != ''
+        shell: bash
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        run: |
+          mkdir -p sin-firmar
+          find src-tauri/target -path '*/release/bundle/*' -type f \( -name '*-setup.exe' -o -name '*.msi' \) -exec cp {} sin-firmar/ \;
+          ls -la sin-firmar
+          echo "hay=$(ls sin-firmar | wc -l | tr -d ' ')" >> "$GITHUB_OUTPUT"
+
+      - name: Subir los instaladores como artefacto para SignPath
+        id: artefacto_sin_firmar
+        if: steps.sin_firmar.outputs.hay != '' && steps.sin_firmar.outputs.hay != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sin-firmar-${{ matrix.asset }}
+          path: sin-firmar/*
+          retention-days: 3
+
+      - name: Firmar con SignPath
+        id: signpath
+        if: steps.artefacto_sin_firmar.outputs.artifact-id != ''
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.artefacto_sin_firmar.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: firmados
+
+      - name: Sustituir por los firmados y rehacer la firma del actualizador
+        if: steps.signpath.outcome == 'success'
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          n=0
+          for firmado in $(find firmados -type f \( -name '*.exe' -o -name '*.msi' \)); do
+            nombre="$(basename "$firmado")"
+            destino="$(find src-tauri/target -path '*/release/bundle/*' -type f -name "$nombre" | head -1)"
+            if [ -z "$destino" ]; then
+              echo "::error::SignPath devolvió $nombre pero no existe en el bundle"
+              exit 1
+            fi
+            cp "$firmado" "$destino"
+            if [ -f "$destino.sig" ]; then
+              npx tauri signer sign -k "$TAURI_SIGNING_PRIVATE_KEY" -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$destino"
+            fi
+            n=$((n + 1))
+          done
+          if [ "$n" -eq 0 ]; then
+            echo "::error::SignPath no devolvió ningún instalador"
+            exit 1
+          fi
+          echo "$n instaladores firmados"
+
       - name: Publicar en la release
         shell: bash
         env:

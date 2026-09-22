@@ -40,6 +40,38 @@ Si la ventana aparece en blanco o parpadea (NVIDIA/Wayland), prueba:
 WEBKIT_DISABLE_DMABUF_RENDERER=1 iureditor
 ```
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://signpath.io), certificate by
+[SignPath Foundation](https://signpath.org).
+
+*Firma de código gratuita proporcionada por SignPath.io, con certificado de SignPath
+Foundation. Es lo que hace que Windows muestre un editor conocido en lugar de la
+advertencia de SmartScreen.*
+
+- **Committers and reviewers:** Eduardo Llaguno ([@ellaguno](https://github.com/ellaguno)).
+- **Approvers:** Eduardo Llaguno ([@ellaguno](https://github.com/ellaguno)).
+- Every Windows release is built from this repository by GitHub Actions
+  (`.github/workflows/release.yml`), submitted to SignPath from that workflow and
+  approved manually before it is signed. Only the installer published on the
+  [releases page](https://github.com/ellaguno/iureditor/releases) is signed.
+
+### Privacy policy
+
+This program will not transfer any information to other networked systems unless
+specifically requested by the user or the person installing or operating it.
+
+Specifically, IureEditor connects only to:
+
+- the Iurefficient instance that the user configures, and only when the user
+  signs in or opens, saves or lists documents there;
+- `api.github.com`, once a few seconds after start-up, to check whether a newer
+  release exists. Nothing is downloaded or installed without asking first.
+
+It collects no telemetry and no usage statistics. Documents are edited locally.
+Credentials are stored in the operating system keychain, never in configuration
+files.
+
 ## Licencia
 
 [MIT](LICENSE)
