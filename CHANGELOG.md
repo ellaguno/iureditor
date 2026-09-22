@@ -5,6 +5,15 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.8.3 — 2026-09-22
+
+### Añadido
+- **Una sola sesión para las tres apps.** Si IureDav o IureTranscribe ya
+  iniciaron sesión en este equipo, IureEditor arranca conectado a esa misma
+  instancia y cuenta sin pedir nada; y al iniciar sesión aquí, las otras dos la
+  encuentran. La sesión se sincroniza con el llavero antes de cada renovación
+  para que dos apps abiertas a la vez no se invaliden entre sí (conector 0.5.0).
+
 ## v1.8.2 — 2026-09-21
 
 ### Cambiado

@@ -49,10 +49,22 @@ pub fn init(app: &App) -> Result<(), Box<dyn std::error::Error>> {
     let data_dir = app.path().app_data_dir()?;
     std::fs::create_dir_all(&config_dir)?;
     let config_path = config_dir.join("iurefficient.json");
-    let config = std::fs::read_to_string(&config_path)
+    let mut config: Config = std::fs::read_to_string(&config_path)
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_default();
+    // Sin cuenta configurada: si otra app de Iurefficient (IureDav, IureTranscribe)
+    // ya inició sesión en este equipo, se toma su instancia y correo; la sesión
+    // está en el llavero compartido y `iure_status` la restaura sola.
+    if config.domain.trim().is_empty() || config.email.trim().is_empty() {
+        if let Some(a) = iurefficient_connect::account::active() {
+            config.domain = a.domain;
+            config.email = a.email;
+            if let Ok(json) = serde_json::to_string_pretty(&config) {
+                let _ = std::fs::write(&config_path, json);
+            }
+        }
+    }
     app.manage(IureState {
         config_path,
         mirror_dir: data_dir.join("iurefficient"),
@@ -169,6 +181,7 @@ pub async fn iure_login(
         },
     };
     persist_session(&acc, &sess);
+    let _ = iurefficient_connect::account::set_active(&acc, "IureEditor");
     {
         let mut c = state.config.lock().unwrap();
         c.domain = acc.host();
@@ -187,6 +200,7 @@ pub async fn iure_logout(state: State<'_, IureState>) -> Result<(), String> {
     }
     if let Ok(acc) = state.account() {
         let _ = secrets::borrar(&acc, secrets::Kind::Session);
+        let _ = iurefficient_connect::account::clear_active(&acc);
     }
     Ok(())
 }

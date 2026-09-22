@@ -1,6 +1,6 @@
 [package]
 name = "iureditor"
-version = "1.8.2"
+version = "1.8.3"
 description = "Editor WYSIWYG de Markdown con Mermaid y export a PDF/DOCX"
 authors = ["Eduardo Llaguno"]
 license = "MIT"
@@ -40,7 +40,7 @@ tauri-plugin-process = "2.3.1"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-deep-link = "2"
 # Conector común con Iurefficient (sesión REST, documentos, llavero compartido).
-iurefficient-connect = { git = "https://github.com/ellaguno/iurefficient-connect", tag = "v0.4.2" }
+iurefficient-connect = { git = "https://github.com/ellaguno/iurefficient-connect", tag = "v0.5.0" }
 anyhow = "1"
 tokio = { version = "1", features = ["sync"] }
 
