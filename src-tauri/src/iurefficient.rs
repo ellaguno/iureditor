@@ -53,7 +53,7 @@ pub fn init(app: &App) -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_default();
-    // Sin cuenta configurada: si otra app de Iurefficient (IureDav, IureTranscribe)
+    // Sin cuenta configurada: si otra app de Iurefficient (IureDav, IureTranscribe, IureOCR)
     // ya inició sesión en este equipo, se toma su instancia y correo; la sesión
     // está en el llavero compartido y `iure_status` la restaura sola.
     if config.domain.trim().is_empty() || config.email.trim().is_empty() {
@@ -134,12 +134,25 @@ pub async fn iure_status(state: State<'_, IureState>) -> Result<Status, String> 
     if domain.is_empty() || email.is_empty() {
         return Ok(Status { domain, email, logged_in: false, name: None, case_label: "proyecto".into(), error: None });
     }
+    let was_cached = state.session.lock().await.is_some();
     let sess = match state.session().await {
         Ok(s) => s,
         Err(e) => return Ok(Status { domain, email, logged_in: false, name: None, case_label: "proyecto".into(), error: Some(err(e)) }),
     };
-    match sess.me().await {
-        Ok(u) => {
+    let mut result = sess.me().await.map(|u| (sess.clone(), u));
+    // La sesión en memoria ya no vale (p. ej. otra app renovó y rotó el refresco, o
+    // se cerró sesión y se volvió a abrir desde otra app): se descarta y se intenta
+    // una vez restaurar la del llavero compartido antes de darla por cerrada.
+    if result.is_err() && was_cached {
+        *state.session.lock().await = None;
+        if let Ok(fresh) = state.session().await {
+            if let Ok(u) = fresh.me().await {
+                result = Ok((fresh, u));
+            }
+        }
+    }
+    match result {
+        Ok((sess, u)) => {
             let case_label = api::terminology(&sess).await.map(|t| t.case).unwrap_or_else(|_| "proyecto".into());
             let name = u.name.clone().or_else(|| u.extra.get("full_name").and_then(|v| v.as_str()).map(str::to_string));
             Ok(Status { domain, email, logged_in: true, name, case_label, error: None })

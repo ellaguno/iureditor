@@ -73,7 +73,7 @@ export interface IureDocLink {
   file_name: string;
 }
 
-export type AppId = 'transcribe' | 'editor' | 'dav';
+export type AppId = 'transcribe' | 'editor' | 'dav' | 'ocr';
 export interface AppStatus {
   id: AppId;
   name: string;
@@ -84,7 +84,7 @@ export interface AppStatus {
   latestVersion: string | null;
 }
 
-/** Apps de escritorio de Iurefficient (IureTranscribe, IureEditor, IureDav). */
+/** Apps de escritorio de Iurefficient (IureTranscribe, IureEditor, IureDav, IureOCR). */
 export const apps = {
   status: (withNetwork: boolean) => invoke<AppStatus[]>('apps_status', { withNetwork }),
   launch: (app: AppId, path?: string) => invoke<void>('launch_app', { app, path: path ?? null }),

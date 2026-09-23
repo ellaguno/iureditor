@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Download, ExternalLink, RefreshCw } from 'lucide-react';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { apps, type AppStatus } from '../lib/iurefficient';
+import { apps, type AppId, type AppStatus } from '../lib/iurefficient';
 
-const REPOS: Record<string, string> = {
+const REPOS: Record<AppId, string> = {
   transcribe: 'https://github.com/ellaguno/iuretranscribe',
   editor: 'https://github.com/ellaguno/iureditor',
   dav: 'https://github.com/ellaguno/iuredav',
+  ocr: 'https://github.com/ellaguno/iureocr',
 };
 
-// «Apps de Iurefficient»: las tres apps de escritorio, cuáles están instaladas en
+// «Apps de Iurefficient»: las apps de escritorio, cuáles están instaladas en
 // este equipo, la última versión publicada y de dónde descargarlas.
 export const IureAppsSection = ({ version }: { version?: string }) => {
   const [list, setList] = useState<AppStatus[] | null>(null);
