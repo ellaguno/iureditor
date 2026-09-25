@@ -7,10 +7,13 @@ import {
   BaseDirectory,
 } from '@tauri-apps/plugin-fs';
 import { appDataDir, join } from '@tauri-apps/api/path';
+import { locale } from './i18n';
 
 // Plantillas de documento: archivos .md en <appData>/plantillas. El usuario
 // puede añadir las suyas desde "Abrir carpeta de plantillas". Al crear un
-// documento desde plantilla, {{fecha}} se sustituye por la fecha del día.
+// documento desde plantilla, {{fecha}} se sustituye por la fecha del día
+// (en español, como las plantillas de inicio) y {{date}} por la fecha en el
+// idioma de la interfaz. Las plantillas son contenido: no se traducen.
 
 const DIR = 'plantillas';
 
@@ -124,21 +127,20 @@ export const listTemplates = async (): Promise<string[]> => {
     return entries
       .filter((e) => e.isFile && /\.md$/i.test(e.name))
       .map((e) => e.name.replace(/\.md$/i, ''))
-      .sort((a, b) => a.localeCompare(b, 'es'));
+      .sort((a, b) => a.localeCompare(b, locale()));
   } catch {
     return [];
   }
 };
 
-/** Contenido de la plantilla con {{fecha}} resuelta al día de hoy. */
+/** Contenido de la plantilla con {{fecha}} y {{date}} resueltas al día de hoy. */
 export const readTemplate = async (name: string): Promise<string> => {
   const raw = await readTextFile(`${DIR}/${name}.md`, { baseDir: BaseDirectory.AppData });
-  const today = new Date().toLocaleDateString('es-MX', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-  return raw.replaceAll('{{fecha}}', today);
+  const opts: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric' };
+  const now = new Date();
+  return raw
+    .replaceAll('{{fecha}}', now.toLocaleDateString('es-MX', opts))
+    .replaceAll('{{date}}', now.toLocaleDateString(locale(), opts));
 };
 
 export const openTemplatesFolder = async (): Promise<void> => {

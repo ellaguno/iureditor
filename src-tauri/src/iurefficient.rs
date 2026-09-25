@@ -8,7 +8,7 @@
 
 use anyhow::{anyhow, Result};
 use iurefficient_connect::rest::{Login, Session, SessionExport};
-use iurefficient_connect::{api, secrets, user_agent, Account};
+use iurefficient_connect::{api, lang, secrets, tr, user_agent, Account};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -94,7 +94,7 @@ impl IureState {
             .ok()
             .flatten()
             .and_then(|j| serde_json::from_str::<SessionExport>(&j).ok())
-            .ok_or_else(|| anyhow!("Inicia sesión en Iurefficient"))?;
+            .ok_or_else(|| anyhow!(tr!("Sign in to Iurefficient", "Inicia sesión en Iurefficient")))?;
         let sess = Session::new(acc.clone(), &agente())?;
         sess.import(&saved).await?;
         persist_session(&acc, &sess);
@@ -108,6 +108,16 @@ fn persist_session(acc: &Account, sess: &Session) {
     if let Ok(json) = serde_json::to_string(&sess.export()) {
         let _ = secrets::guardar(acc, secrets::Kind::Session, &json);
     }
+}
+
+/// Nombre de archivo por defecto (en el idioma de la interfaz).
+fn default_doc_name() -> String {
+    lang::pick("document.md", "documento.md").into()
+}
+
+/// Término por defecto para «proyecto» si la instancia no da su terminología.
+fn default_case_label() -> String {
+    lang::pick("project", "proyecto").into()
 }
 
 fn err(e: anyhow::Error) -> String {
@@ -132,12 +142,12 @@ pub async fn iure_status(state: State<'_, IureState>) -> Result<Status, String> 
         (c.domain.clone(), c.email.clone())
     };
     if domain.is_empty() || email.is_empty() {
-        return Ok(Status { domain, email, logged_in: false, name: None, case_label: "proyecto".into(), error: None });
+        return Ok(Status { domain, email, logged_in: false, name: None, case_label: default_case_label(), error: None });
     }
     let was_cached = state.session.lock().await.is_some();
     let sess = match state.session().await {
         Ok(s) => s,
-        Err(e) => return Ok(Status { domain, email, logged_in: false, name: None, case_label: "proyecto".into(), error: Some(err(e)) }),
+        Err(e) => return Ok(Status { domain, email, logged_in: false, name: None, case_label: default_case_label(), error: Some(err(e)) }),
     };
     let mut result = sess.me().await.map(|u| (sess.clone(), u));
     // La sesión en memoria ya no vale (p. ej. otra app renovó y rotó el refresco, o
@@ -153,13 +163,13 @@ pub async fn iure_status(state: State<'_, IureState>) -> Result<Status, String> 
     }
     match result {
         Ok((sess, u)) => {
-            let case_label = api::terminology(&sess).await.map(|t| t.case).unwrap_or_else(|_| "proyecto".into());
+            let case_label = api::terminology(&sess).await.map(|t| t.case).unwrap_or_else(|_| default_case_label());
             let name = u.name.clone().or_else(|| u.extra.get("full_name").and_then(|v| v.as_str()).map(str::to_string));
             Ok(Status { domain, email, logged_in: true, name, case_label, error: None })
         }
         Err(e) => {
             *state.session.lock().await = None;
-            Ok(Status { domain, email, logged_in: false, name: None, case_label: "proyecto".into(), error: Some(err(e)) })
+            Ok(Status { domain, email, logged_in: false, name: None, case_label: default_case_label(), error: Some(err(e)) })
         }
     }
 }
@@ -254,7 +264,7 @@ pub async fn iure_case_documents(state: State<'_, IureState>, case_id: String) -
 
 fn safe_name(name: &str) -> String {
     let s: String = name.chars().map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') { '_' } else { c }).collect();
-    if s.trim().is_empty() { "documento.md".into() } else { s }
+    if s.trim().is_empty() { default_doc_name() } else { s }
 }
 
 /// Descarga el documento a su espejo local y lo registra. Devuelve la ruta local.
@@ -288,7 +298,7 @@ pub fn iure_mirror_of(state: State<'_, IureState>, path: String) -> Option<Mirro
 /// Sube el archivo local como versión nueva de su documento remoto.
 #[tauri::command]
 pub async fn iure_upload_version(state: State<'_, IureState>, path: String) -> Result<Mirror, String> {
-    let mirror = state.config.lock().unwrap().mirrors.get(&path).cloned().ok_or("Este archivo no está vinculado a un documento de Iurefficient")?;
+    let mirror = state.config.lock().unwrap().mirrors.get(&path).cloned().ok_or_else(|| tr!("This file is not linked to an Iurefficient document", "Este archivo no está vinculado a un documento de Iurefficient"))?;
     let sess = state.session().await.map_err(err)?;
     let opts = api::UploadOptions { as_version_of: Some(mirror.document_id.clone()), file_name: Some(mirror.file_name.clone()), ..Default::default() };
     let doc = api::upload_document(&sess, Path::new(&path), &opts).await.map_err(err)?;
@@ -302,7 +312,7 @@ pub async fn iure_upload_version(state: State<'_, IureState>, path: String) -> R
 pub async fn iure_save_new(state: State<'_, IureState>, path: String, case_id: Option<String>, case_title: Option<String>) -> Result<Mirror, String> {
     let sess = state.session().await.map_err(err)?;
     let p = PathBuf::from(&path);
-    let file_name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "documento.md".into());
+    let file_name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(default_doc_name);
     let opts = api::UploadOptions { case_id: case_id.clone(), file_name: Some(file_name.clone()), tags: vec!["iureditor".into()], ..Default::default() };
     let doc = api::upload_document(&sess, &p, &opts).await.map_err(err)?;
     let mirror = Mirror { case_id, case_title, document_id: doc.id, file_name };

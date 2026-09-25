@@ -1,5 +1,7 @@
 mod iurefficient;
+mod settings;
 
+use iurefficient_connect::{lang, tr};
 use tauri::{Emitter, Manager};
 
 /// Primer argumento de la línea de comandos que sea un archivo existente,
@@ -57,7 +59,7 @@ fn iure_doc_link(arg: &str) -> Option<IureDocLink> {
         case_id: get("case"),
         case_title: get("title"),
         document_id: get("doc")?,
-        file_name: get("name").unwrap_or_else(|| "documento.md".into()),
+        file_name: get("name").unwrap_or_else(|| lang::pick("document.md", "documento.md").into()),
     })
 }
 
@@ -79,7 +81,7 @@ async fn apps_status(with_network: bool) -> Vec<iurefficient_connect::apps::AppS
 
 #[tauri::command]
 fn launch_app(app: String, path: Option<String>) -> Result<(), String> {
-    let id = iurefficient_connect::apps::AppId::parse(&app).ok_or_else(|| format!("app desconocida: {app}"))?;
+    let id = iurefficient_connect::apps::AppId::parse(&app).ok_or_else(|| tr!("unknown app: {app}", "app desconocida: {app}"))?;
     let args: Vec<String> = path.into_iter().collect();
     iurefficient_connect::apps::launch(id, &args).map_err(|e| format!("{e:#}"))
 }
@@ -140,11 +142,11 @@ fn rasterize_svg(svg: &str, scale: f32) -> Result<String, String> {
     let w = (size.width() * scale).ceil().max(1.0) as u32;
     let h = (size.height() * scale).ceil().max(1.0) as u32;
     if w > 16384 || h > 16384 {
-        return Err(format!("SVG demasiado grande: {w}x{h}px"));
+        return Err(tr!("SVG too large: {w}x{h}px", "SVG demasiado grande: {w}x{h}px"));
     }
 
     let mut pixmap =
-        tiny_skia::Pixmap::new(w, h).ok_or_else(|| "no se pudo asignar el pixmap".to_string())?;
+        tiny_skia::Pixmap::new(w, h).ok_or_else(|| tr!("could not allocate the pixmap", "no se pudo asignar el pixmap"))?;
     pixmap.fill(tiny_skia::Color::WHITE);
     resvg::render(
         &tree,
@@ -303,6 +305,9 @@ pub fn run() {
             print_webview,
             render_svg_png,
             read_clipboard_image,
+            settings::ui_language,
+            settings::get_ui_language_pref,
+            settings::set_ui_language,
             iurefficient::iure_status,
             iurefficient::iure_login,
             iurefficient::iure_logout,
@@ -314,6 +319,8 @@ pub fn run() {
             iurefficient::iure_save_new
         ])
         .setup(|app| {
+            // Primero el idioma: los mensajes posteriores ya salen traducidos.
+            settings::init(app)?;
             #[cfg(target_os = "linux")]
             enable_spellcheck(app);
             // Esquema `iureditor://` (Linux y Windows lo registran en tiempo de

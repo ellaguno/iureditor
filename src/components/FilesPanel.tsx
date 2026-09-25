@@ -12,7 +12,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { basename, dirname, isMarkdownPath, isTextPath } from '../lib/fileio';
-import { t } from '../lib/i18n';
+import { t, locale } from '../lib/i18n';
 
 // Árbol de archivos de la carpeta de trabajo (estilo Obsidian/Zettlr).
 // Carga perezosa por carpeta (readDir al expandir) y refresco de las
@@ -40,7 +40,7 @@ const listDir = async (dir: string): Promise<Entry[]> => {
       isDir: !!e.isDirectory,
     }))
     .sort((a, b) =>
-      a.isDir !== b.isDir ? (a.isDir ? -1 : 1) : a.name.localeCompare(b.name, 'es')
+      a.isDir !== b.isDir ? (a.isDir ? -1 : 1) : a.name.localeCompare(b.name, locale())
     );
 };
 

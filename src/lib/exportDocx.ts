@@ -26,6 +26,7 @@ import {
 import type { FileChild } from 'docx';
 import { renderFullSizeDiagram } from './mermaid';
 import { basename, inDir } from './fileio';
+import { t } from './i18n';
 
 // Export a DOCX con mapper propio ProseMirror-JSON → docx (OOXML). El
 // intento anterior con @turbodocx/html-to-docx producía tablas colapsadas a
@@ -67,7 +68,7 @@ const imageDims = (bytes: Uint8Array, mime: string): Promise<{ w: number; h: num
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error('no se pudo medir la imagen'));
+      reject(new Error(t('export.imageMeasure')));
     };
     img.src = url;
   });
@@ -559,7 +560,7 @@ export const exportToDocx = async (
 ): Promise<void> => {
   const title = filePath
     ? basename(filePath).replace(/\.(md|markdown)$/i, '')
-    : 'documento';
+    : t('app.defaultDocName');
 
   const docDir = filePath
     ? filePath.slice(0, Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\')))

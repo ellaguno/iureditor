@@ -71,8 +71,17 @@ import {
 } from './lib/templates';
 import { checkForUpdates } from './lib/updater';
 import { exportToPdf } from './lib/exportPdf';
-import { HELP_TITLE, HELP_MARKDOWN } from './lib/help';
-import { t } from './lib/i18n';
+import { HELP_MARKDOWN } from './lib/help';
+import { HELP_MARKDOWN_EN } from './lib/helpEn';
+import {
+  t,
+  getLang,
+  useLang,
+  getUiLanguagePref,
+  setUiLanguagePref,
+  DICTIONARIES,
+  type UiLanguagePref,
+} from './lib/i18n';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -114,6 +123,7 @@ interface PendingLoad {
 }
 
 export default function App() {
+  const lang = useLang();
   const [tabs, setTabs] = useState<DocTab[]>([
     { id: 0, path: null, dirty: false, sourceMode: false, plain: false },
   ]);
@@ -128,6 +138,7 @@ export default function App() {
   const [lineNumbers, setLineNumbersState] = useState<boolean>(getLineNumbers);
   const [zoom, setZoomState] = useState<number>(getZoom);
   const [pageWidth, setPageWidthState] = useState<PageWidth>(getPageWidth);
+  const [uiLanguage, setUiLanguageState] = useState<UiLanguagePref>('auto');
   const [sidebar, setSidebar] = useState<SidebarPrefs>(getSidebarPrefs);
   const [workspace, setWorkspace] = useState<string | null>(null);
   const workspaceRef = useRef<string | null>(null);
@@ -218,7 +229,7 @@ export default function App() {
       ? basename(activeTab.path)
       : activeTab?.title ?? t('app.untitled');
     void getCurrentWindow().setTitle(`${activeTab?.dirty ? '• ' : ''}${name} — iureditor`);
-  }, [activeTab?.path, activeTab?.dirty, activeTab?.title]);
+  }, [activeTab?.path, activeTab?.dirty, activeTab?.title, lang]);
 
   // ---------- contadores ----------
   const updateCounts = useCallback((markdown: string) => {
@@ -823,8 +834,8 @@ export default function App() {
         const { message } = await import('@tauri-apps/plugin-dialog');
         const reason =
           err instanceof Error && err.message === 'ya-existe'
-            ? 'Ya existe un archivo con ese nombre.'
-            : 'No se pudo crear el archivo (nombre inválido o sin permisos).';
+            ? t('app.fileExists')
+            : t('app.fileCreateFailed');
         await message(reason, { title: 'iureditor', kind: 'warning' });
         return false;
       }
@@ -844,8 +855,8 @@ export default function App() {
         const { message } = await import('@tauri-apps/plugin-dialog');
         const reason =
           err instanceof Error && err.message === 'ya-existe'
-            ? 'Ya existe una carpeta con ese nombre.'
-            : 'No se pudo crear la carpeta (nombre inválido o sin permisos).';
+            ? t('app.folderExists')
+            : t('app.folderCreateFailed');
         await message(reason, { title: 'iureditor', kind: 'warning' });
         return false;
       }
@@ -922,18 +933,15 @@ export default function App() {
    *  resolvió copiando (el caso normal), no hay nada que contar. */
   const reportRelocation = useCallback(async (moved: ImageRelocation) => {
     const lineas = [
-      moved.copied && `• ${moved.copied} copiada(s) a la carpeta nueva`,
-      moved.renamed &&
-        `• ${moved.renamed} guardada(s) con otro nombre (ya había un archivo distinto con el suyo)`,
-      moved.relinked &&
-        `• ${moved.relinked} reapuntada(s) a su ubicación original, por vivir fuera de la carpeta del documento`,
+      moved.copied && t('app.relocCopied', { n: moved.copied }),
+      moved.renamed && t('app.relocRenamed', { n: moved.renamed }),
+      moved.relinked && t('app.relocRelinked', { n: moved.relinked }),
     ].filter(Boolean);
     const { message } = await import('@tauri-apps/plugin-dialog');
-    await message(
-      `El documento cambió de carpeta y se ajustaron sus imágenes:\n\n${lineas.join('\n')}\n\n` +
-        'Como se reescribieron rutas dentro del documento, el historial de deshacer empieza de cero.',
-      { title: 'iureditor — Imágenes del documento', kind: 'info' }
-    );
+    await message(t('app.relocBody', { lines: lineas.join('\n') }), {
+      title: t('app.relocTitle'),
+      kind: 'info',
+    });
   }, []);
 
   const doSave = useCallback(
@@ -957,7 +965,7 @@ export default function App() {
         // la última usada) y conserva su nombre.
         const previousDir = path ? dirname(path) : null;
         path = await pickSavePath(
-          path ? basename(path) : 'documento.md',
+          path ? basename(path) : t('app.defaultFileName'),
           !tab?.plain,
           defaultDir()
         );
@@ -1098,7 +1106,7 @@ export default function App() {
     console.error(`Export ${format} falló:`, err);
     const { message } = await import('@tauri-apps/plugin-dialog');
     const detail = err instanceof Error ? err.message : String(err);
-    await message(`No se pudo exportar a ${format}:\n${detail}`, {
+    await message(t('app.exportFailed', { format, detail }), {
       title: 'iureditor',
       kind: 'error',
     });
@@ -1114,7 +1122,7 @@ export default function App() {
     const tab = tabsRef.current.find((tb) => tb.id === activeIdRef.current);
     if (!tab?.plain) return true;
     void import('@tauri-apps/plugin-dialog').then(({ message }) =>
-      message('La exportación está disponible para documentos Markdown.', {
+      message(t('app.exportMarkdownOnly'), {
         title: 'iureditor',
         kind: 'info',
       })
@@ -1171,19 +1179,36 @@ export default function App() {
   // ---------- ayuda integrada ----------
   const handleOpenHelp = useCallback(() => {
     // Si la ayuda ya está abierta, sólo activa su pestaña.
-    const existing = tabsRef.current.find((tb) => tb.title === HELP_TITLE);
+    // Busca por el título en cualquier idioma (pudo abrirse antes de cambiarlo).
+    const titles = Object.values(DICTIONARIES).map((d) => d['menu.appHelp']);
+    const existing = tabsRef.current.find((tb) => !!tb.title && titles.includes(tb.title));
     if (existing) {
       setActiveId(existing.id);
       return;
     }
     // Pestaña en memoria (sin ruta): baseline null → nace limpia. Al guardar
     // pedirá ubicación, así no se sobrescribe nada.
-    createTab({ content: HELP_MARKDOWN, baseline: null }, null, HELP_TITLE);
+    const content = getLang() === 'es' ? HELP_MARKDOWN : HELP_MARKDOWN_EN;
+    createTab({ content, baseline: null }, null, t('menu.appHelp'));
   }, [createTab]);
 
   // ---------- preferencias de vista ----------
   useEffect(() => {
     initTheme();
+  }, []);
+
+  // ---------- idioma de la interfaz ----------
+  useEffect(() => {
+    getUiLanguagePref()
+      .then(setUiLanguageState)
+      .catch((err) => console.error('No se pudo leer la preferencia de idioma:', err));
+  }, []);
+
+  const handleUiLanguageChange = useCallback((pref: UiLanguagePref) => {
+    setUiLanguageState(pref);
+    setUiLanguagePref(pref).catch((err) =>
+      console.error('No se pudo guardar la preferencia de idioma:', err)
+    );
   }, []);
 
   const handleThemeChange = useCallback((next: Theme) => {
@@ -1716,6 +1741,8 @@ export default function App() {
             onSourceModeToggle: handleToggleSource,
             pageWidth,
             onPageWidthChange: handlePageWidthChange,
+            uiLanguage,
+            onUiLanguageChange: handleUiLanguageChange,
           }}
         />
       )}

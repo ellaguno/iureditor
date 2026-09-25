@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CloudUpload, LogOut, RefreshCw, Search, FileText, FolderOpen, Check, AlertCircle } from 'lucide-react';
+import { t, useLang } from '../lib/i18n';
 import {
   iure,
   getAutoSync,
@@ -26,6 +27,7 @@ export const IurefficientPanel = ({
   /** Guarda la pestaña activa en disco (pide ruta si no tiene) y devuelve la ruta. */
   onSaveActive: () => Promise<string | null>;
 }) => {
+  useLang();
   const [status, setStatus] = useState<IureStatus | null>(null);
   const [domain, setDomain] = useState('');
   const [email, setEmail] = useState('');
@@ -74,7 +76,7 @@ export const IurefficientPanel = ({
   useEffect(() => {
     const handler = (e: Event) => {
       const d = (e as CustomEvent<SyncEvent>).detail;
-      setNotice(d.ok ? { ok: true, text: 'Versión subida a Iurefficient' } : { ok: false, text: d.error ?? 'No se pudo subir la versión' });
+      setNotice(d.ok ? { ok: true, text: t('iure.versionUploaded') } : { ok: false, text: d.error ?? t('iure.uploadFailed') });
     };
     window.addEventListener('iure-synced', handler);
     return () => window.removeEventListener('iure-synced', handler);
@@ -156,7 +158,7 @@ export const IurefficientPanel = ({
       const path = activeDirty ? await onSaveActive() : activePath;
       if (!path) return;
       await iure.uploadVersion(path);
-      setNotice({ ok: true, text: 'Versión subida a Iurefficient' });
+      setNotice({ ok: true, text: t('iure.versionUploaded') });
     } catch (e) {
       setNotice({ ok: false, text: String(e) });
     } finally {
@@ -174,7 +176,7 @@ export const IurefficientPanel = ({
       if (!path) return;
       const m = await iure.saveNew(path, c?.id ?? null, c ? `${c.caseNumber} · ${c.title}` : null);
       setMirror(m);
-      setNotice({ ok: true, text: `Guardado en ${c ? c.caseNumber : 'General'} como documento nuevo` });
+      setNotice({ ok: true, text: t('iure.savedNew', { target: c ? c.caseNumber : t('iure.general') }) });
     } catch (e) {
       setNotice({ ok: false, text: String(e) });
     } finally {
@@ -187,7 +189,7 @@ export const IurefficientPanel = ({
   const btnGhost = 'inline-flex items-center gap-1 px-2 py-1 text-xs rounded text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50';
 
   if (!status) {
-    return <div className="px-3 py-3 text-xs text-gray-400">Comprobando la conexión…</div>;
+    return <div className="px-3 py-3 text-xs text-gray-400">{t('iure.checking')}</div>;
   }
 
   if (!status.loggedIn) {
@@ -195,17 +197,17 @@ export const IurefficientPanel = ({
       <div className="flex flex-col h-full text-xs">
       <div className="flex flex-col gap-2 px-3 py-3 text-xs flex-1 min-h-0 overflow-y-auto">
         <p className="text-gray-600 dark:text-gray-300">
-          Conecta tu cuenta para abrir documentos de tus {status.caseLabel}s y guardarlos como versiones. La contraseña no se guarda; sólo la sesión, en el llavero del sistema.
+          {t('iure.intro', { caseLabel: status.caseLabel })}
         </p>
-        <input className={input} placeholder="Dominio (p. ej. 2.ds.iurefficient.com)" value={domain} onChange={(e) => setDomain(e.target.value)} spellCheck={false} />
-        <input className={input} type="email" placeholder="Correo" value={email} onChange={(e) => setEmail(e.target.value)} spellCheck={false} />
+        <input className={input} placeholder={t('iure.domainPlaceholder')} value={domain} onChange={(e) => setDomain(e.target.value)} spellCheck={false} />
+        <input className={input} type="email" placeholder={t('iure.emailPlaceholder')} value={email} onChange={(e) => setEmail(e.target.value)} spellCheck={false} />
         {totpToken ? (
-          <input className={input} placeholder="Código de verificación (6 dígitos)" value={totpCode} inputMode="numeric" onChange={(e) => setTotpCode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void login()} />
+          <input className={input} placeholder={t('iure.totpPlaceholder')} value={totpCode} inputMode="numeric" onChange={(e) => setTotpCode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void login()} />
         ) : (
-          <input className={input} type="password" placeholder="Contraseña de Iurefficient" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void login()} />
+          <input className={input} type="password" placeholder={t('iure.passwordPlaceholder')} value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void login()} />
         )}
         <button type="button" className={btn} disabled={busy || !domain.trim() || !email.trim() || (totpToken ? totpCode.trim().length < 6 : !password)} onClick={() => void login()}>
-          {busy ? <RefreshCw size={12} className="animate-spin" /> : <Check size={12} />} {totpToken ? 'Verificar' : 'Conectar'}
+          {busy ? <RefreshCw size={12} className="animate-spin" /> : <Check size={12} />} {totpToken ? t('iure.verify') : t('iure.connect')}
         </button>
         {(error ?? status.error) && <p className="text-red-600 dark:text-red-400">{error ?? status.error}</p>}
       </div>
@@ -220,43 +222,43 @@ export const IurefficientPanel = ({
         <span className="truncate text-gray-700 dark:text-gray-200" title={`${status.email} · ${status.domain}`}>
           {status.name ?? status.email}
         </span>
-        <button type="button" className={btnGhost} title="Cerrar sesión" onClick={() => void logout()}>
+        <button type="button" className={btnGhost} title={t('iure.logout')} onClick={() => void logout()}>
           <LogOut size={12} />
         </button>
       </div>
 
       {/* Documento activo */}
       <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 flex flex-col gap-1.5">
-        <div className="text-[11px] uppercase tracking-wide text-gray-400">Documento activo</div>
+        <div className="text-[11px] uppercase tracking-wide text-gray-400">{t('iure.activeDoc')}</div>
         {mirror ? (
           <>
-            <div className="truncate text-gray-600 dark:text-gray-300" title={mirror.caseTitle ?? 'General'}>
+            <div className="truncate text-gray-600 dark:text-gray-300" title={mirror.caseTitle ?? t('iure.general')}>
               <CloudUpload size={12} className="inline mr-1" />
-              {mirror.caseTitle ?? 'General (sin proyecto)'}
+              {mirror.caseTitle ?? t('iure.generalNoCase')}
             </div>
             <button type="button" className={btn} disabled={busy || !activePath} onClick={() => void uploadVersion()}>
-              <CloudUpload size={12} /> Subir versión ahora
+              <CloudUpload size={12} /> {t('iure.uploadNow')}
             </button>
             <label className="flex items-center gap-1.5 text-gray-600 dark:text-gray-300 cursor-pointer">
               <input type="checkbox" checked={autoSync} onChange={(e) => { setAutoSync(e.target.checked); setAutoSyncState(e.target.checked); }} />
-              Subir versión al guardar (Ctrl+S)
+              {t('iure.uploadOnSave')}
             </label>
           </>
         ) : (
           <>
-            <div className="text-gray-500 dark:text-gray-400">No vinculado a Iurefficient.</div>
+            <div className="text-gray-500 dark:text-gray-400">{t('iure.notLinked')}</div>
             <button type="button" className={btn} disabled={busy} onClick={() => setChoosing((v) => !v)}>
-              <CloudUpload size={12} /> Guardar en Iurefficient…
+              <CloudUpload size={12} /> {t('iure.saveTo')}
             </button>
             {choosing && (
               <div className="flex flex-col gap-1 pl-1">
-                <button type="button" className={btnGhost} onClick={() => void saveNewTo(null)}>General (sin {status.caseLabel})</button>
+                <button type="button" className={btnGhost} onClick={() => void saveNewTo(null)}>{t('iure.generalWithout', { caseLabel: status.caseLabel })}</button>
                 {selected && (
                   <button type="button" className={btnGhost} onClick={() => void saveNewTo(selected)}>
                     {selected.caseNumber} · {selected.title}
                   </button>
                 )}
-                {!selected && <span className="text-gray-400">Elige abajo un {status.caseLabel} para guardarlo ahí.</span>}
+                {!selected && <span className="text-gray-400">{t('iure.chooseBelow', { caseLabel: status.caseLabel })}</span>}
               </div>
             )}
           </>
@@ -271,12 +273,12 @@ export const IurefficientPanel = ({
       {/* Proyectos y documentos */}
       <div className="px-3 py-2 flex items-center gap-1">
         <Search size={12} className="text-gray-400" />
-        <input className={input} placeholder={`Buscar ${status.caseLabel}…`} value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input className={input} placeholder={t('iure.searchCases', { caseLabel: status.caseLabel })} value={query} onChange={(e) => setQuery(e.target.value)} />
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto">
         {!selected ? (
           cases.length === 0 ? (
-            <div className="px-3 py-2 text-gray-400">Sin resultados</div>
+            <div className="px-3 py-2 text-gray-400">{t('iure.noResults')}</div>
           ) : (
             cases.map((c) => (
               <button key={c.id} type="button" className="w-full text-left px-3 py-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 flex items-start gap-1.5" onClick={() => void openCase(c)}>
@@ -295,12 +297,12 @@ export const IurefficientPanel = ({
             </button>
             <div className="px-3 pb-1 truncate text-gray-700 dark:text-gray-200" title={selected.title}><b>{selected.caseNumber}</b> · {selected.title}</div>
             {loadingDocs ? (
-              <div className="px-3 py-2 text-gray-400">Cargando documentos…</div>
+              <div className="px-3 py-2 text-gray-400">{t('iure.loadingDocs')}</div>
             ) : docs.length === 0 ? (
-              <div className="px-3 py-2 text-gray-400">Sin documentos</div>
+              <div className="px-3 py-2 text-gray-400">{t('iure.noDocs')}</div>
             ) : (
               docs.map((d) => (
-                <button key={d.id} type="button" disabled={!d.editable || busy} title={d.editable ? d.fileName : `${d.fileName} (no es texto ni Markdown)`} className="w-full text-left px-3 py-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-1.5 disabled:opacity-40" onClick={() => void openDoc(d)}>
+                <button key={d.id} type="button" disabled={!d.editable || busy} title={d.editable ? d.fileName : t('iure.notText', { name: d.fileName })} className="w-full text-left px-3 py-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-1.5 disabled:opacity-40" onClick={() => void openDoc(d)}>
                   <FileText size={12} className="shrink-0 text-gray-400" />
                   <span className="truncate text-gray-800 dark:text-gray-100">{d.title || d.fileName}</span>
                 </button>

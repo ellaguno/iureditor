@@ -4,6 +4,7 @@ import { renderFullSizeDiagram } from './mermaid';
 import { svgToPngDataUrl } from './diagramExport';
 import { basename } from './fileio';
 import { uniqueSlugs } from './outline';
+import { t } from './i18n';
 
 // Construye el HTML autosuficiente del documento para exportar:
 // - diagramas mermaid pre-renderizados (SVG vectorial para PDF, PNG para DOCX)
@@ -40,7 +41,7 @@ const svgStringToPngDataUrl = async (svg: string, scale = 2): Promise<string> =>
   document.body.appendChild(host);
   try {
     const el = host.querySelector('svg');
-    if (!el) throw new Error('SVG inválido');
+    if (!el) throw new Error(t('export.invalidSvg'));
     return await svgToPngDataUrl(el, scale);
   } finally {
     host.remove();
@@ -87,13 +88,13 @@ export const buildExportHtml = async (
           try {
             const img = document.createElement('img');
             img.src = await svgStringToPngDataUrl(svg);
-            img.alt = 'diagrama';
+            img.alt = t('mermaid.fileName');
             wrapper.appendChild(img);
           } catch (err) {
             // La rasterización es el paso frágil (taint de canvas, SVG sin
             // tamaño). Propagar con contexto para el diálogo de error.
             const detail = err instanceof Error ? err.message : String(err);
-            throw new Error(`al rasterizar un diagrama mermaid a PNG: ${detail}`);
+            throw new Error(t('export.mermaidPng', { detail }));
           }
         }
       }
@@ -150,6 +151,6 @@ export const buildExportHtml = async (
     if (!h.id) h.id = slugs[i];
   });
 
-  const title = filePath ? basename(filePath).replace(/\.(md|markdown)$/i, '') : 'documento';
+  const title = filePath ? basename(filePath).replace(/\.(md|markdown)$/i, '') : t('app.defaultDocName');
   return { html: container.innerHTML, title };
 };

@@ -1,4 +1,4 @@
-import { t } from '../lib/i18n';
+import { t, locale } from '../lib/i18n';
 
 // Barra de estado: línea del cursor, conteo de palabras/caracteres, zoom y
 // estado de guardado.
@@ -20,13 +20,13 @@ export const StatusBar = ({
 }) => (
   <div className="flex items-center gap-4 px-3 py-1 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 no-select shrink-0">
     <span className="tabular-nums">
-      {t('status.line')} {line.toLocaleString()}
+      {t('status.line')} {line.toLocaleString(locale())}
     </span>
     <span className="tabular-nums">
-      {words.toLocaleString()} {t('status.words')}
+      {words.toLocaleString(locale())} {t('status.words')}
     </span>
     <span className="tabular-nums">
-      {chars.toLocaleString()} {t('status.chars')}
+      {chars.toLocaleString(locale())} {t('status.chars')}
     </span>
     {zoom !== 1 && <span className="tabular-nums">{Math.round(zoom * 100)}%</span>}
     <div className="flex-1" />

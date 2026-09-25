@@ -16,11 +16,13 @@ import {
 } from 'lucide-react';
 import { basename } from '../lib/fileio';
 import type { Theme, PageWidth } from '../lib/prefs';
+import { t, useLang, type I18nKey, type UiLanguagePref } from '../lib/i18n';
 
-const HELP_LINKS: { label: string; url: string }[] = [
+// label: texto fijo (nombre propio) o clave i18n.
+const HELP_LINKS: { label: string; key?: I18nKey; url: string }[] = [
   { label: 'Apps', url: 'https://iurefficient.com' },
   { label: 'Blog', url: 'https://blog.iurefficient.com' },
-  { label: 'Videos Iurefficient', url: 'https://youtube.com/@iurefficient' },
+  { label: 'Videos Iurefficient', key: 'menu.videos', url: 'https://youtube.com/@iurefficient' },
   { label: 'Demo', url: 'https://demo.iurefficient.com' },
 ];
 
@@ -74,6 +76,8 @@ export interface ViewPrefs {
   onSourceModeToggle: () => void;
   pageWidth: PageWidth;
   onPageWidthChange: (width: PageWidth) => void;
+  uiLanguage: UiLanguagePref;
+  onUiLanguageChange: (pref: UiLanguagePref) => void;
 }
 
 export interface TabInfo {
@@ -232,7 +236,7 @@ const Tab = ({
     <span className="truncate">{title}</span>
     <button
       type="button"
-      title="Cerrar pestaña"
+      title={t('tabs.close')}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => {
         e.stopPropagation();
@@ -280,6 +284,7 @@ export const TitleBar = ({
   templates: string[];
   viewPrefs: ViewPrefs;
 }) => {
+  useLang();
   const [menuOpen, setMenuOpen] = useState(false);
   // Secciones del menú expandidas. Set → se pueden abrir varias a la vez y,
   // sobre todo, cerrarlas TODAS (antes sólo una podía estar abierta y no había
@@ -423,7 +428,7 @@ export const TitleBar = ({
       <div className="pl-2 shrink-0">
         <button
           type="button"
-          title={sidebarVisible ? 'Ocultar panel lateral' : 'Mostrar panel lateral'}
+          title={sidebarVisible ? t('menu.hideSidebar') : t('menu.showSidebar')}
           onClick={onToggleSidebar}
           className={`w-8 h-8 rounded-md flex items-center justify-center ${
             sidebarVisible
@@ -443,7 +448,7 @@ export const TitleBar = ({
       <div className="relative px-2 shrink-0" ref={menuRef}>
         <button
           type="button"
-          title="Menú"
+          title={t('menu.title')}
           onClick={() => setMenuOpen(!menuOpen)}
           className={`w-8 h-8 rounded-md flex items-center justify-center ${
             menuOpen
@@ -463,15 +468,15 @@ export const TitleBar = ({
               onClick={viewPrefs.onIurefficientToggle}
             />
             <MenuSeparator />
-            <MenuSection label="Archivo" expanded={expandedSections.has('file')} onToggle={toggleSection('file')}>
-              <MenuItem label="Nuevo" shortcut="Ctrl+N" onClick={closeAnd(actions.onNew)} />
-              <MenuItem label="Abrir…" shortcut="Ctrl+O" onClick={closeAnd(actions.onOpen)} />
-              <MenuItem label="Abrir carpeta…" onClick={closeAnd(actions.onOpenFolder)} />
+            <MenuSection label={t('menu.file')} expanded={expandedSections.has('file')} onToggle={toggleSection('file')}>
+              <MenuItem label={t('menu.new')} shortcut="Ctrl+N" onClick={closeAnd(actions.onNew)} />
+              <MenuItem label={t('menu.open')} shortcut="Ctrl+O" onClick={closeAnd(actions.onOpen)} />
+              <MenuItem label={t('menu.openFolder')} onClick={closeAnd(actions.onOpenFolder)} />
               {templates.length > 0 && (
                 <>
                   <MenuSeparator />
                   <div className="px-3 py-1 text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
-                    Nueva desde plantilla
+                    {t('menu.newFromTemplate')}
                   </div>
                   {templates.map((name) => (
                     <MenuItem
@@ -481,7 +486,7 @@ export const TitleBar = ({
                     />
                   ))}
                   <MenuItem
-                    label="Abrir carpeta de plantillas…"
+                    label={t('menu.openTemplatesFolder')}
                     onClick={closeAnd(actions.onOpenTemplatesFolder)}
                   />
                 </>
@@ -490,7 +495,7 @@ export const TitleBar = ({
                 <>
                   <MenuSeparator />
                   <div className="px-3 py-1 text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
-                    Recientes
+                    {t('menu.recent')}
                   </div>
                   {recentFiles.slice(0, 5).map((path) => (
                     <MenuItem
@@ -502,145 +507,157 @@ export const TitleBar = ({
                 </>
               )}
               <MenuSeparator />
-              <MenuItem label="Guardar" shortcut="Ctrl+G" onClick={closeAnd(actions.onSave)} />
+              <MenuItem label={t('menu.save')} shortcut={t('menu.saveShortcut')} onClick={closeAnd(actions.onSave)} />
               <MenuItem
-                label="Guardar como…"
-                shortcut="Ctrl+Shift+G"
+                label={t('menu.saveAs')}
+                shortcut={t('menu.saveAsShortcut')}
                 onClick={closeAnd(actions.onSaveAs)}
               />
               <MenuSeparator />
               <MenuItem
-                label="Exportar a PDF…"
+                label={t('menu.exportPdf')}
                 shortcut="Ctrl+P"
                 onClick={closeAnd(actions.onExportPdf)}
               />
-              <MenuItem label="Exportar a DOCX…" onClick={closeAnd(actions.onExportDocx)} />
-              <MenuItem label="Exportar a HTML…" onClick={closeAnd(actions.onExportHtml)} />
+              <MenuItem label={t('menu.exportDocx')} onClick={closeAnd(actions.onExportDocx)} />
+              <MenuItem label={t('menu.exportHtml')} onClick={closeAnd(actions.onExportHtml)} />
               <MenuSeparator />
-              <MenuItem label="Salir" shortcut="Ctrl+Q" onClick={closeAnd(actions.onQuit)} />
+              <MenuItem label={t('menu.quit')} shortcut="Ctrl+Q" onClick={closeAnd(actions.onQuit)} />
             </MenuSection>
 
-            <MenuSection label="Edición" expanded={expandedSections.has('edit')} onToggle={toggleSection('edit')}>
-              <MenuItem label="Deshacer" shortcut="Ctrl+Z" onClick={closeAnd(actions.onUndo)} />
-              <MenuItem label="Rehacer" shortcut="Ctrl+Shift+Z" onClick={closeAnd(actions.onRedo)} />
+            <MenuSection label={t('menu.edit')} expanded={expandedSections.has('edit')} onToggle={toggleSection('edit')}>
+              <MenuItem label={t('editor.undo')} shortcut="Ctrl+Z" onClick={closeAnd(actions.onUndo)} />
+              <MenuItem label={t('editor.redo')} shortcut="Ctrl+Shift+Z" onClick={closeAnd(actions.onRedo)} />
               <MenuSeparator />
               <MenuItem
-                label="Buscar y reemplazar…"
+                label={t('menu.findReplace')}
                 shortcut="Ctrl+F"
                 onClick={closeAnd(actions.onFind)}
               />
               <MenuItem
-                label="Ir a línea…"
+                label={t('menu.goToLine')}
                 shortcut="Ctrl+L"
                 onClick={closeAnd(actions.onGoToLine)}
               />
               <MenuSeparator />
-              <MenuItem label="Insertar índice" onClick={closeAnd(actions.onInsertToc)} />
+              <MenuItem label={t('menu.insertToc')} onClick={closeAnd(actions.onInsertToc)} />
               <MenuSeparator />
               <MenuItem
-                label="Seleccionar todo"
+                label={t('menu.selectAll')}
                 shortcut="Ctrl+A"
                 onClick={closeAnd(actions.onSelectAll)}
               />
             </MenuSection>
 
-            <MenuSection label="Ver" expanded={expandedSections.has('view')} onToggle={toggleSection('view')}>
+            <MenuSection label={t('menu.view')} expanded={expandedSections.has('view')} onToggle={toggleSection('view')}>
               <MenuItem
-                label="Archivos de la carpeta"
+                label={t('menu.folderFiles')}
                 shortcut="Ctrl+Shift+E"
                 checked={viewPrefs.files}
                 onClick={viewPrefs.onFilesToggle}
               />
               <MenuItem
-                label="Buscar en archivos"
+                label={t('menu.searchFiles')}
                 shortcut="Ctrl+Shift+F"
                 checked={viewPrefs.search}
                 onClick={viewPrefs.onSearchToggle}
               />
               <MenuItem
-                label="Esquema del documento"
+                label={t('menu.outline')}
                 shortcut="Ctrl+Shift+O"
                 checked={viewPrefs.outline}
                 onClick={viewPrefs.onOutlineToggle}
               />
               <MenuItem
-                label="Código fuente"
+                label={t('menu.sourceCode')}
                 shortcut="Ctrl+Shift+M"
                 checked={viewPrefs.sourceMode}
                 onClick={viewPrefs.onSourceModeToggle}
               />
               <MenuItem
-                label="Números de línea"
+                label={t('menu.lineNumbers')}
                 checked={viewPrefs.lineNumbers}
                 onClick={() => viewPrefs.onLineNumbersChange(!viewPrefs.lineNumbers)}
               />
               <MenuSeparator />
-              <MenuItem label="Aumentar zoom" shortcut="Ctrl++" onClick={actions.onZoomIn} />
-              <MenuItem label="Reducir zoom" shortcut="Ctrl+-" onClick={actions.onZoomOut} />
-              <MenuItem label="Zoom normal" shortcut="Ctrl+0" onClick={actions.onZoomReset} />
+              <MenuItem label={t('menu.zoomIn')} shortcut="Ctrl++" onClick={actions.onZoomIn} />
+              <MenuItem label={t('menu.zoomOut')} shortcut="Ctrl+-" onClick={actions.onZoomOut} />
+              <MenuItem label={t('menu.zoomReset')} shortcut="Ctrl+0" onClick={actions.onZoomReset} />
               <MenuSeparator />
               <div className="px-3 py-1 flex items-center justify-between gap-2 text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
-                <span>Ancho de página</span>
+                <span>{t('menu.pageWidth')}</span>
                 <span className="normal-case tracking-normal">Ctrl+Shift+A</span>
               </div>
               <MenuItem
-                label="Medio"
+                label={t('menu.widthMedium')}
                 checked={viewPrefs.pageWidth === 'medium'}
                 onClick={() => viewPrefs.onPageWidthChange('medium')}
               />
               <MenuItem
-                label="Ancho"
+                label={t('menu.widthWide')}
                 checked={viewPrefs.pageWidth === 'wide'}
                 onClick={() => viewPrefs.onPageWidthChange('wide')}
               />
               <MenuItem
-                label="Completo"
+                label={t('menu.widthFull')}
                 checked={viewPrefs.pageWidth === 'full'}
                 onClick={() => viewPrefs.onPageWidthChange('full')}
               />
               <MenuSeparator />
               <div className="px-3 py-1 text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
-                Tema
+                {t('menu.theme')}
               </div>
               <MenuItem
-                label="Claro"
+                label={t('menu.themeLight')}
                 checked={viewPrefs.theme === 'light'}
                 onClick={() => viewPrefs.onThemeChange('light')}
               />
               <MenuItem
-                label="Oscuro"
+                label={t('menu.themeDark')}
                 checked={viewPrefs.theme === 'dark'}
                 onClick={() => viewPrefs.onThemeChange('dark')}
               />
               <MenuItem
-                label="Sistema"
+                label={t('menu.themeSystem')}
                 checked={viewPrefs.theme === 'system'}
                 onClick={() => viewPrefs.onThemeChange('system')}
               />
               <MenuSeparator />
               <MenuItem
-                label="Corrector ortográfico"
+                label={t('menu.spellcheck')}
                 checked={viewPrefs.spellcheck}
                 onClick={() => viewPrefs.onSpellcheckChange(!viewPrefs.spellcheck)}
               />
+              <MenuSeparator />
+              <div className="px-3 py-1 text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                {t('menu.language')}
+              </div>
+              {(['auto', 'en', 'es'] as const).map((pref) => (
+                <MenuItem
+                  key={pref}
+                  label={t(pref === 'auto' ? 'lang.auto' : pref === 'en' ? 'lang.en' : 'lang.es')}
+                  checked={viewPrefs.uiLanguage === pref}
+                  onClick={() => viewPrefs.onUiLanguageChange(pref)}
+                />
+              ))}
             </MenuSection>
 
-            <MenuSection label="Ayuda" expanded={expandedSections.has('help')} onToggle={toggleSection('help')}>
-              <MenuItem label="Ayuda de iureditor" onClick={closeAnd(actions.onOpenHelp)} />
+            <MenuSection label={t('menu.help')} expanded={expandedSections.has('help')} onToggle={toggleSection('help')}>
+              <MenuItem label={t('menu.appHelp')} onClick={closeAnd(actions.onOpenHelp)} />
               <MenuSeparator />
-              {HELP_LINKS.map(({ label, url }) => (
-                <MenuItem key={url} label={label} onClick={closeAnd(() => void openUrl(url))} />
+              {HELP_LINKS.map(({ label, key, url }) => (
+                <MenuItem key={url} label={key ? t(key) : label} onClick={closeAnd(() => void openUrl(url))} />
               ))}
               <MenuSeparator />
               <MenuItem
-                label="Buscar actualizaciones…"
+                label={t('menu.checkUpdates')}
                 onClick={closeAnd(actions.onCheckUpdates)}
               />
               {version && (
                 <>
                   <MenuSeparator />
                   <div className="px-3 py-1.5 text-xs text-gray-400 dark:text-gray-500 select-none">
-                    Versión {version}
+                    {t('menu.version', { version })}
                   </div>
                 </>
               )}
@@ -659,7 +676,7 @@ export const TitleBar = ({
             <Tab
               key={tab.id}
               id={tab.id}
-              title={tab.path ? basename(tab.path) : tab.title ?? 'Sin título'}
+              title={tab.path ? basename(tab.path) : tab.title ?? t('app.untitled')}
               dirty={tab.dirty}
               active={tab.id === activeTabId}
               dragging={tab.id === draggingId}
@@ -671,7 +688,7 @@ export const TitleBar = ({
           ))}
           <button
             type="button"
-            title="Nueva pestaña (Ctrl+N)"
+            title={t('tabs.new')}
             onClick={actions.onNew}
             className="shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
           >
@@ -684,13 +701,13 @@ export const TitleBar = ({
 
       {/* Botones de ventana */}
       <div className="flex items-center gap-1.5 px-2 shrink-0">
-        <WindowButton title="Minimizar" onClick={() => void appWindow.minimize()}>
+        <WindowButton title={t('window.minimize')} onClick={() => void appWindow.minimize()}>
           <Minus className="w-3.5 h-3.5" />
         </WindowButton>
-        <WindowButton title="Maximizar" onClick={() => void appWindow.toggleMaximize()}>
+        <WindowButton title={t('window.maximize')} onClick={() => void appWindow.toggleMaximize()}>
           <Square className="w-3 h-3" />
         </WindowButton>
-        <WindowButton title="Cerrar" danger onClick={() => void appWindow.close()}>
+        <WindowButton title={t('window.close')} danger onClick={() => void appWindow.close()}>
           <X className="w-4 h-4" />
         </WindowButton>
       </div>
@@ -711,28 +728,28 @@ export const TitleBar = ({
               className="fixed z-[60] min-w-[210px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl py-1"
             >
               <MenuItem
-                label="Recargar"
+                label={t('tabs.reload')}
                 disabled={!hasPath}
                 onClick={runTabAction(() => onReloadTab(tabMenu.id))}
               />
               <MenuItem
-                label="Cerrar"
+                label={t('tabs.closeTab')}
                 shortcut="Ctrl+W"
                 onClick={runTabAction(() => onCloseTab(tabMenu.id))}
               />
               <MenuItem
-                label="Cerrar las demás"
+                label={t('tabs.closeOthers')}
                 disabled={!hasOthers}
                 onClick={runTabAction(() => onCloseOthers(tabMenu.id))}
               />
               <MenuItem
-                label="Cerrar las de la derecha"
+                label={t('tabs.closeRight')}
                 disabled={!hasRight}
                 onClick={runTabAction(() => onCloseRight(tabMenu.id))}
               />
               <MenuSeparator />
               <MenuItem
-                label="Desacoplar en ventana nueva"
+                label={t('tabs.detach')}
                 disabled={!hasPath}
                 onClick={runTabAction(() => onDetachTab(tabMenu.id))}
               />

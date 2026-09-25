@@ -4,6 +4,7 @@ import { Printer, Settings2 } from 'lucide-react';
 import { previewChannel } from '../lib/exportPdf';
 import type { PreviewPayload } from '../lib/exportPdf';
 import '../styles/print.css';
+import { t, tn, useLang } from '../lib/i18n';
 
 // Vista previa de PDF con paginación real (paged.js): hojas A4/Carta con
 // márgenes configurables, encabezado con datos del front matter y pie con
@@ -117,6 +118,7 @@ const OptionRow = ({ label, children }: { label: string; children: React.ReactNo
 );
 
 export const PrintPreview = () => {
+  const lang = useLang();
   const [payload, setPayload] = useState<PreviewPayload | null>(null);
   const [showOptions, setShowOptions] = useState(false);
   const [pageCount, setPageCount] = useState(0);
@@ -132,10 +134,9 @@ export const PrintPreview = () => {
   useEffect(() => {
     const unlistenPromise = previewChannel.onContent((p) => {
       setPayload(p);
-      document.title = `Vista previa — ${p.title}`;
       // Prellenado del encabezado desde el front matter (o el nombre del doc).
       const left = p.fields.titulo || p.fields.title || p.title;
-      const right = p.fields.expediente ? `Exp. ${p.fields.expediente}` : '';
+      const right = p.fields.expediente ? t('print.headerRef', { ref: p.fields.expediente }) : '';
       setOptions((prev) => ({ ...prev, headerLeft: left, headerRight: right }));
     });
     void previewChannel.announceReady();
@@ -143,6 +144,11 @@ export const PrintPreview = () => {
       void unlistenPromise.then((fn) => fn());
     };
   }, []);
+
+  // Título de la ventana: sigue al documento y al idioma.
+  useEffect(() => {
+    if (payload) document.title = t('print.windowTitle', { title: payload.title });
+  }, [payload, lang]);
 
   // Preferencias de disposición persistentes (no los textos del documento).
   useEffect(() => {
@@ -179,7 +185,7 @@ export const PrintPreview = () => {
                 const box = page.querySelector(
                   '.pagedjs_margin-bottom-center .pagedjs_margin-content'
                 );
-                if (box) box.textContent = `Página ${i + 1} de ${pages.length}`;
+                if (box) box.textContent = t('print.pageOf', { page: i + 1, total: pages.length });
               });
             }
           }
@@ -192,7 +198,7 @@ export const PrintPreview = () => {
       })();
     }, 350);
     return () => clearTimeout(timer);
-  }, [payload, options]);
+  }, [payload, options, lang]);
 
   const handlePrint = useCallback(async () => {
     try {
@@ -231,8 +237,8 @@ export const PrintPreview = () => {
         <div className="px-4 py-2 flex items-center justify-between gap-3">
           <span className="text-sm text-gray-600 dark:text-gray-300 truncate">
             {rendering
-              ? 'Paginando…'
-              : `${pageCount} página${pageCount === 1 ? '' : 's'} — elige «Guardar como PDF» en el diálogo de impresión`}
+              ? t('print.paginating')
+              : tn(pageCount, 'print.pagesOne', 'print.pagesOther')}
           </span>
           <div className="flex items-center gap-2 shrink-0">
             <button
@@ -244,14 +250,14 @@ export const PrintPreview = () => {
               }`}
             >
               <Settings2 className="w-4 h-4" />
-              Opciones
+              {t('print.options')}
             </button>
             <button
               onClick={() => void handlePrint()}
               className="px-3 py-1.5 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 flex items-center gap-1.5"
             >
               <Printer className="w-4 h-4" />
-              Imprimir / Guardar PDF
+              {t('print.print')}
             </button>
           </div>
         </div>
@@ -259,25 +265,25 @@ export const PrintPreview = () => {
         {showOptions && (
           <div className="px-4 pb-3 pt-1 flex flex-col gap-2 border-t border-gray-100 dark:border-gray-700">
             <div className="flex flex-wrap gap-x-8 gap-y-2 pt-2">
-              <OptionRow label="Papel">
+              <OptionRow label={t('print.paper')}>
                 <select
                   value={options.paper}
                   onChange={(e) => set('paper', e.target.value as Paper)}
                   className={selectCls}
                 >
-                  <option value="letter">Carta</option>
+                  <option value="letter">{t('print.letter')}</option>
                   <option value="A4">A4</option>
                 </select>
               </OptionRow>
-              <OptionRow label="Márgenes">
+              <OptionRow label={t('print.margins')}>
                 <select
                   value={options.margin}
                   onChange={(e) => set('margin', e.target.value as Margin)}
                   className={selectCls}
                 >
-                  <option value="estrecho">Estrechos (1.3 cm)</option>
-                  <option value="normal">Normales (2 cm)</option>
-                  <option value="amplio">Amplios (3 cm)</option>
+                  <option value="estrecho">{t('print.marginNarrow')}</option>
+                  <option value="normal">{t('print.marginNormal')}</option>
+                  <option value="amplio">{t('print.marginWide')}</option>
                 </select>
               </OptionRow>
               <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
@@ -286,21 +292,21 @@ export const PrintPreview = () => {
                   checked={options.showPageNumbers}
                   onChange={(e) => set('showPageNumbers', e.target.checked)}
                 />
-                Numerar páginas
+                {t('print.pageNumbers')}
               </label>
             </div>
             <div className="flex flex-wrap gap-x-8 gap-y-2">
-              <OptionRow label="Fuente">
+              <OptionRow label={t('print.font')}>
                 <select
                   value={options.font}
                   onChange={(e) => set('font', e.target.value as Font)}
                   className={selectCls}
                 >
-                  <option value="serif">Serif (Times)</option>
-                  <option value="sans">Sans (moderna)</option>
+                  <option value="serif">{t('print.fontSerif')}</option>
+                  <option value="sans">{t('print.fontSans')}</option>
                 </select>
               </OptionRow>
-              <OptionRow label="Tamaño">
+              <OptionRow label={t('print.size')}>
                 <select
                   value={options.fontSize}
                   onChange={(e) => set('fontSize', e.target.value as FontSize)}
@@ -310,15 +316,15 @@ export const PrintPreview = () => {
                   <option value="12pt">12 pt</option>
                 </select>
               </OptionRow>
-              <OptionRow label="Interlineado">
+              <OptionRow label={t('print.lineSpacing')}>
                 <select
                   value={options.lineHeight}
                   onChange={(e) => set('lineHeight', e.target.value as LineHeight)}
                   className={selectCls}
                 >
-                  <option value="1.15">Sencillo (1.15)</option>
-                  <option value="1.5">1.5 líneas</option>
-                  <option value="2">Doble</option>
+                  <option value="1.15">{t('print.spacingSingle')}</option>
+                  <option value="1.5">{t('print.spacing15')}</option>
+                  <option value="2">{t('print.spacingDouble')}</option>
                 </select>
               </OptionRow>
             </div>
@@ -329,24 +335,24 @@ export const PrintPreview = () => {
                   checked={options.showHeader}
                   onChange={(e) => set('showHeader', e.target.checked)}
                 />
-                Encabezado
+                {t('print.header')}
               </label>
               {options.showHeader && (
                 <>
-                  <OptionRow label="Izquierda">
+                  <OptionRow label={t('print.left')}>
                     <input
                       value={options.headerLeft}
                       onChange={(e) => set('headerLeft', e.target.value)}
                       className={`${selectCls} w-64`}
-                      placeholder="Título del documento"
+                      placeholder={t('print.titlePlaceholder')}
                     />
                   </OptionRow>
-                  <OptionRow label="Derecha">
+                  <OptionRow label={t('print.right')}>
                     <input
                       value={options.headerRight}
                       onChange={(e) => set('headerRight', e.target.value)}
                       className={`${selectCls} w-48`}
-                      placeholder="Exp. 123/2026"
+                      placeholder={t('print.refPlaceholder')}
                     />
                   </OptionRow>
                   <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
@@ -355,7 +361,7 @@ export const PrintPreview = () => {
                       checked={options.headerOnFirst}
                       onChange={(e) => set('headerOnFirst', e.target.checked)}
                     />
-                    También en la primera página
+                    {t('print.headerOnFirst')}
                   </label>
                 </>
               )}

@@ -11,6 +11,7 @@ import {
 } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
 import { load } from '@tauri-apps/plugin-store';
+import { t, locale } from './i18n';
 import { setImageBaseDir, joinAndNormalize } from '../extensions/localImage';
 import {
   extractImageSrcs,
@@ -31,14 +32,15 @@ const TEXT_EXTENSIONS = [
   'toml', 'csv', 'tsv', 'xml', 'properties', 'gitignore', 'editorconfig',
 ];
 
-export const OPEN_FILTERS = [
+// Función (no constante): los nombres siguen el idioma actual de la UI.
+export const openFilters = () => [
   {
-    name: 'Documentos compatibles',
+    name: t('file.filterSupported'),
     extensions: ['md', 'markdown', ...TEXT_EXTENSIONS],
   },
   ...MD_FILTERS,
-  { name: 'Texto', extensions: TEXT_EXTENSIONS },
-  { name: 'Todos los archivos', extensions: ['*'] },
+  { name: t('file.filterText'), extensions: TEXT_EXTENSIONS },
+  { name: t('file.filterAll'), extensions: ['*'] },
 ];
 
 /** ¿El archivo se edita como markdown (WYSIWYG)? Lo demás va como texto
@@ -290,23 +292,23 @@ export const getMtime = async (path: string): Promise<number | null> => {
 
 export const confirmReloadExternal = async (docName: string): Promise<boolean> =>
   ask(
-    `«${docName}» cambió en el disco y aquí tienes cambios sin guardar.\n¿Recargar del disco? (tus cambios de esta pestaña se pierden)`,
+    t('file.reloadExternal', { name: docName }),
     {
-      title: 'iureditor — Archivo modificado',
+      title: t('file.modifiedTitle'),
       kind: 'warning',
-      okLabel: 'Recargar del disco',
-      cancelLabel: 'Conservar mi versión',
+      okLabel: t('file.reloadFromDisk'),
+      cancelLabel: t('file.keepMine'),
     }
   );
 
 export const confirmOverwriteExternal = async (docName: string): Promise<boolean> =>
   ask(
-    `«${docName}» cambió en el disco después de abrirse aquí.\n¿Sobrescribir con tu versión?`,
+    t('file.overwriteExternal', { name: docName }),
     {
-      title: 'iureditor — Archivo modificado',
+      title: t('file.modifiedTitle'),
       kind: 'warning',
-      okLabel: 'Sobrescribir',
-      cancelLabel: 'Cancelar',
+      okLabel: t('file.overwrite'),
+      cancelLabel: t('common.cancel'),
     }
   );
 
@@ -315,7 +317,7 @@ export const pickOpenPath = async (
 ): Promise<string | null> => {
   const selected = await open({
     multiple: false,
-    filters: OPEN_FILTERS,
+    filters: openFilters(),
     defaultPath: defaultDir ?? undefined,
   });
   return typeof selected === 'string' ? selected : null;
@@ -327,7 +329,7 @@ export const pickImagePath = async (
   const selected = await open({
     multiple: false,
     filters: [
-      { name: 'Imágenes', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] },
+      { name: t('file.filterImages'), extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] },
     ],
     defaultPath: defaultDir ?? undefined,
   });
@@ -337,15 +339,15 @@ export const pickImagePath = async (
 /** `suggestedName` es siempre un nombre suelto; el directorio lo pone
  *  `defaultDir` (directorio del documento o último usado). */
 export const pickSavePath = async (
-  suggestedName = 'documento.md',
+  suggestedName = t('app.defaultFileName'),
   forceMd = true,
   defaultDir?: string | null
 ): Promise<string | null> => {
   const path = await save({
     defaultPath: inDir(defaultDir, basename(suggestedName)),
     filters: forceMd
-      ? [...MD_FILTERS, { name: 'Texto', extensions: TEXT_EXTENSIONS }]
-      : [{ name: 'Todos los archivos', extensions: ['*'] }],
+      ? [...MD_FILTERS, { name: t('file.filterText'), extensions: TEXT_EXTENSIONS }]
+      : [{ name: t('file.filterAll'), extensions: ['*'] }],
   });
   if (!path) return null;
   // Un documento markdown recibe `.md` salvo extensión de texto explícita
@@ -354,11 +356,11 @@ export const pickSavePath = async (
 };
 
 export const confirmDiscard = async (): Promise<boolean> =>
-  ask('Hay cambios sin guardar. ¿Descartarlos?', {
+  ask(t('file.discardConfirm'), {
     title: 'iureditor',
     kind: 'warning',
-    okLabel: 'Descartar',
-    cancelLabel: 'Cancelar',
+    okLabel: t('file.discard'),
+    cancelLabel: t('common.cancel'),
   });
 
 export const confirmRecoverDrafts = async (
@@ -366,15 +368,16 @@ export const confirmRecoverDrafts = async (
   savedAt: number
 ): Promise<boolean> => {
   const list = docNames.map((n) => `• ${n}`).join('\n');
+  const date = new Date(savedAt).toLocaleString(locale());
   const msg =
     docNames.length === 1
-      ? `Se encontró un borrador sin guardar de «${docNames[0]}» (${new Date(savedAt).toLocaleString()}).\n¿Quieres recuperarlo?`
-      : `Se encontraron ${docNames.length} borradores sin guardar (${new Date(savedAt).toLocaleString()}):\n${list}\n¿Quieres recuperarlos?`;
+      ? t('file.draftOne', { name: docNames[0], date })
+      : t('file.draftMany', { count: docNames.length, date, list });
   return ask(msg, {
-    title: 'iureditor — Recuperar borradores',
+    title: t('file.draftTitle'),
     kind: 'info',
-    okLabel: 'Recuperar',
-    cancelLabel: 'Descartar borradores',
+    okLabel: t('file.recover'),
+    cancelLabel: t('file.discardDrafts'),
   });
 };
 

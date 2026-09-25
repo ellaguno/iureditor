@@ -55,7 +55,7 @@ import {
 import { normalizePastedText, asciiToMarkdown, plainTextToHtml } from '../lib/asciiPaste';
 import { collectHeadings, lineAtPos } from '../lib/outline';
 import type { HeadingInfo } from '../lib/outline';
-import { t } from '../lib/i18n';
+import { t, useLang } from '../lib/i18n';
 
 const lowlight = createLowlight(common);
 
@@ -123,6 +123,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
     },
     ref
   ) => {
+    const lang = useLang();
     const turndown = useMemo(() => buildTurndownService(), []);
     const [showSearch, setShowSearch] = useState(false);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -175,7 +176,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
           underline: false, // configurado aparte
         }),
         Placeholder.configure({
-          placeholder: t('editor.placeholder'),
+          // Función: se evalúa en cada render de decoraciones (sigue el idioma).
+          placeholder: () => t('editor.placeholder'),
         }),
         Underline,
         Link.configure({
@@ -366,6 +368,13 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
       },
       []
     );
+
+    // Cambio de idioma: una transacción vacía recalcula las decoraciones
+    // (el placeholder) sin tocar el documento ni el historial.
+    useEffect(() => {
+      if (!editor || editor.isDestroyed) return;
+      editor.view.dispatch(editor.state.tr.setMeta('addToHistory', false));
+    }, [editor, lang]);
 
     if (!editor) {
       return (

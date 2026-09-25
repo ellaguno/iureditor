@@ -1,4 +1,5 @@
 import type { Node as PMNode } from '@tiptap/pm/model';
+import { t } from './i18n';
 
 // Extracción de encabezados del documento para el panel de esquema.
 
@@ -58,7 +59,7 @@ export const buildTocHtml = (headings: HeadingInfo[]): string => {
       }
       out.push('</li><li>');
     }
-    out.push(`<a href="#${slugs[i]}">${escapeHtml(h.text || 'Sección')}</a>`);
+    out.push(`<a href="#${slugs[i]}">${escapeHtml(h.text || t('app.tocSection'))}</a>`);
   });
   while (depth > 0) {
     out.push('</li></ul>');

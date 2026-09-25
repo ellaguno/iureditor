@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, Pencil, Trash2 } from 'lucide-react';
 import { renderMathHtml } from '../lib/katex';
-import { t } from '../lib/i18n';
+import { t, useLang } from '../lib/i18n';
 
 // NodeView compartido para fórmulas KaTeX inline y de bloque: render en vivo,
 // clic (inline) / doble clic (bloque) para editar el LaTeX en el sitio.
@@ -14,6 +14,7 @@ export const MathNodeView = ({
   selected,
   deleteNode,
 }: NodeViewProps) => {
+  useLang();
   const latex: string = node.attrs.latex || '';
   const isBlock = node.type.name === 'mathBlock';
   const [html, setHtml] = useState('');

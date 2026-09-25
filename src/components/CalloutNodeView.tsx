@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { CALLOUT_TYPES, CALLOUT_LABEL_KEY } from '../extensions/callout';
 import type { CalloutType } from '../extensions/callout';
-import { t } from '../lib/i18n';
+import { t, useLang } from '../lib/i18n';
 
 type IconType = React.ComponentType<{ className?: string }>;
 
@@ -27,6 +27,7 @@ const ICONS: Record<CalloutType, IconType> = {
 // editable, y cuerpo editable (NodeViewContent). El render/serialización a
 // markdown lo define callout.ts (renderHTML → <div data-callout>).
 export const CalloutNodeView = ({ node, updateAttributes }: NodeViewProps) => {
+  useLang();
   const type = (node.attrs.type as CalloutType) || 'note';
   const Icon = ICONS[type] ?? Info;
   const [open, setOpen] = useState(false);

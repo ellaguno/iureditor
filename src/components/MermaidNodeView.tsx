@@ -10,37 +10,38 @@ import {
 } from 'lucide-react';
 import { renderMermaidSvg } from '../lib/mermaid';
 import { saveSvg, savePng } from '../lib/diagramExport';
-import { t } from '../lib/i18n';
+import { t, useLang } from '../lib/i18n';
 
-// Andamiaje inicial por tipo de diagrama (el usuario lo edita después).
+// Andamiaje inicial por tipo de diagrama (el usuario lo edita después); el
+// texto de ejemplo sale en el idioma de la interfaz.
 const TEMPLATES = [
   {
     labelKey: 'mermaid.tpl.flowchart',
-    code: 'flowchart TD\n    A[Inicio] --> B{Decisión}\n    B -->|Sí| C[Acción]\n    B -->|No| D[Fin]',
+    codeKey: 'mermaid.code.flowchart',
   },
   {
     labelKey: 'mermaid.tpl.sequence',
-    code: 'sequenceDiagram\n    participant A as Alice\n    participant B as Bob\n    A->>B: Solicitud\n    B-->>A: Respuesta',
+    codeKey: 'mermaid.code.sequence',
   },
   {
     labelKey: 'mermaid.tpl.class',
-    code: 'classDiagram\n    class Animal {\n      +String nombre\n      +comer()\n    }\n    Animal <|-- Perro',
+    codeKey: 'mermaid.code.class',
   },
   {
     labelKey: 'mermaid.tpl.state',
-    code: 'stateDiagram-v2\n    [*] --> Inactivo\n    Inactivo --> Activo: iniciar\n    Activo --> [*]: terminar',
+    codeKey: 'mermaid.code.state',
   },
   {
     labelKey: 'mermaid.tpl.er',
-    code: 'erDiagram\n    CLIENTE ||--o{ PEDIDO : realiza\n    PEDIDO ||--|{ LINEA : contiene',
+    codeKey: 'mermaid.code.er',
   },
   {
     labelKey: 'mermaid.tpl.gantt',
-    code: 'gantt\n    title Plan\n    dateFormat YYYY-MM-DD\n    section Fase 1\n    Tarea A :a1, 2024-01-01, 7d\n    Tarea B :after a1, 5d',
+    codeKey: 'mermaid.code.gantt',
   },
   {
     labelKey: 'mermaid.tpl.pie',
-    code: 'pie title Distribución\n    "A" : 40\n    "B" : 35\n    "C" : 25',
+    codeKey: 'mermaid.code.pie',
   },
 ] as const;
 
@@ -57,6 +58,7 @@ const cleanupMermaidOrphans = (keep?: HTMLElement | null) => {
 // se abre un panel con código a la izquierda y vista previa en vivo a la
 // derecha, más plantillas por tipo de diagrama. Export SVG/PNG por diagrama.
 export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewProps) => {
+  useLang();
   const code: string = node.attrs.code || '';
   const [svg, setSvg] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
@@ -196,7 +198,7 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
                 title={t('mermaid.exportSvg')}
                 onClick={() => {
                   const el = getSvgElement();
-                  if (el) void saveSvg(el, 'diagrama.svg');
+                  if (el) void saveSvg(el, `${t('mermaid.fileName')}.svg`);
                 }}
                 className="p-1.5 rounded bg-white/90 dark:bg-gray-700/90 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 shadow-sm"
               >
@@ -207,7 +209,7 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
                 title={t('mermaid.exportPng')}
                 onClick={() => {
                   const el = getSvgElement();
-                  if (el) void savePng(el, 'diagrama.png');
+                  if (el) void savePng(el, `${t('mermaid.fileName')}.png`);
                 }}
                 className="p-1.5 rounded bg-white/90 dark:bg-gray-700/90 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 shadow-sm"
               >
@@ -240,7 +242,7 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
                     <button
                       key={tpl.labelKey}
                       type="button"
-                      onClick={() => insertTemplate(tpl.code)}
+                      onClick={() => insertTemplate(t(tpl.codeKey))}
                       className="w-full px-3 py-1.5 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                     >
                       {t(tpl.labelKey)}

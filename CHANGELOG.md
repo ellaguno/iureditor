@@ -5,6 +5,21 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.9.0 — 2026-09-25
+
+### Añadido
+- **Interfaz en inglés y español.** Arranca en inglés, o en español si el
+  sistema operativo está en español; se puede elegir en ☰ → Ver → Idioma
+  (Automático, English, Español) y cambia al momento, también en la vista de
+  impresión y en las pestañas separadas. Ayuda completa en inglés y marcador
+  `{{date}}` en plantillas (fecha en el idioma de la interfaz).
+- El instalador de Windows sigue el idioma del sistema.
+
+### Cambiado
+- README en inglés; la versión en español queda en `README.es.md`.
+- Conector iurefficient-connect 0.6.0: los mensajes de la cuenta de
+  Iurefficient también salen en el idioma elegido.
+
 ## v1.8.3 — 2026-09-22
 
 ### Añadido

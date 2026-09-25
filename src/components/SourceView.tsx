@@ -254,7 +254,7 @@ export const SourceView = forwardRef<
               taRef.current?.focus();
             }}
             className="p-1.5 rounded text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-            title="Cerrar"
+            title={t('common.close')}
           >
             <X className="w-4 h-4" />
           </button>

@@ -4,12 +4,13 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ExternalLink, Trash2 } from 'lucide-react';
 import { resolveSrc, resolveAssetFsPath } from '../extensions/imageResolve';
-import { t } from '../lib/i18n';
+import { t, useLang } from '../lib/i18n';
 
 // NodeView de imágenes: sólo añade un menú contextual (botón derecho) con
 // "Abrir en editor externo" (para SVG de draw.io u otros assets locales) y
 // "Borrar". El render/serialización de la imagen no cambia (ver localImage.ts).
 export const ImageNodeView = ({ node, selected, deleteNode }: NodeViewProps) => {
+  useLang();
   const src: string = node.attrs.src || '';
   const alt: string = node.attrs.alt || '';
   const title: string | undefined = node.attrs.title || undefined;
