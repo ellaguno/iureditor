@@ -209,6 +209,13 @@ jobs:
               entry = {"url": base + asset, "signature": open(sig).read().strip()}
               if asset.endswith(".AppImage"):
                   platforms["linux-x86_64"] = entry
+              # Claves por instalador ({os}-{arch}-{tipo}): el actualizador las prefiere a
+              # {os}-{arch}, así una instalación .deb/.rpm recibe su propio paquete
+              # (con el AppImage falla con «update is not a valid deb package»).
+              elif asset.endswith(".deb"):
+                  platforms["linux-x86_64-deb"] = entry
+              elif asset.endswith(".rpm"):
+                  platforms["linux-x86_64-rpm"] = entry
               elif asset.endswith(".exe"):
                   platforms["windows-x86_64"] = entry
               elif asset.endswith(".app.tar.gz"):

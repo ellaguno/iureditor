@@ -5,6 +5,16 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.9.1 — 2026-09-29
+
+### Corregido
+- **Actualizar desde la app en Linux con el paquete .deb o .rpm.** El manifiesto
+  del actualizador sólo ofrecía el AppImage, que una instalación .deb rechaza;
+  ahora incluye el .deb y el .rpm firmados y la app instala el mismo tipo de
+  paquete que tiene (pide la contraseña de administrador).
+- Si la instalación de una actualización falla, se muestra el error con un botón
+  para abrir la página de descarga, también en el aviso automático al arrancar.
+
 ## v1.9.0 — 2026-09-25
 
 ### Añadido

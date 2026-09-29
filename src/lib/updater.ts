@@ -25,7 +25,24 @@ export const checkForUpdates = async (silent: boolean): Promise<void> => {
       }
     );
     if (!install) return;
-    await update.downloadAndInstall();
+    try {
+      await update.downloadAndInstall();
+    } catch (err) {
+      // El usuario ya pidió actualizar: mostrar el error aunque el chequeo sea silencioso.
+      console.error('Instalación de la actualización falló:', err);
+      const detail = err instanceof Error ? err.message : String(err);
+      const open = await ask(t('update.installFailed', { detail }), {
+        title: 'iureditor',
+        kind: 'warning',
+        okLabel: t('update.openDownload'),
+        cancelLabel: t('update.later'),
+      });
+      if (open) {
+        const { openUrl } = await import('@tauri-apps/plugin-opener');
+        await openUrl('https://github.com/ellaguno/iureditor/releases/latest');
+      }
+      return;
+    }
     const restart = await ask(t('update.installed'), {
       title: 'iureditor',
       kind: 'info',
