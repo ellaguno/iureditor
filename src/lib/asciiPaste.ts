@@ -13,8 +13,46 @@
 //  3. plainTextToHtml: inserción manual de texto plano como párrafos
 //     (respaldo cuando sólo hubo que limpiar CRs y no aplica conversión).
 
-/** CRLF y CR sueltos → LF. */
-export const normalizePastedText = (text: string): string => text.replace(/\r\n?/g, '\n');
+/** CRLF, CR sueltos y CR duplicados (`\r\r\n`, típico al pasar por dos
+ *  conversiones de fin de línea) → LF. Además quita el espacio en blanco al
+ *  final de cada línea: muchas terminales rellenan las líneas con espacios
+ *  hasta el ancho de la ventana, y una línea «vacía» con espacios no contaba
+ *  como separador de párrafo y dejaba saltos de más. */
+export const normalizePastedText = (text: string): string =>
+  text.replace(/\r*\n|\r/g, '\n').replace(/[ \t\u00a0]+$/gm, '');
+
+// Viñeta o numeración de lista markdown: `- x`, `* x`, `1. x`, `2) x`.
+const LIST_ITEM = /^\s*(?:[-*+]|\d+[.)])\s+\S/;
+
+/** Quita la sangría común de los bloques que son sólo elementos de lista. La
+ *  salida de terminal suele sangrar las listas anidadas con 4+ espacios, y en
+ *  markdown eso las convertía en bloque de código. */
+export const dedentListBlocks = (text: string): string =>
+  text
+    .split(/(\n\n+)/)
+    .map(block => {
+      const lines = block.split('\n');
+      if (!lines.length || !lines.every(l => LIST_ITEM.test(l))) return block;
+      const indent = Math.min(...lines.map(l => l.match(/^ */)![0].length));
+      return indent ? lines.map(l => l.slice(indent)).join('\n') : block;
+    })
+    .join('');
+
+/** ¿El HTML del portapapeles viene de una terminal o carece de formato útil?
+ *  Algunas terminales (VS Code, Windows Terminal, «copiar como HTML» de VTE)
+ *  ponen además text/html con un <div>/<br> por línea; el parser de
+ *  ProseMirror hace un párrafo de cada una y el texto queda muy separado. En
+ *  esos casos conviene pegar el text/plain. */
+export const isTerminalHtml = (html: string): boolean => {
+  // Copia hecha dentro del propio editor: su HTML es fiel, se respeta.
+  if (html.includes('data-pm-slice')) return false;
+  if (/<pre[\s>]|monospace|font-family:\s*['"]?(?:consolas|menlo|courier|dejavu sans mono)/i.test(html)) {
+    return true;
+  }
+  // Sin ninguna etiqueta con significado (enlaces, énfasis, listas, tablas,
+  // encabezados, imágenes, código…) el HTML no aporta nada sobre el texto.
+  return !/<(?:a|b|strong|i|em|u|s|del|mark|sub|sup|code|h[1-6]|ul|ol|li|table|img|blockquote)[\s>]/i.test(html);
+};
 
 const escapeHtml = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -60,6 +98,9 @@ const PURE_TRACE = /^[+\-|\\/<>^v.:*_]+$/;
 // dibujo Unicode, o es puro trazo, o una fracción alta de sus caracteres son
 // estructurales.
 const isDiagramLine = (line: string): boolean => {
+  // Un elemento de lista con una flecha (`- a → b`) es prosa, no diagrama;
+  // sólo cuenta si lleva trazos de caja.
+  if (LIST_ITEM.test(line) && !/[─-╿]/.test(line)) return false;
   const compact = line.replace(/\s+/g, '');
   if (!compact) return false;
   if (DRAW_RE.test(compact)) return true;

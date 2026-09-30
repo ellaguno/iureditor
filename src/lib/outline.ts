@@ -70,13 +70,24 @@ export const buildTocHtml = (headings: HeadingInfo[]): string => {
 
 /** Línea (1-based) en la que cae una posición del documento. Cada bloque de
  *  texto cuenta como una línea; dentro de un bloque de código cuentan además
- *  sus saltos de línea internos. Es la noción de «línea» que puede ofrecer un
+ *  sus saltos de línea internos y cada fila de tabla es una línea. Es la noción de «línea» que puede ofrecer un
  *  editor WYSIWYG (no la línea del archivo markdown en disco). */
 export const lineAtPos = (doc: PMNode, pos: number): number => {
   let line = 0;
   let found = 0;
   doc.descendants((node, nodePos) => {
     if (found) return false;
+    if (node.type.name === 'tableRow') {
+      // Una fila de tabla es una sola línea (como en el markdown), no una por
+      // celda.
+      if (nodePos > pos) {
+        found = Math.max(1, line);
+        return false;
+      }
+      line += 1;
+      if (pos < nodePos + node.nodeSize) found = line;
+      return false;
+    }
     if (!node.isTextblock) return true;
     if (nodePos > pos) {
       // La posición quedó entre bloques (p. ej. un diagrama seleccionado):

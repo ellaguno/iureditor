@@ -52,7 +52,14 @@ import {
   splitFrontMatter,
   joinFrontMatter,
 } from '../lib/markdown';
-import { normalizePastedText, asciiToMarkdown, plainTextToHtml } from '../lib/asciiPaste';
+import { LineNumbers } from '../extensions/lineNumbers';
+import {
+  normalizePastedText,
+  asciiToMarkdown,
+  plainTextToHtml,
+  isTerminalHtml,
+  dedentListBlocks,
+} from '../lib/asciiPaste';
 import { collectHeadings, lineAtPos } from '../lib/outline';
 import type { HeadingInfo } from '../lib/outline';
 import { t, useLang } from '../lib/i18n';
@@ -108,6 +115,8 @@ interface EditorProps {
    * un File o null si el portapapeles no contiene una imagen.
    */
   onReadClipboardImage?: () => Promise<File | null>;
+  /** Números de línea en el margen (misma línea que la barra de estado). */
+  lineNumbers?: boolean;
 }
 
 export const Editor = forwardRef<EditorHandle, EditorProps>(
@@ -120,6 +129,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
       onInsertImageFile,
       onBrowseImage,
       onReadClipboardImage,
+      lineNumbers = false,
     },
     ref
   ) => {
@@ -209,6 +219,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
         MathInline,
         MathBlock,
         SearchReplace,
+        LineNumbers.configure({ enabled: lineNumbers }),
         Callout,
         SlashCommand,
       ],
@@ -239,15 +250,26 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
           //    del pipeline) y se convierten tablas/diagramas ASCII. Si tras
           //    eso el texto parece markdown —o hubo conversión—, entra por
           //    markdownToHtml como nodos reales.
-          const html = event.clipboardData?.getData('text/html');
+          //    El HTML de una terminal (un <div> por línea) se ignora y se
+          //    pega su texto plano.
+          const rawHtml = event.clipboardData?.getData('text/html');
           const rawText = event.clipboardData?.getData('text/plain');
-          const text = rawText ? normalizePastedText(rawText) : rawText;
+          const text = rawText ? dedentListBlocks(normalizePastedText(rawText)) : rawText;
+          const html = rawHtml && !(rawText && isTerminalHtml(rawHtml)) ? rawHtml : '';
           if (!html && text) {
             const inst = editorRef.current;
             const { text: md, changed } = asciiToMarkdown(text);
             if (inst && (changed || looksLikeMarkdown(md))) {
               event.preventDefault();
-              inst.chain().focus().insertContent(markdownToHtml(md)).run();
+              // insertContent conserva por defecto el espacio en blanco, y los
+              // `\n` entre bloques del HTML generado se volvían párrafos
+              // vacíos (texto de terminal muy separado). Igual que al abrir un
+              // archivo, se descartan; los <pre> conservan el suyo.
+              inst
+                .chain()
+                .focus()
+                .insertContent(markdownToHtml(md), { parseOptions: { preserveWhitespace: false } })
+                .run();
               return true;
             }
             // Prosa plana multilínea: siempre por plainTextToHtml, que
@@ -368,6 +390,11 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
       },
       []
     );
+
+    useEffect(() => {
+      if (!editor || editor.isDestroyed) return;
+      editor.commands.setLineNumbers(lineNumbers);
+    }, [editor, lineNumbers]);
 
     // Cambio de idioma: una transacción vacía recalcula las decoraciones
     // (el placeholder) sin tocar el documento ni el historial.

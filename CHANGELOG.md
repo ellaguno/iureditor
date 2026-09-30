@@ -5,6 +5,31 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.9.2 — 2026-09-30
+
+### Añadido
+- **Números de línea también en la vista visual.** «Números de línea» (☰ → Ver)
+  ya no sólo sirve en la vista de código: en el editor markdown numera cada
+  párrafo, encabezado, viñeta y cita, cada línea de los bloques de código y
+  cada fila de tabla. Coincide con la línea de la barra de estado y no se
+  copia, imprime ni exporta.
+- **Buscar y reemplazar saltos de línea.** La barra de búsqueda entiende `\n`
+  (salto de línea), `\t` (tabulador) y `\\` (barra invertida), en las dos
+  vistas. En la vista visual `\n` encuentra los saltos dentro de un párrafo y
+  el paso de un párrafo a otro, y resalta los párrafos vacíos que abarca; por
+  ejemplo, reemplazar `\n\n` por `\n` quita párrafos vacíos sin fundir los
+  demás, y `\n` por un espacio une párrafos. Nunca une párrafos separados por
+  un diagrama, imagen o línea horizontal.
+
+### Corregido
+- **Texto pegado desde la terminal ya no queda lleno de huecos.** Las líneas
+  en blanco de más ya no se vuelven párrafos vacíos al pegar texto con pinta
+  de markdown; se quitan los espacios con que muchas terminales rellenan las
+  líneas y los fines de línea duplicados (`\r\r\n`); el HTML que añaden
+  algunas terminales (un bloque por línea) se ignora en favor del texto
+  plano; y las listas sangradas ya no se pegan como bloque de código ni se
+  confunden con diagramas por llevar flechas.
+
 ## v1.9.1 — 2026-09-29
 
 ### Corregido

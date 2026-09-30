@@ -1,10 +1,41 @@
 import { describe, it, expect } from 'vitest';
-import { normalizePastedText, asciiToMarkdown, plainTextToHtml } from '../lib/asciiPaste';
+import {
+  normalizePastedText,
+  asciiToMarkdown,
+  plainTextToHtml,
+  isTerminalHtml,
+  dedentListBlocks,
+} from '../lib/asciiPaste';
 import { markdownToHtml } from '../lib/markdown';
 
 describe('normalizePastedText', () => {
   it('convierte CRLF y CR sueltos a LF', () => {
     expect(normalizePastedText('a\r\nb\rc\nd')).toBe('a\nb\nc\nd');
+  });
+
+  it('CR duplicados no duplican las líneas', () => {
+    expect(normalizePastedText('a\r\r\nb\r\r\nc')).toBe('a\nb\nc');
+  });
+
+  it('quita el relleno de espacios de la terminal', () => {
+    expect(normalizePastedText('uno   \n    \ndos\t\n')).toBe('uno\n\ndos\n');
+    expect(plainTextToHtml(normalizePastedText('uno   \ndos  \n   \ntres'))).toBe(
+      '<p>uno<br>dos</p><p>tres</p>'
+    );
+  });
+});
+
+describe('isTerminalHtml', () => {
+  it('detecta HTML de terminal o sin formato', () => {
+    expect(isTerminalHtml('<pre style="color:#fff">$ ls</pre>')).toBe(true);
+    expect(isTerminalHtml('<div style="font-family: monospace">x</div><div>y</div>')).toBe(true);
+    expect(isTerminalHtml('<div>uno</div><div><br></div><div>dos</div>')).toBe(true);
+  });
+
+  it('respeta HTML con formato y copias del propio editor', () => {
+    expect(isTerminalHtml('<p>Hola <strong>mundo</strong></p>')).toBe(false);
+    expect(isTerminalHtml('<ul><li>a</li></ul>')).toBe(false);
+    expect(isTerminalHtml('<p data-pm-slice="1 1 []">x</p>')).toBe(false);
   });
 });
 
@@ -202,6 +233,21 @@ describe('asciiToMarkdown — sin falsos positivos', () => {
   it('no toca código con operadores', () => {
     const input = 'const x = a || b;\nif (x > 2 && y < 3) return x + y;';
     const { changed } = asciiToMarkdown(input);
+    expect(changed).toBe(false);
+  });
+});
+
+describe('texto de terminal con listas sangradas', () => {
+  it('quita la sangría común de bloques de lista', () => {
+    expect(dedentListBlocks('Ejemplo:\n\n    - uno\n    - dos\n\nfin')).toBe(
+      'Ejemplo:\n\n- uno\n- dos\n\nfin'
+    );
+    // Un bloque mixto (no sólo lista) no se toca.
+    expect(dedentListBlocks('    código\n    - x')).toBe('    código\n    - x');
+  });
+
+  it('una lista con flechas no se toma por diagrama', () => {
+    const { changed } = asciiToMarkdown('- \\n\\n → \\n quita\n- \\n → espacio une');
     expect(changed).toBe(false);
   });
 });

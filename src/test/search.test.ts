@@ -66,3 +66,50 @@ describe('SearchReplace', () => {
     expect(editor.storage.searchReplace.results).toHaveLength(0);
   });
 });
+
+describe('SearchReplace con saltos de línea', () => {
+  let editor: Editor;
+  afterEach(() => editor.destroy());
+
+  const make = (content: string) => {
+    editor = new Editor({ extensions: [StarterKit, SearchReplace], content });
+  };
+
+  it('\\n encuentra saltos duros y fronteras entre párrafos', () => {
+    make('<p>uno<br>dos</p><p>tres</p>');
+    editor.commands.setSearch('\n');
+    expect(editor.storage.searchReplace.results).toHaveLength(2);
+  });
+
+  it('reemplazar \\n\\n por \\n quita párrafos vacíos sobrantes', () => {
+    make('<p>uno</p><p></p><p></p><p>dos</p>');
+    editor.commands.setSearch('\n\n');
+    editor.commands.replaceAll('\n');
+    // Una pasada deja un solo párrafo vacío; la segunda lo quita. Los
+    // párrafos con texto nunca se funden.
+    expect(editor.getHTML()).toBe('<p>uno</p><p></p><p>dos</p>');
+    editor.commands.setSearch('\n\n');
+    editor.commands.replaceAll('\n');
+    expect(editor.getHTML()).toBe('<p>uno</p><p>dos</p>');
+  });
+
+  it('unir párrafos reemplazando \\n por espacio', () => {
+    make('<p>uno</p><p>dos</p>');
+    editor.commands.setSearch('\n');
+    editor.commands.replaceAll(' ');
+    expect(editor.getHTML()).toBe('<p>uno dos</p>');
+  });
+
+  it('quitar saltos duros', () => {
+    make('<p>uno<br>dos</p>');
+    editor.commands.setSearch('\n');
+    editor.commands.replaceAll('');
+    expect(editor.getHTML()).toBe('<p>unodos</p>');
+  });
+
+  it('no une bloques separados por un nodo no textual', () => {
+    make('<p>uno</p><hr><p>dos</p>');
+    editor.commands.setSearch('\n');
+    expect(editor.storage.searchReplace.results).toHaveLength(0);
+  });
+});

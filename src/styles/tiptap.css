@@ -33,6 +33,38 @@
   @apply outline-none;
 }
 
+/* Números de línea en el WYSIWYG (extensions/lineNumbers.ts): el editor abre
+   un hueco a la izquierda y cada número es un widget absoluto que conserva su
+   posición vertical estática (inicio del bloque) y se alinea con left:0 del
+   editor, aunque el bloque esté sangrado (listas, citas). */
+.tiptap-editor.iur-ln-on {
+  position: relative;
+  padding-left: 3.75rem;
+}
+.tiptap-editor .iur-ln {
+  position: absolute;
+  left: 0;
+  width: 3rem;
+  text-align: right;
+  font-weight: 400;
+  font-style: normal;
+  line-height: inherit;
+  letter-spacing: normal;
+  text-decoration: none;
+  user-select: none;
+  pointer-events: none;
+  @apply text-gray-400 dark:text-gray-500;
+}
+.tiptap-editor .iur-ln > span {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+}
+@media print {
+  .tiptap-editor .iur-ln {
+    display: none;
+  }
+}
+
 /* Documentos largos: los nodos pesados (diagramas SVG e imágenes) fuera del
    viewport no se pintan ni participan en el layout hasta acercarse. El
    contain-intrinsic-size reserva una altura estimada para que el scroll no

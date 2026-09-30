@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 import type { Editor } from '@tiptap/react';
 import { ChevronDown, ChevronUp, X, CaseSensitive } from 'lucide-react';
 import { t } from '../lib/i18n';
+import { unescapeSearch } from '../lib/sourceSearch';
 
 /** Motor de búsqueda que la barra maneja. Lo implementan el editor WYSIWYG
  *  (decoraciones de ProseMirror) y la vista fuente (texto del textarea). */
@@ -52,13 +53,13 @@ export const SearchBarUI = ({
   }, []);
 
   useEffect(() => {
-    driverRef.current.setQuery(term, caseSensitive);
+    driverRef.current.setQuery(unescapeSearch(term), caseSensitive);
   }, [term, caseSensitive]);
 
   const next = () => driver.next();
   const prev = () => driver.prev();
-  const replaceOne = () => driver.replaceOne(replacement);
-  const replaceEverything = () => driver.replaceAll(replacement);
+  const replaceOne = () => driver.replaceOne(unescapeSearch(replacement));
+  const replaceEverything = () => driver.replaceAll(unescapeSearch(replacement));
 
   const BTN =
     'p-1.5 rounded text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40';
@@ -73,6 +74,7 @@ export const SearchBarUI = ({
         value={term}
         onChange={(e) => setTerm(e.target.value)}
         placeholder={t('search.placeholder')}
+        title={t('search.escapesHint')}
         className={INPUT}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
@@ -115,6 +117,7 @@ export const SearchBarUI = ({
             value={replacement}
             onChange={(e) => setReplacement(e.target.value)}
             placeholder={t('search.replaceWith')}
+            title={t('search.escapesHint')}
             className={INPUT}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {

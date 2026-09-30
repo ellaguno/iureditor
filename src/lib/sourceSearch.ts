@@ -9,6 +9,12 @@ export interface Match {
   end: number;
 }
 
+/** Interpreta las secuencias de escape de la barra de búsqueda: `\n` salto
+ *  de línea, `\t` tabulador y `\\` barra invertida literal. Así se pueden
+ *  buscar y quitar los saltos de línea sobrantes (p. ej. `\n\n` → `\n`). */
+export const unescapeSearch = (s: string): string =>
+  s.replace(/\\([nt\\])/g, (_, c: string) => (c === 'n' ? '\n' : c === 't' ? '\t' : '\\'));
+
 /** Coincidencias de `term` en `text`, en orden y sin solaparse. */
 export const findMatches = (text: string, term: string, caseSensitive: boolean): Match[] => {
   if (!term) return [];

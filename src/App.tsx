@@ -1803,6 +1803,7 @@ export default function App() {
                 onInsertImageFile={handleInsertImageFile}
                 onBrowseImage={handleBrowseImage}
                 onReadClipboardImage={readClipboardImageFile}
+                lineNumbers={lineNumbers}
               />
             </div>
           ))}
