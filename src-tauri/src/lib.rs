@@ -73,7 +73,7 @@ fn get_cli_iure_doc() -> Option<IureDocLink> {
 #[tauri::command]
 async fn apps_status(with_network: bool) -> Vec<iurefficient_connect::apps::AppStatus> {
     if with_network {
-        iurefficient_connect::apps::status(&iurefficient_connect::user_agent("IureEditor", env!("CARGO_PKG_VERSION"))).await
+        iurefficient_connect::apps::status(&iurefficient_connect::user_agent("iureditor", env!("CARGO_PKG_VERSION"))).await
     } else {
         iurefficient_connect::apps::installed()
     }

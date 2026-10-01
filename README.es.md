@@ -42,11 +42,11 @@
   </tr>
   <tr>
     <td width="50%"><img src="docs/media/export-es.png" alt="El menú abierto en la sección Archivo con Exportar a PDF, DOCX y HTML, sobre varias pestañas abiertas"></td>
-    <td width="50%"><img src="docs/media/dark-es.png" alt="El mismo memorándum con el tema oscuro"></td>
+    <td width="50%"><img src="docs/media/dark-es.png" alt="El contrato de servicios con el tema oscuro: la tabla de honorarios y el flujo de aprobación en Mermaid, con líneas y etiquetas claras"></td>
   </tr>
   <tr>
     <td>Pestañas y el menú: exportar a PDF, DOCX o HTML.</td>
-    <td>Tema oscuro.</td>
+    <td>Tema oscuro, con diagramas Mermaid legibles.</td>
   </tr>
 </table>
 

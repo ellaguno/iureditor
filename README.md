@@ -42,11 +42,11 @@
   </tr>
   <tr>
     <td width="50%"><img src="docs/media/export-en.png" alt="The menu open on the File section with Export to PDF, DOCX and HTML, above several open tabs"></td>
-    <td width="50%"><img src="docs/media/dark-en.png" alt="The same memo in the dark theme"></td>
+    <td width="50%"><img src="docs/media/dark-en.png" alt="The service agreement in the dark theme: the fees table and the Mermaid approval workflow, with light lines and labels"></td>
   </tr>
   <tr>
     <td>Tabs and the menu: export to PDF, DOCX or HTML.</td>
-    <td>Dark theme.</td>
+    <td>Dark theme, with Mermaid diagrams that stay readable.</td>
   </tr>
 </table>
 

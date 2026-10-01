@@ -2,8 +2,10 @@ import { ask, message } from '@tauri-apps/plugin-dialog';
 import { t } from './i18n';
 
 // Buscar e instalar actualizaciones (releases firmados de GitHub).
-// En Linux el updater sólo aplica al AppImage; una instalación por .deb
-// recibe el aviso pero debe actualizar con el paquete.
+// En Linux aplica a las tres formas de instalación (desde v1.9.1): latest.json
+// trae entradas linux-x86_64-deb y linux-x86_64-rpm además del AppImage, y el
+// plugin elige la del tipo de paquete instalado. Con .deb/.rpm la instalación
+// pide la contraseña de administrador.
 
 export const checkForUpdates = async (silent: boolean): Promise<void> => {
   try {
@@ -54,8 +56,8 @@ export const checkForUpdates = async (silent: boolean): Promise<void> => {
       await relaunch();
     }
   } catch (err) {
-    // Sin red, endpoint aún sin latest.json, o instalación .deb (Linux):
-    // el chequeo silencioso de arranque no molesta al usuario.
+    // Sin red, endpoint aún sin latest.json o sin entrada para esta
+    // plataforma/paquete: el chequeo silencioso de arranque no molesta al usuario.
     console.error('Chequeo de actualizaciones falló:', err);
     if (!silent) {
       const detail = err instanceof Error ? err.message : String(err);

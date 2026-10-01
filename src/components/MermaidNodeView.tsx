@@ -1,6 +1,6 @@
 import { NodeViewWrapper } from '@tiptap/react';
 import type { NodeViewProps } from '@tiptap/react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   Pencil,
   Download,
@@ -8,7 +8,7 @@ import {
   AlertTriangle,
   ChevronDown,
 } from 'lucide-react';
-import { renderMermaidSvg } from '../lib/mermaid';
+import { renderMermaidSvg, isDarkTheme } from '../lib/mermaid';
 import { saveSvg, savePng } from '../lib/diagramExport';
 import { t, useLang } from '../lib/i18n';
 
@@ -45,6 +45,39 @@ const TEMPLATES = [
   },
 ] as const;
 
+// Tema de la app (clase `dark` en <html>): un único MutationObserver
+// compartido por todos los diagramas, para re-renderizarlos con el tema de
+// mermaid que toca cuando el usuario cambia de tema (o lo cambia el SO en
+// modo sistema).
+const themeListeners = new Set<() => void>();
+let themeObserver: MutationObserver | null = null;
+const subscribeTheme = (cb: () => void) => {
+  themeListeners.add(cb);
+  if (!themeObserver) {
+    themeObserver = new MutationObserver(() => themeListeners.forEach((l) => l()));
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+  }
+  return () => {
+    themeListeners.delete(cb);
+    if (!themeListeners.size && themeObserver) {
+      themeObserver.disconnect();
+      themeObserver = null;
+    }
+  };
+};
+const useDarkTheme = () => useSyncExternalStore(subscribeTheme, isDarkTheme);
+
+/** SVG del diagrama con el tema claro (export SVG/PNG apto para imprimir,
+ *  aunque en pantalla se vea con el tema oscuro). */
+const lightSvgElement = async (code: string): Promise<SVGElement | null> => {
+  const holder = document.createElement('div');
+  holder.innerHTML = await renderMermaidSvg(code, { theme: 'light' });
+  return holder.querySelector('svg');
+};
+
 // Limpia los nodos huérfanos que mermaid deja en el <body> cuando falla render.
 const cleanupMermaidOrphans = (keep?: HTMLElement | null) => {
   document
@@ -59,6 +92,7 @@ const cleanupMermaidOrphans = (keep?: HTMLElement | null) => {
 // derecha, más plantillas por tipo de diagrama. Export SVG/PNG por diagrama.
 export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewProps) => {
   useLang();
+  const dark = useDarkTheme();
   const code: string = node.attrs.code || '';
   const [svg, setSvg] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
@@ -95,7 +129,7 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
     return () => {
       cancelled = true;
     };
-  }, [code]);
+  }, [code, dark]);
 
   // Vista previa en vivo del borrador, con debounce para no renderizar en cada
   // tecla.
@@ -125,7 +159,7 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
       cancelled = true;
       clearTimeout(id);
     };
-  }, [draft, editing]);
+  }, [draft, editing, dark]);
 
   useEffect(() => {
     if (editing) {
@@ -168,8 +202,9 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
     e.stopPropagation();
   };
 
-  const getSvgElement = (): SVGElement | null =>
-    containerRef.current?.querySelector('svg') ?? null;
+  // En tema claro basta el SVG en pantalla; en oscuro se re-renderiza claro.
+  const getExportSvg = async (): Promise<SVGElement | null> =>
+    dark ? lightSvgElement(code) : (containerRef.current?.querySelector('svg') ?? null);
 
   return (
     <NodeViewWrapper
@@ -197,8 +232,9 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
                 type="button"
                 title={t('mermaid.exportSvg')}
                 onClick={() => {
-                  const el = getSvgElement();
-                  if (el) void saveSvg(el, `${t('mermaid.fileName')}.svg`);
+                  void getExportSvg().then((el) => {
+                    if (el) return saveSvg(el, `${t('mermaid.fileName')}.svg`);
+                  });
                 }}
                 className="p-1.5 rounded bg-white/90 dark:bg-gray-700/90 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 shadow-sm"
               >
@@ -208,8 +244,9 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
                 type="button"
                 title={t('mermaid.exportPng')}
                 onClick={() => {
-                  const el = getSvgElement();
-                  if (el) void savePng(el, `${t('mermaid.fileName')}.png`);
+                  void getExportSvg().then((el) => {
+                    if (el) return savePng(el, `${t('mermaid.fileName')}.png`);
+                  });
                 }}
                 className="p-1.5 rounded bg-white/90 dark:bg-gray-700/90 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 shadow-sm"
               >

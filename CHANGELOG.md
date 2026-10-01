@@ -5,6 +5,22 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## Sin publicar
+
+### Corregido
+- **Diagramas Mermaid legibles con el tema oscuro.** Las flechas, las líneas,
+  los bordes de los grupos y las etiquetas de las aristas salían oscuros sobre
+  el fondo oscuro y casi no se veían. Ahora, con el tema oscuro, los diagramas
+  se dibujan con colores claros sobre oscuro (también los mapas mentales, los
+  pies y las líneas de tiempo) y se vuelven a dibujar al cambiar de tema. Los
+  exports (PDF, DOCX, HTML y SVG/PNG de cada diagrama) siguen saliendo con el
+  tema claro, aptos para imprimir.
+
+### Cambiado
+- El nombre de la app se escribe en minúsculas («iureditor») también en lo que
+  se envía a Iurefficient (agente de usuario y app activa de la sesión
+  compartida).
+
 ## v1.9.2 — 2026-09-30
 
 ### Añadido
@@ -59,7 +75,7 @@ añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
 ### Añadido
 - **Una sola sesión para las tres apps.** Si IureDav o IureTranscribe ya
-  iniciaron sesión en este equipo, IureEditor arranca conectado a esa misma
+  iniciaron sesión en este equipo, iureditor arranca conectado a esa misma
   instancia y cuenta sin pedir nada; y al iniciar sesión aquí, las otras dos la
   encuentran. La sesión se sincroniza con el llavero antes de cada renovación
   para que dos apps abiertas a la vez no se invaliden entre sí (conector 0.5.0).
@@ -91,10 +107,10 @@ añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
 ### Añadido
 - **Apps de Iurefficient** al pie del panel «Iurefficient»: las tres apps de
-  escritorio (IureTranscribe, IureEditor e IureDav), cuáles están instaladas en
+  escritorio (IureTranscribe, iureditor e IureDav), cuáles están instaladas en
   este equipo, la última versión publicada y botones para abrirlas o descargarlas.
 - **Enlaces `iureditor://`.** `iureditor://open?path=/ruta/doc.md` abre un
-  archivo local (IureTranscribe lo usa para «Abrir con IureEditor») e
+  archivo local (IureTranscribe lo usa para «Abrir con iureditor») e
   `iureditor://iurefficient/doc?case=…&doc=…&name=…` descarga un documento de
   la instancia como espejo local y lo abre vinculado, listo para subir versiones.
 - Usa el conector común `iurefficient-connect` 0.4.2.

@@ -80,13 +80,16 @@ async function scrollToHeading(p, text, offset = 24) {
   await wait(500);
 }
 
-/** Puts the cursor at the end of the visible H1 (outline highlights the title). */
-async function clickTitle(p) {
-  const box = await p.evaluate(() => {
-    const h = [...document.querySelectorAll('.ProseMirror h1')].find((x) => x.offsetParent !== null);
+/** Puts the cursor at the end of the first visible heading matching
+ *  `selector` and `text` (the outline highlights it). Default: the H1 title. */
+async function clickTitle(p, selector = 'h1', text = '') {
+  const box = await p.evaluate((selector, text) => {
+    const h = [...document.querySelectorAll('.ProseMirror ' + selector)].find(
+      (x) => x.offsetParent !== null && x.textContent.includes(text)
+    );
     const r = h.getBoundingClientRect();
     return { x: r.left + 5, y: r.top + r.height / 2 };
-  });
+  }, selector, text);
   await p.mouse.click(box.x, box.y);
   await p.keyboard.press('End');
   await wait(400);
@@ -118,9 +121,11 @@ async function shots(lang) {
   await p.screenshot({ path: `${MEDIA}/export-${lang}.png` });
   await p.close();
 
-  // 4) Dark theme.
-  p = await open(`lang=${lang}&active=${encodeURIComponent(n.memo)}`, { theme: 'dark', sidebar: outline });
-  await clickTitle(p);
+  // 4) Dark theme: the agreement's fees table and Mermaid workflow (the
+  //    diagram is rendered with Mermaid's dark theme).
+  p = await open(`lang=${lang}&active=${encodeURIComponent(n.contract)}`, { theme: 'dark', sidebar: outline });
+  await scrollToHeading(p, '2. ');
+  await clickTitle(p, 'h2', '2. ');
   await p.screenshot({ path: `${MEDIA}/dark-${lang}.png` });
   await p.close();
 }

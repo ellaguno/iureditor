@@ -41,7 +41,7 @@ pub struct IureState {
 }
 
 fn agente() -> String {
-    user_agent("IureEditor", env!("CARGO_PKG_VERSION"))
+    user_agent("iureditor", env!("CARGO_PKG_VERSION"))
 }
 
 pub fn init(app: &App) -> Result<(), Box<dyn std::error::Error>> {
@@ -204,7 +204,7 @@ pub async fn iure_login(
         },
     };
     persist_session(&acc, &sess);
-    let _ = iurefficient_connect::account::set_active(&acc, "IureEditor");
+    let _ = iurefficient_connect::account::set_active(&acc, "iureditor");
     {
         let mut c = state.config.lock().unwrap();
         c.domain = acc.host();

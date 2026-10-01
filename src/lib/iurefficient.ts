@@ -84,7 +84,7 @@ export interface AppStatus {
   latestVersion: string | null;
 }
 
-/** Apps de escritorio de Iurefficient (IureTranscribe, IureEditor, IureDav, IureOCR). */
+/** Apps de escritorio de Iurefficient (IureTranscribe, iureditor, IureDav, IureOCR). */
 export const apps = {
   status: (withNetwork: boolean) => invoke<AppStatus[]>('apps_status', { withNetwork }),
   launch: (app: AppId, path?: string) => invoke<void>('launch_app', { app, path: path ?? null }),
