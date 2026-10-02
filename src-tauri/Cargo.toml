@@ -40,7 +40,7 @@ tauri-plugin-process = "2.3.1"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-deep-link = "2"
 # Conector común con Iurefficient (sesión REST, documentos, llavero compartido).
-iurefficient-connect = { git = "https://github.com/ellaguno/iurefficient-connect", tag = "v0.6.0" }
+iurefficient-connect = { git = "https://github.com/ellaguno/iurefficient-connect", tag = "v0.7.1" }
 anyhow = "1"
 tokio = { version = "1", features = ["sync"] }
 

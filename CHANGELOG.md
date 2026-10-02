@@ -17,6 +17,8 @@ añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
   tema claro, aptos para imprimir.
 
 ### Cambiado
+- Conector `iurefficient-connect` 0.7.1 (antes 0.6.0): el panel de apps de
+  Iurefficient muestra el editor como «iureditor».
 - El nombre de la app se escribe en minúsculas («iureditor») también en lo que
   se envía a Iurefficient (agente de usuario y app activa de la sesión
   compartida).
