@@ -201,6 +201,16 @@ async fn read_clipboard_image() -> Result<Option<String>, String> {
     ))
 }
 
+/// Texto del portapapeles del sistema (o `None` si no hay texto). Respaldo
+/// para WebKitGTK, que al copiar un archivo en el gestor de archivos anuncia
+/// `text/uri-list` en el evento `paste` pero no entrega su contenido (ni por
+/// getData ni por getAsString) y oculta el text/plain.
+#[tauri::command]
+async fn read_clipboard_text() -> Result<Option<String>, String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    Ok(clipboard.get_text().ok())
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -305,6 +315,7 @@ pub fn run() {
             print_webview,
             render_svg_png,
             read_clipboard_image,
+            read_clipboard_text,
             settings::ui_language,
             settings::get_ui_language_pref,
             settings::set_ui_language,

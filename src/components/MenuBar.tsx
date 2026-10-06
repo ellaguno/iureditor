@@ -39,6 +39,7 @@ import { LinkModal } from './LinkModal';
 import { ImageModal } from './ImageModal';
 import { TableMenu } from './TableMenu';
 import { ColorPicker } from './ColorPicker';
+import { insertImageAndContinue } from '../lib/insertImage';
 import { t } from '../lib/i18n';
 
 export const MenuBar = ({
@@ -70,7 +71,7 @@ export const MenuBar = ({
   const addImage = useCallback(
     (url: string, alt: string) => {
       if (editor && url) {
-        editor.chain().focus().setImage({ src: url, alt }).run();
+        insertImageAndContinue(editor, { src: url, alt });
       }
       setShowImageModal(false);
     },

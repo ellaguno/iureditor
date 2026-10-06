@@ -5,9 +5,49 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
-## Sin publicar
+## v1.10.0 — 2026-10-06
+
+### Añadido
+- **Barra de tabla.** Con el cursor dentro de una tabla aparece una barra
+  contextual bajo la barra de herramientas: insertar fila arriba/abajo y
+  columna a la izquierda/derecha, eliminar fila o columna, alinear la columna
+  (izquierda, centro, derecha — se guarda como `:---:` en el markdown),
+  activar o quitar la fila de encabezado y eliminar la tabla. El botón de
+  tabla ahora abre un selector de tamaño (hasta 8 × 6) en vez de insertar
+  siempre 3 × 3.
+- **Pegar imágenes desde más sitios.** Un archivo de imagen copiado en el
+  gestor de archivos se pega como imagen (se copia a `assets/`), y el HTML
+  pegado desde un navegador o un correo con imágenes incrustadas (`data:`)
+  las conserva y las guarda en `assets/` (antes desaparecían en silencio).
 
 ### Corregido
+- **Las capturas pegadas volvían a abrirse en blanco (Linux).** Al pegar una
+  captura, la webview insertaba por su cuenta una imagen con una URL `blob:`
+  que sólo vale mientras la ventana está abierta; se guardaba tal cual en el
+  markdown y al reabrir no se veía nada. Además la selección saltaba y la
+  copia buena acababa en otro sitio del documento (a veces duplicada). Ahora
+  la captura se guarda en `assets/` y se inserta donde está el cursor, una
+  sola vez, y el cursor queda después de la imagen (antes la imagen quedaba
+  seleccionada y lo siguiente que se escribía o pegaba la sustituía).
+- **Listas de viñetas dentro de una celda de tabla.** Al cerrar y abrir el
+  documento se aplanaban a una sola línea («- uno - dos»). Ahora se conservan
+  como lista (viajan en la celda como HTML embebido, que GitHub también
+  muestra como lista); los saltos de línea y los párrafos de una celda se
+  guardan como `<br>` en vez de perderse.
+- **Listas que se partían al reabrir.** Un ítem con dos párrafos, un bloque
+  de código dentro de un ítem o un ítem vacío rompían la lista en dos (y las
+  numeradas volvían a empezar en 1); las subtareas de una lista de tareas
+  perdían el anidamiento. El markdown de las listas sale ahora limpio
+  (`- texto`, sublistas sangradas al ancho del marcador) en lugar de
+  `-   texto` con líneas de espacios entre ítems.
+- **Tablas.** Una tabla de una sola columna ganaba una fila `---` en cada
+  recarga; un `\|` dentro de una celda la partía en dos; las celdas combinadas
+  desplazaban las columnas al guardar; y las filas cortas no se rellenaban.
+- Una imagen sola en su línea ya no deja un párrafo vacío encima al abrir el
+  archivo. Las listas dentro de una cita (`> - uno`) o de una admonición se
+  muestran como listas.
+- El menú flotante de formato ya no aparece sobre una imagen o un diagrama
+  seleccionados.
 - **Diagramas Mermaid legibles con el tema oscuro.** Las flechas, las líneas,
   los bordes de los grupos y las etiquetas de las aristas salían oscuros sobre
   el fondo oscuro y casi no se veían. Ahora, con el tema oscuro, los diagramas

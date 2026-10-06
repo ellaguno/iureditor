@@ -1089,6 +1089,19 @@ export default function App() {
     }
   }, []);
 
+  // ---------- texto del portapapeles del sistema ----------
+  // Respaldo para WebKitGTK cuando el evento `paste` anuncia `text/uri-list`
+  // (archivo copiado en el gestor de archivos) pero no entrega su contenido.
+  const readClipboardText = useCallback(async (): Promise<string | null> => {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      return (await invoke<string | null>('read_clipboard_text')) ?? null;
+    } catch (err) {
+      console.error('No se pudo leer el texto del portapapeles:', err);
+      return null;
+    }
+  }, []);
+
   // ---------- imagen vía diálogo nativo (botón Examinar del modal) ----------
   const handleBrowseImage = useCallback(async (): Promise<string | null> => {
     const imgPath = await pickImagePath(defaultDir());
@@ -1803,6 +1816,7 @@ export default function App() {
                 onInsertImageFile={handleInsertImageFile}
                 onBrowseImage={handleBrowseImage}
                 onReadClipboardImage={readClipboardImageFile}
+                onReadClipboardText={readClipboardText}
                 lineNumbers={lineNumbers}
               />
             </div>

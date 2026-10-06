@@ -24,37 +24,103 @@ export const isHtmlContent = (content: string): boolean => {
   );
 };
 
+// Divide una fila de tabla en celdas. Un `\|` escapado es un carácter `|`
+// literal dentro de la celda (antes partía la celda en dos y el backslash
+// quedaba como texto).
+const parseTableRow = (line: string): string[] => {
+  const cells: string[] = [];
+  let cur = '';
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '\\' && line[i + 1] === '|') {
+      cur += '|';
+      i++;
+      continue;
+    }
+    if (ch === '|') {
+      cells.push(cur);
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  cells.push(cur);
+  const trimmed = cells.map(c => c.trim());
+  if (/^\s*\|/.test(line)) trimmed.shift();
+  if (/\|\s*$/.test(line) && trimmed.length) trimmed.pop();
+  return trimmed;
+};
+
+// Fila separadora `| --- | :---: |`. Acepta tablas de UNA columna (`| --- |`),
+// que el regex anterior rechazaba: la separadora pasaba como fila de datos
+// con el texto `---` y la tabla crecía una fila en cada recarga.
+const SEP_CELL = /^:?-+:?$/;
+const isTableSeparator = (line: string): boolean => {
+  const cells = parseTableRow(line);
+  return cells.length > 0 && cells.every(c => SEP_CELL.test(c));
+};
+
+type CellAlign = 'left' | 'center' | 'right' | null;
+const alignOfSeparator = (cell: string): CellAlign => {
+  const left = cell.startsWith(':');
+  const right = cell.endsWith(':');
+  if (left && right) return 'center';
+  if (right) return 'right';
+  if (left) return 'left';
+  return null;
+};
+
+// Las celdas sólo admiten contenido inline en markdown; los bloques (listas,
+// párrafos múltiples) viajan como HTML embebido que TipTap parsea
+// directamente. Si la celda trae bloques no se envuelve en <p> (el parser
+// HTML cerraría el párrafo antes del bloque y dejaría un <p> vacío al final).
+const CELL_BLOCK_HTML = /<(?:ul|ol|p|div|pre|blockquote|h[1-6]|table)\b/i;
+const tableCellHtml = (tag: 'th' | 'td', content: string, align: CellAlign): string => {
+  if (!align || align === 'left' || CELL_BLOCK_HTML.test(content)) {
+    return `<${tag}>${content}</${tag}>`;
+  }
+  return `<${tag}><p style="text-align: ${align}">${content}</p></${tag}>`;
+};
+
 // Convert a markdown table block (array of lines) into an HTML <table>
-const markdownTableToHtml = (tableLines: string[]): string => {
+const markdownTableToHtml = (tableLines: string[], isImageAtom: (idx: number) => boolean): string => {
   if (tableLines.length < 2) return tableLines.map(l => `<p>${l}</p>`).join('\n');
 
-  const parseRow = (line: string): string[] => {
-    const cells = line.split('|').map(c => c.trim());
-    if (cells.length > 0 && cells[0] === '') cells.shift();
-    if (cells.length > 0 && cells[cells.length - 1] === '') cells.pop();
-    return cells;
-  };
+  // `texto<br>![img]`: la imagen es un nodo de bloque, así que el <br> que
+  // la precede sólo dejaría un salto duro colgando al final del párrafo (una
+  // línea vacía visible en la celda y un <br> más en cada guardado).
+  const dropBreakBeforeImage = (content: string): string =>
+    content.replace(/(?:<br\s*\/?>\s*)+(<!--IUR-ATOM-(\d+)-->)/gi, (m, atom: string, idx: string) =>
+      isImageAtom(Number(idx)) ? atom : m
+    );
 
-  const isSeparator = (line: string) => /^\|?[\s:-]+(\|[\s:-]+)+\|?\s*$/.test(line);
-
-  const headerCells = parseRow(tableLines[0]);
-  const hasSeparator = isSeparator(tableLines[1]);
+  const headerCells = parseTableRow(tableLines[0]).map(dropBreakBeforeImage);
+  const hasSeparator = isTableSeparator(tableLines[1]);
+  const aligns: CellAlign[] = hasSeparator ? parseTableRow(tableLines[1]).map(alignOfSeparator) : [];
   const dataStartIndex = hasSeparator ? 2 : 1;
+  const dataRows = tableLines
+    .slice(dataStartIndex)
+    .map(line => parseTableRow(line).map(dropBreakBeforeImage));
+
+  // Todas las filas con el mismo número de columnas: una fila corta se
+  // rellena con celdas vacías (TipTap no acepta tablas irregulares).
+  const cols = Math.max(headerCells.length, ...dataRows.map(r => r.length));
+  const pad = (cells: string[]): string[] =>
+    cells.length >= cols ? cells : [...cells, ...Array(cols - cells.length).fill('')];
 
   let html = '<table><tbody>';
 
   html += '<tr>';
-  for (const cell of headerCells) {
-    html += `<th>${cell}</th>`;
-  }
+  pad(headerCells).forEach((cell, i) => {
+    html += tableCellHtml('th', cell, aligns[i] ?? null);
+  });
   html += '</tr>';
 
-  for (let i = dataStartIndex; i < tableLines.length; i++) {
-    const cells = parseRow(tableLines[i]);
+  for (const row of dataRows) {
     html += '<tr>';
-    for (const cell of cells) {
-      html += `<td>${cell}</td>`;
-    }
+    pad(row).forEach((cell, i) => {
+      html += tableCellHtml('td', cell, aligns[i] ?? null);
+    });
     html += '</tr>';
   }
 
@@ -74,6 +140,236 @@ const escapeHtmlAttr = (s: string): string =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 
+// ---------- Listas ----------
+// Agrupa líneas consecutivas de viñetas / numeradas / tareas y construye
+// <ul>/<ol> anidados según la sangría (2+ espacios o tab = un nivel más).
+// Un ítem puede tener varios párrafos (línea en blanco + párrafo sangrado) y
+// bloques de código sangrados; antes esas líneas partían la lista en dos.
+
+type ListKind = 'ul' | 'ol' | 'task';
+interface ListItem {
+  kind: ListKind;
+  indent: number;
+  start?: number; // número del primer ítem de un <ol>
+  li: string; // <li> SIN cerrar — las sublistas van dentro
+  // Contenido que va DESPUÉS de las sublistas del ítem (párrafo de
+  // continuación que pertenece al ítem padre, no al último hijo).
+  after: string;
+}
+
+const CODEBLOCK_PLACEHOLDER = /^<!--IUR-CODEBLOCK-\d+-->$/;
+// Un marcador sin texto (`-`, `1.`, `- [ ]`) es un ítem vacío: así se guardan
+// los ítems recién creados sin escribir, y así se recuperan.
+const isListLine = (line: string) => /^[ \t]*(?:[-*+]|\d+[.)])(?: |$)/.test(line);
+const indentOf = (ws: string): number => ws.replace(/\t/g, '    ').length;
+
+const openListTag = (item: ListItem) =>
+  item.kind === 'task'
+    ? '<ul data-type="taskList">'
+    : item.kind === 'ol'
+      ? item.start && item.start !== 1
+        ? `<ol start="${item.start}">`
+        : '<ol>'
+      : '<ul>';
+const closeListTag = (kind: ListKind) => (kind === 'ol' ? '</ol>' : '</ul>');
+
+const buildList = (items: ListItem[]): string => {
+  const out: string[] = [];
+  // Pila de listas abiertas; cada nivel recuerda su <li> abierto para
+  // cerrarlo con su cola (`after`) cuando toque.
+  const stack: { kind: ListKind; indent: number; open: ListItem | null }[] = [];
+  const top = () => stack[stack.length - 1];
+  const closeItem = (level: { open: ListItem | null }) => {
+    if (level.open) {
+      if (level.open.after) out.push(level.open.after);
+      out.push('</li>');
+      level.open = null;
+    }
+  };
+  for (const item of items) {
+    if (stack.length === 0) {
+      out.push(openListTag(item));
+      stack.push({ kind: item.kind, indent: item.indent, open: null });
+    } else if (item.indent > top().indent) {
+      // Sublista: se abre dentro del <li> aún sin cerrar.
+      out.push(openListTag(item));
+      stack.push({ kind: item.kind, indent: item.indent, open: null });
+    } else {
+      closeItem(top());
+      while (stack.length > 1 && item.indent < top().indent) {
+        out.push(closeListTag(stack.pop()!.kind));
+        closeItem(top());
+      }
+      if (item.kind !== top().kind) {
+        out.push(closeListTag(stack.pop()!.kind));
+        out.push(openListTag(item));
+        stack.push({ kind: item.kind, indent: item.indent, open: null });
+      }
+    }
+    out.push(item.li);
+    top().open = item;
+  }
+  while (stack.length) {
+    const level = stack.pop()!;
+    closeItem(level);
+    out.push(closeListTag(level.kind));
+  }
+  return out.join('');
+};
+
+const convertLists = (html: string): string => {
+  const lines = html.split('\n');
+  const out: string[] = [];
+  let buffer: ListItem[] = [];
+  // Hubo línea en blanco desde el último ítem: la siguiente línea sangrada es
+  // un párrafo nuevo del ítem, no la continuación (soft wrap) de su texto.
+  let afterBlank = false;
+
+  const flush = () => {
+    if (buffer.length) out.push(buildList(buffer));
+    buffer = [];
+    afterBlank = false;
+  };
+
+  // Ítem al que pertenece una continuación sangrada `indent` espacios: el
+  // último cuyo marcador está menos sangrado que ella (`  b` tras `- a` y su
+  // sublista `  - sub` pertenece a `a`, no a `sub`).
+  const ownerOf = (indent: number): ListItem => {
+    for (let k = buffer.length - 1; k >= 0; k--) {
+      if (buffer[k].indent < indent) return buffer[k];
+    }
+    return buffer[buffer.length - 1];
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const taskMatch = /^([ \t]*)[-*+] \[([ xX])\](?: (.*))?$/.exec(line);
+    const bulletMatch = /^([ \t]*)[-*+](?: (.*))?$/.exec(line);
+    const orderedMatch = /^([ \t]*)(\d+)[.)](?: (.*))?$/.exec(line);
+
+    if (taskMatch) {
+      const checked = taskMatch[2].toLowerCase() === 'x';
+      buffer.push({
+        kind: 'task',
+        indent: indentOf(taskMatch[1]),
+        li: `<li data-type="taskItem" data-checked="${checked}"><p>${taskMatch[3] ?? ''}</p>`,
+        after: '',
+      });
+      afterBlank = false;
+    } else if (bulletMatch) {
+      buffer.push({
+        kind: 'ul',
+        indent: indentOf(bulletMatch[1]),
+        li: `<li>${bulletMatch[2] ?? ''}`,
+        after: '',
+      });
+      afterBlank = false;
+    } else if (orderedMatch) {
+      buffer.push({
+        kind: 'ol',
+        indent: indentOf(orderedMatch[1]),
+        start: Number(orderedMatch[2]),
+        li: `<li>${orderedMatch[3] ?? ''}`,
+        after: '',
+      });
+      afterBlank = false;
+    } else if (buffer.length > 0 && /^[ \t]+\S/.test(line)) {
+      const text = line.trim();
+      const indent = indentOf(/^[ \t]*/.exec(line)![0]);
+      const last = buffer[buffer.length - 1];
+      if (CODEBLOCK_PLACEHOLDER.test(text)) {
+        // Bloque de código del ítem: va tal cual (STEP 8 lo restaura).
+        const owner = ownerOf(indent);
+        if (owner === last) last.li += text;
+        else owner.after += text;
+      } else if (afterBlank) {
+        // Párrafo adicional del ítem (línea en blanco + texto sangrado).
+        const owner = ownerOf(indent);
+        if (owner === last) last.li += `<p>${text}</p>`;
+        else owner.after += `<p>${text}</p>`;
+      } else {
+        // Línea de continuación indentada de un ítem multilínea: se une al
+        // ítem anterior (soft wrap). Sin esto, la línea rompía la lista en
+        // varios <ol> de un ítem y la numeración se reiniciaba (1, 1, 1…).
+        last.li = last.li.endsWith('</p>')
+          ? `${last.li.slice(0, -4)} ${text}</p>`
+          : `${last.li} ${text}`;
+      }
+      afterBlank = false;
+    } else if (
+      buffer.length > 0 &&
+      !line.trim() &&
+      (isListLine(lines[i + 1] ?? '') || /^(?: {2,}|\t)\S/.test(lines[i + 1] ?? ''))
+    ) {
+      // Línea en blanco entre ítems (lista «loose») o antes de un párrafo
+      // sangrado del ítem: no rompe la lista.
+      afterBlank = true;
+    } else {
+      flush();
+      out.push(line);
+    }
+  }
+  flush();
+  return out.join('\n');
+};
+
+// ---------- Párrafos ----------
+// Envuelve las líneas de texto suelto en <p>. Las líneas vacías o que ya son
+// un bloque HTML se dejan tal cual. Las líneas CONTIGUAS se fusionan en un
+// único párrafo con <br> (salto duro): así un salto simple del archivo sigue
+// siendo un salto simple al guardar (la regla softLineBreak de Turndown lo
+// emite como `\n`), en vez de explotar en párrafos sueltos que se serializan
+// con línea en blanco de por medio — el origen de los "retornos de más" al
+// pegar texto de una terminal.
+const blockElementStart = /^<(?:h[1-6]|ul|ol|li|table|tr|td|th|thead|tbody|tfoot|blockquote|pre|hr|p|div|figure)\b/i;
+const blockElementEnd = /<\/(?:h[1-6]|ul|ol|li|table|tr|td|th|thead|tbody|tfoot|blockquote|pre|p|div|figure)>$/i;
+const ATOM_ONLY_LINE = /^(?:<!--IUR-ATOM-\d+-->\s*)+$/;
+
+const wrapParagraphs = (html: string, isBlockAtom: (idx: number) => boolean): string => {
+  const outLines: string[] = [];
+  let para: string[] = [];
+  const flushPara = () => {
+    if (para.length) {
+      outLines.push(`<p>${para.join('<br>')}</p>`);
+      para = [];
+    }
+  };
+  for (const line of html.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushPara();
+      outLines.push('');
+      continue;
+    }
+    if (blockElementStart.test(trimmed) || blockElementEnd.test(trimmed) || trimmed === '<hr>') {
+      flushPara();
+      outLines.push(line);
+      continue;
+    }
+    if (trimmed.startsWith('<!--IUR-CODEBLOCK-')) {
+      // Leave the placeholder bare on its own line — STEP 8 swaps it for
+      // the actual block. Wrapping it in <p> would produce invalid HTML.
+      flushPara();
+      outLines.push(trimmed);
+      continue;
+    }
+    if (ATOM_ONLY_LINE.test(trimmed)) {
+      // Línea que sólo contiene imágenes: la imagen es un nodo de bloque en
+      // el editor, y envuelta en <p> el parser dejaba un párrafo VACÍO
+      // delante de cada imagen (una línea en blanco fantasma al abrir).
+      const idxs = Array.from(trimmed.matchAll(/<!--IUR-ATOM-(\d+)-->/g), m => Number(m[1]));
+      if (idxs.every(isBlockAtom)) {
+        flushPara();
+        outLines.push(trimmed);
+        continue;
+      }
+    }
+    para.push(trimmed);
+  }
+  flushPara();
+  return outLines.join('\n');
+};
+
 // Helper to convert markdown to HTML for initial load.
 export const markdownToHtml = (markdown: string): string => {
   // TipTap parses HTML, not markdown. We need to do a faithful conversion of
@@ -90,9 +386,18 @@ export const markdownToHtml = (markdown: string): string => {
   const codeBlockPlaceholder = (i: number) => `<!--IUR-CODEBLOCK-${i}-->`;
   const withoutCodeBlocks = markdown.replace(
     /^([ \t]*)(```+|~~~+)([^\n`~]*)\n([\s\S]*?)\n\1\2[ \t]*$/gm,
-    (_match, _indent, _fence, langRaw, body) => {
+    (_match, indent: string, _fence, langRaw, rawBody: string) => {
       const lang = (langRaw || '').trim().split(/\s+/)[0] || '';
       const idx = codeBlocks.length;
+      // Fence sangrado (bloque de código dentro de un ítem de lista): la
+      // sangría es del ítem, no del código. Se quita de cada línea y el
+      // placeholder conserva la sangría para que STEP 5 lo adjunte al ítem.
+      const body = indent
+        ? rawBody
+            .split('\n')
+            .map(l => l.replace(new RegExp(`^[ \\t]{0,${indent.length}}`), ''))
+            .join('\n')
+        : rawBody;
       if (lang === 'mermaid') {
         // Nodo atómico para la extensión Mermaid (render en vivo). El código
         // va también como texto interno: Turndown descarta divs vacíos
@@ -104,7 +409,7 @@ export const markdownToHtml = (markdown: string): string => {
         const classAttr = lang ? ` class="language-${lang}"` : '';
         codeBlocks.push(`<pre><code${classAttr}>${escapeHtmlForCode(body)}</code></pre>`);
       }
-      return codeBlockPlaceholder(idx);
+      return `${indent}${codeBlockPlaceholder(idx)}`;
     }
   );
 
@@ -229,7 +534,7 @@ export const markdownToHtml = (markdown: string): string => {
 
     const flushTable = () => {
       if (tableBuffer.length >= 2) {
-        out.push(markdownTableToHtml(tableBuffer));
+        out.push(markdownTableToHtml(tableBuffer, idx => inlineAtoms[idx]?.startsWith('<img') ?? false));
       } else {
         for (const tl of tableBuffer) out.push(tl);
       }
@@ -249,119 +554,8 @@ export const markdownToHtml = (markdown: string): string => {
     html = out.join('\n');
   }
 
-  // STEP 5 — Lists. Group consecutive bullet/ordered/task lines and build
-  // nested <ul>/<ol> according to indentation (2+ espacios o tab = un nivel
-  // más profundo; Turndown emite 4 espacios al guardar).
-  {
-    type ListKind = 'ul' | 'ol' | 'task';
-    interface ListItem {
-      kind: ListKind;
-      indent: number;
-      start?: number; // número del primer ítem de un <ol>
-      li: string; // <li> SIN cerrar — las sublistas van dentro
-    }
-
-    const openTag = (item: ListItem) =>
-      item.kind === 'task'
-        ? '<ul data-type="taskList">'
-        : item.kind === 'ol'
-          ? item.start && item.start !== 1
-            ? `<ol start="${item.start}">`
-            : '<ol>'
-          : '<ul>';
-    const closeTag = (kind: ListKind) => (kind === 'ol' ? '</ol>' : '</ul>');
-
-    const buildList = (items: ListItem[]): string => {
-      const out: string[] = [];
-      const stack: { kind: ListKind; indent: number }[] = [];
-      for (const item of items) {
-        if (stack.length === 0) {
-          out.push(openTag(item));
-          stack.push({ kind: item.kind, indent: item.indent });
-        } else if (item.indent > stack[stack.length - 1].indent) {
-          // Sublista: se abre dentro del <li> aún sin cerrar.
-          out.push(openTag(item));
-          stack.push({ kind: item.kind, indent: item.indent });
-        } else {
-          out.push('</li>');
-          while (stack.length > 1 && item.indent < stack[stack.length - 1].indent) {
-            out.push(closeTag(stack.pop()!.kind), '</li>');
-          }
-          if (item.kind !== stack[stack.length - 1].kind) {
-            out.push(closeTag(stack.pop()!.kind));
-            out.push(openTag(item));
-            stack.push({ kind: item.kind, indent: item.indent });
-          }
-        }
-        out.push(item.li);
-      }
-      out.push('</li>');
-      while (stack.length) {
-        out.push(closeTag(stack.pop()!.kind));
-        if (stack.length) out.push('</li>');
-      }
-      return out.join('');
-    };
-
-    const indentOf = (ws: string): number =>
-      ws.replace(/\t/g, '    ').length;
-
-    const lines = html.split('\n');
-    const out: string[] = [];
-    let buffer: ListItem[] = [];
-
-    const flush = () => {
-      if (buffer.length) out.push(buildList(buffer));
-      buffer = [];
-    };
-
-    const isListLine = (line: string) => /^[ \t]*(?:[-*+]|\d+[.)]) /.test(line);
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const taskMatch = /^([ \t]*)[-*+] \[([ xX])\] (.*)$/.exec(line);
-      const bulletMatch = /^([ \t]*)[-*+] (.*)$/.exec(line);
-      const orderedMatch = /^([ \t]*)(\d+)[.)] (.*)$/.exec(line);
-
-      if (taskMatch) {
-        const checked = taskMatch[2].toLowerCase() === 'x';
-        buffer.push({
-          kind: 'task',
-          indent: indentOf(taskMatch[1]),
-          li: `<li data-type="taskItem" data-checked="${checked}"><p>${taskMatch[3]}</p>`,
-        });
-      } else if (bulletMatch) {
-        buffer.push({
-          kind: 'ul',
-          indent: indentOf(bulletMatch[1]),
-          li: `<li>${bulletMatch[2]}`,
-        });
-      } else if (orderedMatch) {
-        buffer.push({
-          kind: 'ol',
-          indent: indentOf(orderedMatch[1]),
-          start: Number(orderedMatch[2]),
-          li: `<li>${orderedMatch[3]}`,
-        });
-      } else if (buffer.length > 0 && /^[ \t]+\S/.test(line)) {
-        // Línea de continuación indentada de un ítem multilínea: se une al
-        // ítem anterior (soft wrap). Sin esto, la línea rompía la lista en
-        // varios <ol> de un ítem y la numeración se reiniciaba (1, 1, 1…).
-        const last = buffer[buffer.length - 1];
-        const text = line.trim();
-        last.li = last.li.endsWith('</p>')
-          ? `${last.li.slice(0, -4)} ${text}</p>`
-          : `${last.li} ${text}`;
-      } else if (buffer.length > 0 && !line.trim() && isListLine(lines[i + 1] ?? '')) {
-        // Línea en blanco entre ítems (lista «loose»): no rompe la lista.
-      } else {
-        flush();
-        out.push(line);
-      }
-    }
-    flush();
-    html = out.join('\n');
-  }
+  // STEP 5 — Lists (ver convertLists).
+  html = convertLists(html);
 
   // STEP 6 — Blockquotes. Group consecutive `>` lines into a single
   // <blockquote> with line breaks preserved.
@@ -372,6 +566,18 @@ export const markdownToHtml = (markdown: string): string => {
 
     // Callout / admonición: primera línea `[!TIPO]` (GitHub/Obsidian).
     const CALLOUT_TYPES = new Set(['note', 'tip', 'important', 'warning', 'caution']);
+    // Cuerpo de la cita: si trae listas, se convierten en nodos reales (y el
+    // resto en párrafos); si no, un único párrafo con saltos duros. Todo en
+    // una sola línea para que el envoltorio quede entero ante STEP 7.
+    const quoteBody = (lines: string[]): string => {
+      if (lines.some(isListLine)) {
+        return wrapParagraphs(convertLists(lines.join('\n')), () => false)
+          .split('\n')
+          .filter(Boolean)
+          .join('');
+      }
+      return `<p>${lines.join('<br>')}</p>`;
+    };
     const flushQuote = () => {
       if (quoteBuffer.length === 0) return;
       const marker = /^\[!(\w+)\]\s*(.*)$/.exec(quoteBuffer[0]);
@@ -380,9 +586,9 @@ export const markdownToHtml = (markdown: string): string => {
         const body: string[] = [];
         if (marker?.[2]) body.push(marker[2]);
         for (let i = 1; i < quoteBuffer.length; i++) body.push(quoteBuffer[i]);
-        out.push(`<div data-callout="${type}"><p>${body.join('<br>')}</p></div>`);
+        out.push(`<div data-callout="${type}">${quoteBody(body)}</div>`);
       } else {
-        out.push(`<blockquote><p>${quoteBuffer.join('<br>')}</p></blockquote>`);
+        out.push(`<blockquote>${quoteBody(quoteBuffer)}</blockquote>`);
       }
       quoteBuffer = [];
     };
@@ -400,48 +606,9 @@ export const markdownToHtml = (markdown: string): string => {
     html = out.join('\n');
   }
 
-  // STEP 7 — Wrap remaining plain-text lines into <p> tags. Lines that
-  // are empty or already an HTML block element are left alone. Las líneas
-  // CONTIGUAS se fusionan en un único párrafo con <br> (salto duro): así un
-  // salto simple del archivo sigue siendo un salto simple al guardar (la
-  // regla softLineBreak de Turndown lo emite como `\n`), en vez de explotar
-  // en párrafos sueltos que se serializan con línea en blanco de por medio
-  // — el origen de los "retornos de más" al pegar texto de una terminal.
-  const blockElementStart = /^<(?:h[1-6]|ul|ol|li|table|tr|td|th|thead|tbody|tfoot|blockquote|pre|hr|p|div|figure)\b/i;
-  const blockElementEnd = /<\/(?:h[1-6]|ul|ol|li|table|tr|td|th|thead|tbody|tfoot|blockquote|pre|p|div|figure)>$/i;
-  {
-    const outLines: string[] = [];
-    let para: string[] = [];
-    const flushPara = () => {
-      if (para.length) {
-        outLines.push(`<p>${para.join('<br>')}</p>`);
-        para = [];
-      }
-    };
-    for (const line of html.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed) {
-        flushPara();
-        outLines.push('');
-        continue;
-      }
-      if (blockElementStart.test(trimmed) || blockElementEnd.test(trimmed) || trimmed === '<hr>') {
-        flushPara();
-        outLines.push(line);
-        continue;
-      }
-      if (trimmed.startsWith('<!--IUR-CODEBLOCK-')) {
-        // Leave the placeholder bare on its own line — STEP 8 swaps it for
-        // the actual block. Wrapping it in <p> would produce invalid HTML.
-        flushPara();
-        outLines.push(trimmed);
-        continue;
-      }
-      para.push(trimmed);
-    }
-    flushPara();
-    html = outLines.join('\n');
-  }
+  // STEP 7 — Wrap remaining plain-text lines into <p> tags (ver
+  // wrapParagraphs). Las imágenes son los únicos átomos de bloque.
+  html = wrapParagraphs(html, idx => inlineAtoms[idx]?.startsWith('<img') ?? false);
 
   // STEP 8 — Restore placeholders (átomos e inline code, luego bloques).
   html = html.replace(/<!--IUR-ATOM-(\d+)-->/g, (_m, i) => inlineAtoms[Number(i)] || '');
@@ -453,6 +620,20 @@ export const markdownToHtml = (markdown: string): string => {
 
 // Build the HTML→Markdown converter with all the round-trip fixes (identity
 // escape, task lists, tables, fenced code with language, mermaid nodes).
+// Marcador de un <li>: `- ` o `N. ` (respetando `start` del <ol>).
+const listItemPrefix = (li: HTMLElement): string => {
+  const parent = li.parentNode as HTMLElement | null;
+  if (parent && parent.nodeName === 'OL') {
+    const start = Number(parent.getAttribute('start') || 1);
+    const index = Array.prototype.indexOf.call(parent.children, li);
+    return `${start + index}. `;
+  }
+  if (li.getAttribute('data-type') === 'taskItem') {
+    return `- [${li.getAttribute('data-checked') === 'true' ? 'x' : ' '}] `;
+  }
+  return '- ';
+};
+
 export const buildTurndownService = (): TurndownService => {
   const service = new TurndownService({
     headingStyle: 'atx',
@@ -461,6 +642,15 @@ export const buildTurndownService = (): TurndownService => {
     codeBlockStyle: 'fenced',
     emDelimiter: '*',
     strongDelimiter: '**',
+    // Un <li> vacío (ítem recién creado sin texto) es «blank» para Turndown
+    // y desaparecía — y con él el salto, partiendo la lista en dos. Se
+    // conserva como ítem vacío.
+    blankReplacement: (_content, node) => {
+      if (node.nodeName === 'LI') {
+        return listItemPrefix(node as HTMLElement).trimEnd() + (node.nextSibling ? '\n' : '');
+      }
+      return (node as HTMLElement & { isBlock?: boolean }).isBlock ? '\n\n' : '';
+    },
   });
 
   // Disable Turndown's aggressive markdown escaping. Default behaviour
@@ -516,6 +706,9 @@ export const buildTurndownService = (): TurndownService => {
       const src = el.getAttribute('data-orig-src') || el.getAttribute('src') || '';
       const alt = el.getAttribute('alt') || '';
       const title = el.getAttribute('title');
+      // Una URL `blob:` sólo vive mientras la ventana está abierta: guardarla
+      // deja un `![](blob:…)` que nunca vuelve a mostrarse. Mejor nada.
+      if (/^blob:/i.test(src)) return '';
       return src ? `![${alt}](${src}${title ? ` "${title}"` : ''})` : '';
     },
   });
@@ -558,7 +751,37 @@ export const buildTurndownService = (): TurndownService => {
     },
   });
 
-  // Add custom rules for task lists
+  // ---- Listas ----
+  // Turndown emite `-   texto` (tres espacios) y, con ítems de un párrafo,
+  // una línea de SOLO espacios entre ítem e ítem; el resultado era un
+  // markdown feo y una lista «loose». Aquí: `- texto`, sublistas pegadas al
+  // ítem, párrafos adicionales y bloques de código sangrados al ancho del
+  // marcador, sin líneas de espacios.
+  const indentListContent = (content: string, prefixLen: number): string => {
+    const indent = ' '.repeat(prefixLen);
+    return content
+      .replace(/^\n+/, '')
+      .replace(/\s+$/, '')
+      // Línea en blanco entre el texto del ítem y su sublista: la lista
+      // queda «tight» (el parser también lo acepta, pero así el markdown
+      // es el que escribiría una persona).
+      .replace(/\n{2,}(?=[ \t]*(?:[-*+]|\d+[.)]) )/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .split('\n')
+      .map((l, i) => (i === 0 ? l : l.trim() ? indent + l : ''))
+      .join('\n');
+  };
+
+  service.addRule('listItem', {
+    filter: (node) => node.nodeName === 'LI' && node.getAttribute('data-type') !== 'taskItem',
+    replacement: (content, node) => {
+      const prefix = listItemPrefix(node as HTMLElement);
+      return prefix + indentListContent(content, prefix.length) + (node.nextSibling ? '\n' : '');
+    },
+  });
+
+  // Tareas: `- [x] texto`; las subtareas y párrafos del ítem se sangran
+  // como en cualquier lista (antes `content.trim()` aplanaba el anidamiento).
   service.addRule('taskListItem', {
     filter: (node) => {
       return node.nodeName === 'LI' && node.getAttribute('data-type') === 'taskItem';
@@ -566,36 +789,137 @@ export const buildTurndownService = (): TurndownService => {
     replacement: (content, node) => {
       const element = node as HTMLElement;
       const checked = element.getAttribute('data-checked') === 'true';
-      return `- [${checked ? 'x' : ' '}] ${content.trim()}\n`;
+      const prefix = `- [${checked ? 'x' : ' '}] `;
+      return prefix + indentListContent(content, 2) + (node.nextSibling ? '\n' : '');
     },
   });
 
-  // Handle tables — convert each cell recursively so bold/links survive
+  // ---- Tablas ----
+  // Una celda markdown sólo admite contenido inline. Para no perder lo que
+  // el editor permite dentro de una celda:
+  //  - varios párrafos y saltos duros → `<br>` (GFM lo renderiza como salto);
+  //  - listas (también de tareas) → `<ul>/<ol>` HTML embebido, que TipTap
+  //    vuelve a parsear como lista al abrir y GitHub muestra como lista.
+  // Antes todo se aplanaba a una sola línea con espacios: una lista de
+  // viñetas en una celda volvía como «- uno - dos».
+  const inlineOf = (html: string): string =>
+    service.turndown(html).replace(/\n+/g, '<br>').trim();
+
+  const listToHtml = (list: HTMLElement): string => {
+    const tag = list.nodeName.toLowerCase();
+    const isTask = list.getAttribute('data-type') === 'taskList';
+    const start = list.getAttribute('start');
+    const attrs = isTask
+      ? ' data-type="taskList"'
+      : tag === 'ol' && start && start !== '1'
+        ? ` start="${start}"`
+        : '';
+    const items = Array.from(list.children)
+      .filter((li) => li.nodeName === 'LI')
+      .map((li) => {
+        const liAttrs = isTask
+          ? ` data-type="taskItem" data-checked="${li.getAttribute('data-checked') === 'true'}"`
+          : '';
+        // El contenido de un taskItem renderizado vive en un <div> tras el
+        // <label> del checkbox.
+        const container =
+          isTask ? (Array.from(li.children).find((c) => c.nodeName === 'DIV') ?? li) : li;
+        return `<li${liAttrs}>${cellToMarkdown(container as HTMLElement)}</li>`;
+      });
+    return `<${tag}${attrs}>${items.join('')}</${tag}>`;
+  };
+
+  const cellToMarkdown = (cell: HTMLElement): string => {
+    const parts: { block: boolean; text: string }[] = [];
+    for (const child of Array.from(cell.childNodes)) {
+      if (child.nodeType === 3) {
+        const text = (child.textContent || '').trim();
+        if (text) parts.push({ block: false, text: inlineOf(escapeHtmlForCode(child.textContent || '')) });
+        continue;
+      }
+      if (child.nodeType !== 1) continue;
+      const el = child as HTMLElement;
+      const name = el.nodeName;
+      if (name === 'LABEL') continue; // checkbox de un taskItem
+      if (name === 'UL' || name === 'OL') {
+        parts.push({ block: true, text: listToHtml(el) });
+      } else if (name === 'PRE') {
+        const code = (el.textContent || '').trim().replace(/\n+/g, ' ');
+        if (code) parts.push({ block: false, text: `\`${code}\`` });
+      } else if (/^H[1-6]$/.test(name)) {
+        const inner = inlineOf(el.innerHTML);
+        if (inner) parts.push({ block: false, text: `**${inner}**` });
+      } else {
+        const inner = inlineOf(el.outerHTML);
+        if (inner) parts.push({ block: false, text: inner });
+      }
+    }
+    let out = '';
+    parts.forEach((part, i) => {
+      // Entre dos fragmentos inline (párrafos) va un salto; junto a una lista
+      // no hace falta (y un <br> extra crecería en cada guardado).
+      if (i > 0 && !part.block && !parts[i - 1].block && !/<br>$/.test(out)) out += '<br>';
+      out += part.text;
+    });
+    return out.replace(/\|/g, '\\|');
+  };
+
+  // Alineación de una columna (`:---:`): la del párrafo de la celda de
+  // encabezado o, si no tiene, la primera celda alineada de la columna.
+  const cellAlign = (cell: HTMLElement | undefined): string | null => {
+    if (!cell) return null;
+    const styled = cell.querySelector<HTMLElement>('[style*="text-align"]');
+    const align = (styled ?? cell).style?.textAlign || '';
+    return align === 'center' || align === 'right' || align === 'left' ? align : null;
+  };
+  const separatorCell = (align: string | null): string =>
+    align === 'center' ? ':---:' : align === 'right' ? '---:' : '---';
+
   service.addRule('table', {
     filter: 'table',
     replacement: (_content, node) => {
       const element = node as HTMLTableElement;
-      const rows = element.querySelectorAll('tr');
-      let markdown = '\n';
+      const rows = Array.from(element.querySelectorAll('tr'));
+      if (!rows.length) return '';
 
-      rows.forEach((row, rowIndex) => {
-        const cells = row.querySelectorAll('th, td');
-        const cellContents: string[] = [];
+      // Celdas por fila, expandiendo colspan en celdas vacías: markdown no
+      // tiene combinación de celdas, pero así ninguna columna se desplaza.
+      const grid: string[][] = [];
+      const cellsByRow: HTMLElement[][] = [];
+      for (const row of rows) {
+        const cells = Array.from(row.children).filter(
+          (c) => c.nodeName === 'TD' || c.nodeName === 'TH'
+        ) as HTMLElement[];
+        const line: string[] = [];
+        const expanded: HTMLElement[] = [];
+        for (const cell of cells) {
+          line.push(cellToMarkdown(cell));
+          expanded.push(cell);
+          const span = Number(cell.getAttribute('colspan') || 1);
+          for (let k = 1; k < span; k++) {
+            line.push('');
+            expanded.push(cell);
+          }
+        }
+        grid.push(line);
+        cellsByRow.push(expanded);
+      }
+      const cols = Math.max(...grid.map((r) => r.length));
+      const pad = (r: string[]) => (r.length < cols ? [...r, ...Array(cols - r.length).fill('')] : r);
 
-        cells.forEach((cell) => {
-          // Use turndown on inner HTML to preserve bold, links, etc.
-          const inner = service.turndown((cell as HTMLElement).innerHTML)
-            .replace(/\n/g, ' ')  // collapse newlines within cells
-            .replace(/\|/g, '\\|')  // escape pipes in content
-            .trim();
-          cellContents.push(inner || '');
-        });
+      const aligns: (string | null)[] = [];
+      for (let c = 0; c < cols; c++) {
+        let align = cellAlign(cellsByRow[0]?.[c]);
+        for (let r = 1; r < cellsByRow.length && !align; r++) align = cellAlign(cellsByRow[r]?.[c]);
+        aligns.push(align);
+      }
 
-        markdown += '| ' + cellContents.join(' | ') + ' |\n';
-
+      let markdown = '\n\n';
+      grid.forEach((row, rowIndex) => {
+        markdown += '| ' + pad(row).join(' | ') + ' |\n';
         // Add separator after header row
         if (rowIndex === 0) {
-          markdown += '| ' + cellContents.map(() => '---').join(' | ') + ' |\n';
+          markdown += '| ' + aligns.map(separatorCell).join(' | ') + ' |\n';
         }
       });
 

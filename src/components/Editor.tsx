@@ -34,7 +34,11 @@ import {
   Code,
   Highlighter,
 } from 'lucide-react';
+import { NodeSelection } from '@tiptap/pm/state';
+import type { Transaction } from '@tiptap/pm/state';
+import { ReplaceStep, ReplaceAroundStep } from '@tiptap/pm/transform';
 import { MenuBar } from './MenuBar';
+import { TableToolbar } from './TableToolbar';
 import { SearchBar } from './SearchBar';
 import { ToolbarButton } from './ToolbarButton';
 import { Mermaid } from '../extensions/mermaid';
@@ -60,6 +64,15 @@ import {
   isTerminalHtml,
   dedentListBlocks,
 } from '../lib/asciiPaste';
+import {
+  imagePathFromText,
+  imagePathFromUriList,
+  fileFromLocalPath,
+  fileFromTransientSrc,
+  isTransientImageSrc,
+  readLocalBytes,
+} from '../lib/pasteImages';
+import { insertImageAndContinue } from '../lib/insertImage';
 import { collectHeadings, lineAtPos } from '../lib/outline';
 import type { HeadingInfo } from '../lib/outline';
 import { t, useLang } from '../lib/i18n';
@@ -115,6 +128,11 @@ interface EditorProps {
    * un File o null si el portapapeles no contiene una imagen.
    */
   onReadClipboardImage?: () => Promise<File | null>;
+  /**
+   * Lee el texto del portapapeles del sistema (respaldo para Linux cuando el
+   * evento `paste` anuncia `text/uri-list` pero no entrega su contenido).
+   */
+  onReadClipboardText?: () => Promise<string | null>;
   /** Números de línea en el margen (misma línea que la barra de estado). */
   lineNumbers?: boolean;
 }
@@ -129,6 +147,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
       onInsertImageFile,
       onBrowseImage,
       onReadClipboardImage,
+      onReadClipboardText,
       lineNumbers = false,
     },
     ref
@@ -151,6 +170,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
     insertFileRef.current = onInsertImageFile;
     const readClipboardImageRef = useRef(onReadClipboardImage);
     readClipboardImageRef.current = onReadClipboardImage;
+    const readClipboardTextRef = useRef(onReadClipboardText);
+    readClipboardTextRef.current = onReadClipboardText;
     const editorRef = useRef<TipTapEditor | null>(null);
     // Front matter YAML del documento actual: no se renderiza en el editor,
     // pero debe sobrevivir el round-trip (se antepone al markdown emitido).
@@ -171,10 +192,66 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
       try {
         const src = await insertFileRef.current(file);
         if (src) {
-          instance.chain().focus().setImage({ src, alt: file.name }).run();
+          insertImageAndContinue(instance, { src, alt: file.name });
         }
       } catch (err) {
         console.error('No se pudo insertar la imagen:', err);
+      }
+    }, []);
+
+    // Lectura del portapapeles del sistema en curso (respaldo de Linux): el
+    // evento `paste` llega duplicado en WebKitGTK y sin esto se insertaba la
+    // imagen dos veces.
+    const clipboardReadRef = useRef<Promise<void> | null>(null);
+
+    // Imágenes con src transitorio (data:/blob:/file:) que entraron en una
+    // transacción — pegado nativo, HTML con imágenes incrustadas, HTML de
+    // LibreOffice… — se guardan en assets/ y el nodo pasa a la ruta relativa.
+    // Las peticiones se encadenan: fijar una imagen puede pedir guardar el
+    // documento primero, y no queremos tres diálogos a la vez.
+    const localizingRef = useRef<Set<string>>(new Set());
+    const localizeQueueRef = useRef<Promise<void>>(Promise.resolve());
+    const localizeTransientImages = useCallback((inst: TipTapEditor, transaction: Transaction) => {
+      if (!insertFileRef.current || !transaction.docChanged) return;
+      const found = new Set<string>();
+      for (const step of transaction.steps) {
+        if (!(step instanceof ReplaceStep || step instanceof ReplaceAroundStep)) continue;
+        step.slice.content.descendants((node) => {
+          if (node.type.name === 'image' && isTransientImageSrc(node.attrs.src)) {
+            found.add(node.attrs.src as string);
+          }
+          return true;
+        });
+      }
+      for (const src of found) {
+        if (localizingRef.current.has(src)) continue;
+        localizingRef.current.add(src);
+        localizeQueueRef.current = localizeQueueRef.current.then(async () => {
+          try {
+            const file = await fileFromTransientSrc(src, readLocalBytes);
+            const rel = file ? await insertFileRef.current?.(file) : null;
+            if (inst.isDestroyed) return;
+            const hits: { pos: number; size: number; attrs: Record<string, unknown> }[] = [];
+            inst.state.doc.descendants((node, pos) => {
+              if (node.type.name === 'image' && node.attrs.src === src) {
+                hits.push({ pos, size: node.nodeSize, attrs: node.attrs });
+              }
+              return true;
+            });
+            if (!hits.length) return;
+            const tr = inst.state.tr;
+            // De atrás hacia delante: borrar no desplaza las posiciones previas.
+            for (const hit of hits.reverse()) {
+              if (rel) tr.setNodeMarkup(hit.pos, undefined, { ...hit.attrs, src: rel });
+              else if (/^blob:/i.test(src)) tr.delete(hit.pos, hit.pos + hit.size); // inservible al reabrir
+            }
+            if (tr.docChanged) inst.view.dispatch(tr);
+          } catch (err) {
+            console.error('No se pudo fijar la imagen pegada en assets/:', err);
+          } finally {
+            localizingRef.current.delete(src);
+          }
+        });
       }
     }, []);
 
@@ -210,6 +287,9 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
         Superscript,
         LocalImage.configure({
           HTMLAttributes: { class: 'max-w-full h-auto rounded-lg' },
+          // Las imágenes `data:` de un HTML pegado se aceptan (antes se
+          // descartaban en silencio) y se fijan en assets/ al momento.
+          allowBase64: true,
         }),
         Typography,
         CodeBlockLowlight.configure({ lowlight }),
@@ -230,20 +310,64 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
             'tiptap-editor prose dark:prose-invert prose-sm sm:prose-base max-w-none focus:outline-none min-h-[300px] px-4 py-3',
           spellcheck: String(getSpellcheck()),
         },
-        handlePaste: (_view, event) => {
+        handlePaste: (view, event) => {
+          // Vista huérfana (React StrictMode monta el editor dos veces en
+          // desarrollo): sólo atiende la vista conectada al DOM.
+          if (!view.dom.isConnected) return false;
+          const inst = editorRef.current;
+          if (!inst) return false;
+          const data = event.clipboardData;
           // 1) Screenshot / archivo de imagen en el portapapeles
-          const items = event.clipboardData?.items;
+          const items = data?.items;
           if (items && insertFileRef.current) {
             for (const item of Array.from(items)) {
               if (item.kind === 'file' && item.type.startsWith('image/')) {
                 const file = item.getAsFile();
-                if (file && editorRef.current) {
+                if (file) {
                   event.preventDefault();
-                  void insertImageFile(file, editorRef.current);
+                  void insertImageFile(file, inst);
                   return true;
                 }
               }
             }
+          }
+          const rawHtml = data?.getData('text/html') ?? '';
+          const rawText = data?.getData('text/plain') ?? '';
+          const uriList = data?.getData('text/uri-list') ?? '';
+          // 1b) Archivo de imagen copiado en el gestor de archivos: llega como
+          //     URI `file:` (o ruta) en texto. Antes se pegaba la ruta como
+          //     texto (o nada); ahora se copia a assets/ y se inserta la imagen.
+          const pasteLocalImage = (path: string) =>
+            void (async () => {
+              const file = await fileFromLocalPath(path, readLocalBytes);
+              if (file) await insertImageFile(file, inst);
+            })();
+          const localImage = imagePathFromUriList(uriList) ?? imagePathFromText(rawText);
+          if (localImage && insertFileRef.current && !rawHtml.includes('data-pm-slice')) {
+            event.preventDefault();
+            pasteLocalImage(localImage);
+            return true;
+          }
+          // WebKitGTK anuncia `text/uri-list` (archivo copiado en el gestor
+          // de archivos) pero no entrega su contenido —ni por getData ni por
+          // getAsString— y oculta el text/plain. El pegado nativo tampoco
+          // inserta nada, así que se cancela y se lee el texto del
+          // portapapeles del sistema vía Rust.
+          const hasUriItem =
+            !!items && Array.from(items).some((i) => i.kind === 'string' && i.type === 'text/uri-list');
+          if (hasUriItem && !uriList && !rawText && !rawHtml && readClipboardTextRef.current) {
+            event.preventDefault();
+            void (async () => {
+              const value = (await readClipboardTextRef.current?.()) ?? '';
+              const path = imagePathFromUriList(value) ?? imagePathFromText(value);
+              if (path && insertFileRef.current) pasteLocalImage(path);
+              else if (value.trim()) {
+                // Otro tipo de archivo: al menos su ruta como texto.
+                const first = value.split(/\r?\n/).find((l) => l.trim() && !l.startsWith('#')) ?? '';
+                inst.chain().focus().insertContent({ type: 'text', text: first.trim() }).run();
+              }
+            })();
+            return true;
           }
           // 2) Texto plano. Primero se normalizan los fines de línea (las
           //    terminales entregan CRLF/CR que rompen los regex multilinea
@@ -252,14 +376,11 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
           //    markdownToHtml como nodos reales.
           //    El HTML de una terminal (un <div> por línea) se ignora y se
           //    pega su texto plano.
-          const rawHtml = event.clipboardData?.getData('text/html');
-          const rawText = event.clipboardData?.getData('text/plain');
           const text = rawText ? dedentListBlocks(normalizePastedText(rawText)) : rawText;
           const html = rawHtml && !(rawText && isTerminalHtml(rawHtml)) ? rawHtml : '';
           if (!html && text) {
-            const inst = editorRef.current;
             const { text: md, changed } = asciiToMarkdown(text);
-            if (inst && (changed || looksLikeMarkdown(md))) {
+            if (changed || looksLikeMarkdown(md)) {
               event.preventDefault();
               // insertContent conserva por defecto el espacio en blanco, y los
               // `\n` entre bloques del HTML generado se volvían párrafos
@@ -277,25 +398,34 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
             // defecto de ProseMirror haría un párrafo por línea, añadiendo
             // retornos al serializar). Con una sola línea y sin CRs que
             // limpiar, el paste por defecto ya hace lo correcto.
-            if (inst && (rawText !== text || text.includes('\n'))) {
+            if (rawText !== text || text.includes('\n')) {
               event.preventDefault();
               inst.chain().focus().insertContent(plainTextToHtml(text)).run();
               return true;
             }
           }
           // 3) Respaldo: en Linux/WebKitGTK las capturas del portapapeles no
-          //    llegan por clipboardData. Si no había ni imagen ni texto en el
-          //    evento del DOM, consultamos el portapapeles del sistema vía
-          //    Rust. Es asíncrono, así que no podemos preventDefault aquí:
-          //    dejamos que el paste por defecto siga (no inserta nada útil sin
-          //    texto) e insertamos la imagen cuando llegue.
-          if (!html && !text && readClipboardImageRef.current) {
-            void (async () => {
-              const file = await readClipboardImageRef.current?.();
-              if (file && editorRef.current) {
-                await insertImageFile(file, editorRef.current);
-              }
-            })();
+          //    llegan por clipboardData (el evento viene VACÍO). Se consulta el
+          //    portapapeles del sistema vía Rust y se inserta la imagen cuando
+          //    llega. El pegado nativo se cancela: sin esto WebKitGTK insertaba
+          //    por su cuenta un <img> con URL `blob:` (que se guardaba tal cual
+          //    en el markdown y al reabrir no se veía) y movía la selección,
+          //    con lo que la copia buena acababa en otro sitio del documento.
+          //    Además el evento llega duplicado: mientras hay una lectura en
+          //    curso, el segundo se ignora.
+          if (!html && !text && !uriList && readClipboardImageRef.current) {
+            event.preventDefault();
+            if (!clipboardReadRef.current) {
+              clipboardReadRef.current = (async () => {
+                try {
+                  const file = await readClipboardImageRef.current?.();
+                  if (file && editorRef.current) await insertImageFile(file, editorRef.current);
+                } finally {
+                  clipboardReadRef.current = null;
+                }
+              })();
+            }
+            return true;
           }
           return false;
         },
@@ -303,7 +433,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
         // la webview lo intercepta (dragDropEnabled). Se maneja en App.tsx
         // vía getCurrentWebview().onDragDropEvent().
       },
-      onUpdate: ({ editor: e }) => {
+      onUpdate: ({ editor: e, transaction }) => {
+        localizeTransientImages(e, transaction);
         if (debounceRef.current) clearTimeout(debounceRef.current);
         // emit() serializa el documento COMPLETO (getHTML + turndown): en
         // documentos grandes cuesta cientos de ms, así que el debounce crece
@@ -369,7 +500,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
           onHeadingsRef.current?.(collectHeadings(editor.state.doc));
         },
         insertImage: (src: string, alt = '') => {
-          editor?.chain().focus().setImage({ src, alt }).run();
+          if (editor) insertImageAndContinue(editor, { src, alt });
         },
         getFrontMatter: () => frontMatterRef.current,
         openSearch: () => setShowSearch(true),
@@ -414,10 +545,19 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
     return (
       <div className="flex flex-col h-full bg-white dark:bg-gray-900 overflow-hidden">
         <MenuBar editor={editor} onBrowseImage={onBrowseImage} />
+        <TableToolbar editor={editor} />
         {showSearch && <SearchBar editor={editor} onClose={() => setShowSearch(false)} />}
 
         <BubbleMenu
           editor={editor}
+          // Sólo con texto seleccionado: sobre una imagen o un diagrama
+          // seleccionados (NodeSelection) los botones de formato no aplican.
+          shouldShow={({ editor: e, state, from, to }) =>
+            e.isEditable &&
+            from !== to &&
+            !(state.selection instanceof NodeSelection) &&
+            !e.isActive('codeBlock')
+          }
           className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg flex items-center gap-0.5 p-1"
         >
           <ToolbarButton
