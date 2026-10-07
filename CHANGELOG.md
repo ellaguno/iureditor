@@ -5,6 +5,38 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.11.0 — 2026-10-07
+
+### Añadido
+- **Enlaces entre notas (wikilinks).** `[[Nota]]`, `[[Nota#Sección]]`,
+  `[[Nota|alias]]` e incrustaciones `![[…]]`, con la misma sintaxis que
+  Obsidian. Al escribir `[[` aparece el autocompletado de notas (y de
+  secciones tras `#`); escribir `]]` convierte el texto en enlace. Un clic abre
+  la nota y, si no existe, la crea. Los enlaces a notas inexistentes se ven
+  punteados. Retroceso justo detrás de un enlace lo devuelve a texto editable.
+  El `.md` se guarda tal cual, también dentro de tablas.
+- **Bóveda.** La carpeta abierta con «Abrir carpeta…» (o marcada con «Usar
+  como bóveda» en el menú contextual del panel de archivos), la carpeta con
+  `.obsidian/` más cercana —las bóvedas de Obsidian funcionan tal cual— o, si
+  no hay ninguna, la del documento. Se indexa en segundo plano y se pone al día
+  al volver a la ventana y con cada guardado.
+- **Panel «Enlaces»** (`Ctrl+Shift+K`): enlaces entrantes, salientes y
+  menciones sin enlazar de la nota activa; un clic abre la nota en el enlace.
+- **Renombrar archivos** desde el panel de archivos (clic derecho). Si otras
+  notas enlazan al archivo, ofrece actualizar sus wikilinks y enlaces markdown
+  `[texto](nota.md)`, en disco y en las pestañas abiertas (sin perder el
+  deshacer ni los cambios sin guardar).
+- **Ir a nota** (`Ctrl+K`): selector rápido con búsqueda difusa (tolera letras
+  saltadas y acentos) entre las notas de la bóveda y los recientes; si no
+  existe, la crea.
+- **Paleta de comandos** (`Ctrl+Shift+P`, o `>` en el selector): todas las
+  acciones de los menús.
+- **Guardar PDF directo.** La vista previa de impresión tiene un botón
+  «Guardar PDF» que abre un diálogo de guardado normal (con
+  `<carpeta del .md>/<nombre>.pdf` prellenado) y escribe el archivo sin pasar
+  por el diálogo de impresión del sistema. «Imprimir…» queda como acción
+  secundaria.
+
 ## v1.10.0 — 2026-10-06
 
 ### Añadido
