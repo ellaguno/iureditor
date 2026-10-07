@@ -34,7 +34,7 @@ describe('i18n', () => {
   });
 
   it('plural simple', () => {
-    expect(tn(1, 'print.pagesOne', 'print.pagesOther')).toMatch(/^1 page /);
-    expect(tn(3, 'print.pagesOne', 'print.pagesOther')).toMatch(/^3 pages /);
+    expect(tn(1, 'print.pagesOne', 'print.pagesOther')).toBe('1 page');
+    expect(tn(3, 'print.pagesOne', 'print.pagesOther')).toBe('3 pages');
   });
 });

@@ -1149,10 +1149,10 @@ export default function App() {
     const handle = activeHandle();
     const editor = handle?.editor;
     if (!editor) return;
-    exportToPdf(editor, activePath(), handle?.getFrontMatter() ?? '').catch((err) =>
+    exportToPdf(editor, activePath(), handle?.getFrontMatter() ?? '', defaultDir()).catch((err) =>
       reportExportError('PDF', err)
     );
-  }, [reportExportError, syncSourceToEditor, activeHandle, activePath, guardPlainExport]);
+  }, [reportExportError, syncSourceToEditor, activeHandle, activePath, guardPlainExport, defaultDir]);
 
   const handleExportDocx = useCallback(() => {
     if (!guardPlainExport()) return;

@@ -48,6 +48,21 @@ tokio = { version = "1", features = ["sync"] }
 # usa wry, ver Cargo.lock).
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "2.0"
+# «Guardar PDF» directo (src/pdf.rs): ajustes de impresión de GTK.
+gtk = "0.18"
+glib = "0.18"
+
+[target.'cfg(windows)'.dependencies]
+# «Guardar PDF» directo con ICoreWebView2_7::PrintToPdf (mismas versiones que wry).
+webview2-com = "0.38"
+windows = "0.61"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# «Guardar PDF» directo con NSPrintOperation (mismas versiones que wry).
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSURL", "NSGeometry", "NSDictionary"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPrintInfo", "NSPrintOperation", "NSView", "NSResponder", "NSWindow", "objc2-core-foundation"] }
+objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "WKWebView", "objc2-app-kit"] }
 
 # resvg en debug es 10-50x más lento y una rasterización de diagrama grande
 # tardaba tanto que el sistema sugería cerrar la app. Optimizar sólo el

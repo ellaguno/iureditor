@@ -1,5 +1,6 @@
 mod iurefficient;
 mod settings;
+mod pdf;
 
 use iurefficient_connect::{lang, tr};
 use tauri::{Emitter, Manager};
@@ -313,6 +314,7 @@ pub fn run() {
             apps_status,
             launch_app,
             print_webview,
+            pdf::save_pdf,
             render_svg_png,
             read_clipboard_image,
             read_clipboard_text,

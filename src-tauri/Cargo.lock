@@ -2113,7 +2113,13 @@ dependencies = [
  "anyhow",
  "arboard",
  "base64 0.22.1",
+ "glib",
+ "gtk",
  "iurefficient-connect",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "objc2-web-kit",
  "png 0.17.16",
  "resvg",
  "serde",
@@ -2132,6 +2138,8 @@ dependencies = [
  "tokio",
  "url",
  "webkit2gtk",
+ "webview2-com",
+ "windows",
 ]
 
 [[package]]

@@ -3,6 +3,7 @@ import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { listen, emitTo, once } from '@tauri-apps/api/event';
 import { buildExportHtml } from './exportHtml';
 import { parseFrontMatterFields } from './markdown';
+import { dirname, inDir } from './fileio';
 
 const PREVIEW_LABEL = 'print-preview';
 export const EVT_PREVIEW_READY = 'print-preview:ready';
@@ -13,22 +14,30 @@ export interface PreviewPayload {
   title: string;
   /** Campos del front matter (título, expediente…) para el encabezado. */
   fields: Record<string, string>;
+  /** Ruta sugerida para «Guardar PDF»: junto al .md, con su mismo nombre. */
+  defaultPath: string;
 }
 
 /**
- * Export a PDF vía ventana de vista previa + diálogo nativo de impresión
- * ("Guardar como PDF"). No hay print-to-PDF silencioso multiplataforma en
- * Tauri/wry hoy (wry#707); este es el camino con fidelidad completa: texto
- * seleccionable y mermaid vectorial. La ventana debe ser VISIBLE — las
- * webviews ocultas no pueden imprimir.
+ * Export a PDF vía ventana de vista previa. «Guardar PDF» escribe el archivo
+ * directo con la API nativa de cada webview (comando `save_pdf`, ver
+ * src-tauri/src/pdf.rs; Tauri/wry no lo ofrecen, wry#707); «Imprimir…» abre
+ * el diálogo del sistema. Fidelidad completa: texto seleccionable y mermaid
+ * vectorial. La ventana debe ser VISIBLE — las webviews ocultas no imprimen.
  */
 export const exportToPdf = async (
   editor: Editor,
   filePath: string | null,
-  frontMatter = ''
+  frontMatter = '',
+  defaultDir?: string | null
 ): Promise<void> => {
   const { html, title } = await buildExportHtml(editor, filePath, { mermaidAs: 'svg' });
-  const payload: PreviewPayload = { html, title, fields: parseFrontMatterFields(frontMatter) };
+  const payload: PreviewPayload = {
+    html,
+    title,
+    fields: parseFrontMatterFields(frontMatter),
+    defaultPath: inDir(filePath ? dirname(filePath) : defaultDir, `${title}.pdf`),
+  };
 
   // Si la ventana ya existe (export previo sin cerrarla), sólo re-emite.
   const existing = await WebviewWindow.getByLabel(PREVIEW_LABEL);

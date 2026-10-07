@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Printer, Settings2 } from 'lucide-react';
+import { FileDown, Printer, Settings2 } from 'lucide-react';
 import { previewChannel } from '../lib/exportPdf';
 import type { PreviewPayload } from '../lib/exportPdf';
 import '../styles/print.css';
 import { t, tn, useLang } from '../lib/i18n';
+import { basename } from '../lib/fileio';
 
 // Vista previa de PDF con paginación real (paged.js): hojas A4/Carta con
 // márgenes configurables, encabezado con datos del front matter y pie con
@@ -123,6 +124,10 @@ export const PrintPreview = () => {
   const [showOptions, setShowOptions] = useState(false);
   const [pageCount, setPageCount] = useState(0);
   const [rendering, setRendering] = useState(false);
+  // Estado de «Guardar PDF»: guardando, guardado (ruta) o error.
+  const [saveState, setSaveState] = useState<
+    { kind: 'saving' } | { kind: 'saved'; path: string } | { kind: 'error'; detail: string } | null
+  >(null);
   const [options, setOptions] = useState<PdfOptions>(() => ({
     ...loadLayoutPrefs(),
     headerLeft: '',
@@ -216,6 +221,37 @@ export const PrintPreview = () => {
     }
   }, []);
 
+  // «Guardar PDF»: diálogo de guardado normal (ya con nombre y carpeta del .md)
+  // y escritura directa vía la API nativa del webview, sin el diálogo de
+  // impresión del sistema (donde había que elegir «Imprimir a un archivo»).
+  const handleSavePdf = useCallback(async () => {
+    if (!payload) return;
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    let path = await save({
+      defaultPath: payload.defaultPath,
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
+    if (!path) return;
+    if (!/\.pdf$/i.test(path)) path += '.pdf';
+    setSaveState({ kind: 'saving' });
+    try {
+      await invoke('save_pdf', { path, paper: options.paper });
+      setSaveState({ kind: 'saved', path });
+    } catch (err) {
+      setSaveState({ kind: 'error', detail: String(err) });
+    }
+  }, [payload, options.paper]);
+
+  const openSavedPdf = useCallback(async (path: string) => {
+    const { openPath } = await import('@tauri-apps/plugin-opener');
+    await openPath(path).catch((err) => console.error('No se pudo abrir el PDF:', err));
+  }, []);
+
+  // Cambiar contenido u opciones invalida el aviso de «Guardado».
+  useEffect(() => {
+    setSaveState((prev) => (prev?.kind === 'saving' ? prev : null));
+  }, [payload, options]);
+
   const set = <K extends keyof PdfOptions>(key: K, value: PdfOptions[K]) =>
     setOptions((prev) => ({ ...prev, [key]: value }));
 
@@ -235,10 +271,33 @@ export const PrintPreview = () => {
       {/* Barra de acciones — oculta al imprimir */}
       <div className="print-hide sticky top-0 z-10 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 no-select">
         <div className="px-4 py-2 flex items-center justify-between gap-3">
-          <span className="text-sm text-gray-600 dark:text-gray-300 truncate">
-            {rendering
-              ? t('print.paginating')
-              : tn(pageCount, 'print.pagesOne', 'print.pagesOther')}
+          <span className="text-sm text-gray-600 dark:text-gray-300 truncate flex items-center gap-2 min-w-0">
+            <span className="shrink-0">
+              {rendering
+                ? t('print.paginating')
+                : tn(pageCount, 'print.pagesOne', 'print.pagesOther')}
+            </span>
+            {saveState?.kind === 'saving' && (
+              <span className="truncate">· {t('print.saving')}</span>
+            )}
+            {saveState?.kind === 'saved' && (
+              <>
+                <span className="truncate text-green-700 dark:text-green-400" title={saveState.path}>
+                  · {t('print.saved', { name: basename(saveState.path) })}
+                </span>
+                <button
+                  onClick={() => void openSavedPdf(saveState.path)}
+                  className="shrink-0 text-primary-600 dark:text-primary-400 hover:underline"
+                >
+                  {t('print.openPdf')}
+                </button>
+              </>
+            )}
+            {saveState?.kind === 'error' && (
+              <span className="truncate text-red-600 dark:text-red-400" title={saveState.detail}>
+                · {t('print.saveError', { detail: saveState.detail })}
+              </span>
+            )}
           </span>
           <div className="flex items-center gap-2 shrink-0">
             <button
@@ -254,10 +313,18 @@ export const PrintPreview = () => {
             </button>
             <button
               onClick={() => void handlePrint()}
-              className="px-3 py-1.5 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 flex items-center gap-1.5"
+              className="px-3 py-1.5 text-sm rounded-lg flex items-center gap-1.5 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
             >
               <Printer className="w-4 h-4" />
               {t('print.print')}
+            </button>
+            <button
+              onClick={() => void handleSavePdf()}
+              disabled={rendering || saveState?.kind === 'saving'}
+              className="px-3 py-1.5 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 flex items-center gap-1.5"
+            >
+              <FileDown className="w-4 h-4" />
+              {t('print.savePdf')}
             </button>
           </div>
         </div>
