@@ -25,6 +25,7 @@ import { FootnoteRef, FootnoteDef } from '../extensions/footnote';
 import { MathInline, MathBlock } from '../extensions/math';
 import { LocalImage } from '../extensions/localImage';
 import { Callout } from '../extensions/callout';
+import { WikiLink } from '../extensions/wikiLink';
 import { markdownToHtml, buildTurndownService } from '../lib/markdown';
 
 const extensions = [
@@ -52,6 +53,7 @@ const extensions = [
   MathInline,
   MathBlock,
   Callout,
+  WikiLink,
 ];
 
 const turndown = buildTurndownService();
@@ -232,5 +234,28 @@ describe('imágenes', () => {
   it('las imágenes data: entran al editor (se fijan en assets/ después)', () => {
     const html = open('![x](data:image/png;base64,iVBORw0KGgo=)');
     expect(html).toContain('src="data:image/png;base64,iVBORw0KGgo="');
+  });
+});
+
+describe('wikilinks: sobreviven a abrir y guardar', () => {
+  const cases = [
+    'Ver [[Nota]] y [[carpeta/Otra#Sección 2|el plan]].',
+    'Incrustada: ![[diagrama.png]] y [[#Arriba]].',
+    '# Título con [[Enlace]]',
+    '- uno [[A]]\n- dos [[B|be]]',
+    '| Nota | Ver |\n| --- | --- |\n| x | [[Nota\\|alias]] |',
+    'Código `[[literal]]` intacto.',
+  ];
+  for (const md of cases) {
+    it(md.split('\n')[0], () => {
+      const { saved, first, second } = reopen(md);
+      expect(saved).toBe(md);
+      expect(second).toBe(first);
+    });
+  }
+
+  it('es un nodo en el editor (no texto)', () => {
+    expect(open('[[Nota|alias]]')).toContain('data-wikilink="Nota"');
+    expect(open('`[[x]]`')).not.toContain('data-wikilink');
   });
 });

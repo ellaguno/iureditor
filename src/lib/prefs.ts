@@ -54,7 +54,9 @@ export const setZoom = (zoom: number): number => {
 
 // ---------- panel lateral (archivos / esquema) ----------
 
-export type SidebarView = 'files' | 'outline' | 'search' | 'iurefficient';
+export type SidebarView = 'files' | 'outline' | 'search' | 'iurefficient' | 'links';
+
+const SIDEBAR_VIEWS: SidebarView[] = ['files', 'outline', 'search', 'iurefficient', 'links'];
 
 export interface SidebarPrefs {
   visible: boolean;
@@ -72,7 +74,7 @@ export const getSidebarPrefs = (): SidebarPrefs => {
       const parsed = JSON.parse(raw) as Partial<SidebarPrefs>;
       return {
         visible: parsed.visible === true,
-        view: parsed.view === 'files' || parsed.view === 'search' ? parsed.view : 'outline',
+        view: parsed.view && SIDEBAR_VIEWS.includes(parsed.view) ? parsed.view : 'outline',
       };
     }
   } catch {
@@ -120,4 +122,27 @@ export const getLineNumbers = (): boolean =>
 
 export const setLineNumbers = (enabled: boolean): void => {
   localStorage.setItem(LINE_NUMBERS_KEY, String(enabled));
+};
+
+// ---------- bóvedas ----------
+// Carpetas que el usuario eligió como bóveda (Abrir carpeta…, o «Usar como
+// bóveda» en el panel de archivos). Una nota dentro de una de ellas resuelve
+// sus enlaces contra toda la carpeta.
+
+const VAULTS_KEY = 'iur-vaults';
+const MAX_VAULTS = 20;
+
+export const getVaultRoots = (): string[] => {
+  try {
+    const raw = JSON.parse(localStorage.getItem(VAULTS_KEY) ?? '[]');
+    return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+
+export const addVaultRoot = (root: string): string[] => {
+  const next = [root, ...getVaultRoots().filter((r) => r !== root)].slice(0, MAX_VAULTS);
+  localStorage.setItem(VAULTS_KEY, JSON.stringify(next));
+  return next;
 };

@@ -27,6 +27,7 @@ import type { FileChild } from 'docx';
 import { renderFullSizeDiagram } from './mermaid';
 import { basename, inDir } from './fileio';
 import { t } from './i18n';
+import { wikiDisplay } from './wikilinks';
 
 // Export a DOCX con mapper propio ProseMirror-JSON → docx (OOXML). El
 // intento anterior con @turbodocx/html-to-docx producía tablas colapsadas a
@@ -156,6 +157,20 @@ const runsFromInline = (
       out.push(id ? new FootnoteReferenceRun(id) : new TextRun({ text: `[${label}]` }));
       continue;
     }
+    if (node.type === 'wikiLink') {
+      // Enlace entre notas: fuera de la bóveda no lleva a ningún sitio; va
+      // su texto visible.
+      out.push(
+        new TextRun({
+          text: wikiDisplay({
+            target: String(node.attrs?.target ?? ''),
+            heading: String(node.attrs?.heading ?? ''),
+            alias: String(node.attrs?.alias ?? ''),
+          }),
+        })
+      );
+      continue;
+    }
     if (node.type !== 'text' || !node.text) continue;
 
     const marks = node.marks ?? [];
@@ -283,7 +298,8 @@ const blockToDocx = async (
           child.type === 'text' ||
           child.type === 'hardBreak' ||
           child.type === 'footnoteRef' ||
-          child.type === 'mathInline'
+          child.type === 'mathInline' ||
+          child.type === 'wikiLink'
         ) {
           if (runs[ri]) children.push(runs[ri]);
           ri++;

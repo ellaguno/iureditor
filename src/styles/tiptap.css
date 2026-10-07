@@ -505,3 +505,30 @@
 .iur-source .hljs-link {
   @apply text-blue-400 underline;
 }
+
+/* Wikilinks ([[Nota]]): enlace interno; punteado si la nota aún no existe */
+.tiptap-editor .wikilink {
+  @apply text-primary-700 dark:text-primary-300 cursor-pointer rounded-sm px-0.5 -mx-0.5;
+  text-decoration: underline;
+  text-decoration-color: theme('colors.primary.300');
+  text-underline-offset: 2px;
+}
+
+.tiptap-editor .wikilink:hover {
+  @apply bg-primary-50 dark:bg-primary-900/30;
+}
+
+.tiptap-editor .wikilink.wikilink-missing {
+  @apply text-gray-500 dark:text-gray-400;
+  text-decoration-style: dashed;
+  text-decoration-color: theme('colors.gray.400');
+}
+
+.tiptap-editor .wikilink.wikilink-embed::before {
+  content: '↳ ';
+  @apply opacity-60;
+}
+
+.tiptap-editor .wikilink.ProseMirror-selectednode {
+  @apply ring-2 ring-primary-400;
+}

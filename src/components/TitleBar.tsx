@@ -55,6 +55,8 @@ export interface TitleBarActions {
   onZoomReset: () => void;
   onCheckUpdates: () => void;
   onOpenHelp: () => void;
+  onQuickSwitcher: () => void;
+  onCommandPalette: () => void;
 }
 
 export interface ViewPrefs {
@@ -72,6 +74,8 @@ export interface ViewPrefs {
   onSearchToggle: () => void;
   iurefficient: boolean;
   onIurefficientToggle: () => void;
+  links: boolean;
+  onLinksToggle: () => void;
   sourceMode: boolean;
   onSourceModeToggle: () => void;
   pageWidth: PageWidth;
@@ -472,6 +476,11 @@ export const TitleBar = ({
               <MenuItem label={t('menu.new')} shortcut="Ctrl+N" onClick={closeAnd(actions.onNew)} />
               <MenuItem label={t('menu.open')} shortcut="Ctrl+O" onClick={closeAnd(actions.onOpen)} />
               <MenuItem label={t('menu.openFolder')} onClick={closeAnd(actions.onOpenFolder)} />
+              <MenuItem
+                label={t('menu.quickSwitcher')}
+                shortcut="Ctrl+K"
+                onClick={closeAnd(actions.onQuickSwitcher)}
+              />
               {templates.length > 0 && (
                 <>
                   <MenuSeparator />
@@ -541,6 +550,11 @@ export const TitleBar = ({
               />
               <MenuSeparator />
               <MenuItem label={t('menu.insertToc')} onClick={closeAnd(actions.onInsertToc)} />
+              <MenuItem
+                label={t('menu.commandPalette')}
+                shortcut="Ctrl+Shift+P"
+                onClick={closeAnd(actions.onCommandPalette)}
+              />
               <MenuSeparator />
               <MenuItem
                 label={t('menu.selectAll')}
@@ -567,6 +581,12 @@ export const TitleBar = ({
                 shortcut="Ctrl+Shift+O"
                 checked={viewPrefs.outline}
                 onClick={viewPrefs.onOutlineToggle}
+              />
+              <MenuItem
+                label={t('menu.links')}
+                shortcut="Ctrl+Shift+K"
+                checked={viewPrefs.links}
+                onClick={viewPrefs.onLinksToggle}
               />
               <MenuItem
                 label={t('menu.sourceCode')}

@@ -10,6 +10,8 @@ import {
   FolderPlus,
   ArrowUp,
   RefreshCw,
+  Pencil,
+  Library,
 } from 'lucide-react';
 import { basename, dirname, isMarkdownPath, isTextPath } from '../lib/fileio';
 import { t, locale } from '../lib/i18n';
@@ -47,11 +49,13 @@ const listDir = async (dir: string): Promise<Entry[]> => {
 // Modo del input inline de creación: archivo o carpeta.
 type CreateKind = 'file' | 'folder';
 
-// Menú contextual (botón derecho): posición y carpeta destino.
+// Menú contextual (botón derecho): posición, carpeta destino y, si se abrió
+// sobre un archivo, ese archivo (para renombrarlo).
 interface ContextMenu {
   x: number;
   y: number;
   dir: string;
+  file?: string;
 }
 
 export const FilesPanel = ({
@@ -64,6 +68,9 @@ export const FilesPanel = ({
   onSelectDir,
   onGoUp,
   onEnterDir,
+  onRenameFile,
+  vaultRoot,
+  onUseAsVault,
 }: {
   root: string | null;
   activePath: string | null;
@@ -75,6 +82,12 @@ export const FilesPanel = ({
   onGoUp: () => void;
   /** Doble clic en una carpeta: pasa a ser la carpeta de trabajo (raíz). */
   onEnterDir: (dir: string) => void;
+  /** Renombra un archivo (y los enlaces que apuntan a él). true = hecho. */
+  onRenameFile: (path: string, name: string) => Promise<boolean>;
+  /** Raíz de la bóveda activa (se marca en el árbol). */
+  vaultRoot: string | null;
+  /** «Usar como bóveda» en el menú contextual de una carpeta. */
+  onUseAsVault: (dir: string) => void;
 }) => {
   const [dirs, setDirs] = useState<Map<string, Entry[]>>(new Map());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -85,6 +98,9 @@ export const FilesPanel = ({
   const [newName, setNewName] = useState('');
   // Menú contextual del botón derecho (null = cerrado).
   const [menu, setMenu] = useState<ContextMenu | null>(null);
+  // Archivo en renombrado (input inline en su fila) y nombre en edición.
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
   // Evita que el onBlur del input cancele mientras se está creando (el diálogo
   // nativo de error roba el foco).
   const submittingRef = useRef(false);
@@ -110,6 +126,7 @@ export const FilesPanel = ({
     setSelectedDir(null);
     setCreating(null);
     setMenu(null);
+    setRenaming(null);
     if (root) void loadDir(root);
   }, [root, loadDir]);
 
@@ -196,12 +213,35 @@ export const FilesPanel = ({
     // Si falla (nombre repetido), se deja el input abierto para corregir.
   }, [creating, newName, onCreateFile, onCreateFolder, cancelCreate, loadDir]);
 
-  // Abre el menú contextual en (x,y) para la carpeta destino `dir`.
-  const openMenu = useCallback((e: React.MouseEvent, dir: string) => {
+  // Abre el menú contextual en (x,y) para la carpeta destino `dir` (y el
+  // archivo sobre el que se hizo clic, si lo hay).
+  const openMenu = useCallback((e: React.MouseEvent, dir: string, file?: string) => {
     e.preventDefault();
     e.stopPropagation();
-    setMenu({ x: e.clientX, y: e.clientY, dir });
+    setMenu({ x: e.clientX, y: e.clientY, dir, file });
   }, []);
+
+  const startRename = useCallback((path: string) => {
+    setCreating(null);
+    setRenameValue(basename(path));
+    setRenaming(path);
+  }, []);
+
+  const cancelRename = useCallback(() => setRenaming(null), []);
+
+  const submitRename = useCallback(async () => {
+    const path = renaming;
+    const name = renameValue.trim();
+    if (!path || !name || name === basename(path)) {
+      setRenaming(null);
+      return;
+    }
+    if (await onRenameFile(path, name)) {
+      setRenaming(null);
+      void loadDir(dirname(path));
+    }
+    // Si falla (nombre repetido), el input sigue abierto para corregir.
+  }, [renaming, renameValue, onRenameFile, loadDir]);
 
   // Cierra el menú al hacer clic fuera, con scroll, Escape o pérdida de foco.
   useEffect(() => {
@@ -343,6 +383,9 @@ export const FilesPanel = ({
                     <ChevronRight className="w-3.5 h-3.5 shrink-0 opacity-60" />
                   )}
                   <span className="truncate font-medium">{entry.name}</span>
+                  {vaultRoot === entry.path && (
+                    <Library className="w-3 h-3 shrink-0 text-primary-500" aria-label={t('files.vault')} />
+                  )}
                 </button>
                 <button
                   type="button"
@@ -355,12 +398,47 @@ export const FilesPanel = ({
               </div>
               {expanded.has(entry.path) && renderDir(entry.path, depth + 1)}
             </div>
+          ) : renaming === entry.path ? (
+            <div
+              key={entry.path}
+              style={{ paddingLeft: `${12 + depth * 14 + 18}px` }}
+              className="pr-2 py-0.5 flex items-center gap-1.5"
+            >
+              <Pencil className="w-3.5 h-3.5 shrink-0 opacity-60" />
+              <input
+                autoFocus
+                value={renameValue}
+                spellCheck={false}
+                onFocus={(e) => {
+                  // Selecciona el nombre sin la extensión, como los gestores de archivos.
+                  const dot = e.target.value.lastIndexOf('.');
+                  e.target.setSelectionRange(0, dot > 0 ? dot : e.target.value.length);
+                }}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    submittingRef.current = true;
+                    void submitRename().finally(() => {
+                      submittingRef.current = false;
+                    });
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    cancelRename();
+                  }
+                }}
+                onBlur={() => {
+                  if (!submittingRef.current) cancelRename();
+                }}
+                className="flex-1 min-w-0 bg-white dark:bg-gray-900 border border-primary-400 dark:border-primary-500 rounded px-1 py-0.5 text-sm text-gray-800 dark:text-gray-100 focus:outline-none"
+              />
+            </div>
           ) : (
             <button
               key={entry.path}
               type="button"
               onClick={() => onOpenFile(entry.path)}
-              onContextMenu={(e) => openMenu(e, dirname(entry.path))}
+              onContextMenu={(e) => openMenu(e, dirname(entry.path), entry.path)}
               title={entry.name}
               style={{ paddingLeft: `${12 + depth * 14 + 18}px` }}
               className={`w-full pr-2 py-1 text-left text-sm truncate flex items-center gap-1.5 ${
@@ -404,10 +482,13 @@ export const FilesPanel = ({
     >
       <div className="px-3 pb-1 flex items-center justify-between gap-2">
         <span
-          className="text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500 truncate"
+          className="text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500 truncate flex items-center gap-1"
           title={root}
         >
-          {basename(root)}
+          {vaultRoot === root && (
+            <Library className="w-3 h-3 shrink-0 text-primary-500" aria-label={t('files.vault')} />
+          )}
+          <span className="truncate">{basename(root)}</span>
         </span>
         <div className="shrink-0 flex items-center gap-0.5">
           <button
@@ -460,10 +541,13 @@ export const FilesPanel = ({
           onContextMenu={(e) => e.preventDefault()}
           style={{
             left: Math.min(menu.x, window.innerWidth - 210),
-            top: Math.min(menu.y, window.innerHeight - 160),
+            top: Math.min(menu.y, window.innerHeight - 230),
           }}
           className="fixed z-50 min-w-[190px] py-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl"
         >
+          {menu.file &&
+            menuItem(<Pencil className="w-4 h-4" />, t('files.rename'), () => startRename(menu.file!))}
+          {menu.file && <div className="my-1 border-t border-gray-200 dark:border-gray-700" />}
           {menuItem(<FilePlus className="w-4 h-4" />, t('files.newFile'), () =>
             startCreate(menu.dir, 'file')
           )}
@@ -471,6 +555,9 @@ export const FilesPanel = ({
             startCreate(menu.dir, 'folder')
           )}
           <div className="my-1 border-t border-gray-200 dark:border-gray-700" />
+          {!menu.file &&
+            vaultRoot !== menu.dir &&
+            menuItem(<Library className="w-4 h-4" />, t('files.useAsVault'), () => onUseAsVault(menu.dir))}
           {menuItem(<ArrowUp className="w-4 h-4" />, t('files.goUp'), onGoUp)}
           {menuItem(<RefreshCw className="w-4 h-4" />, t('files.reload'), reloadAll)}
         </div>

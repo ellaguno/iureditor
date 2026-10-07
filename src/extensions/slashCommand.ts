@@ -1,9 +1,7 @@
 import { Extension } from '@tiptap/core';
 import type { Editor, Range } from '@tiptap/core';
 import Suggestion from '@tiptap/suggestion';
-import type { SuggestionProps, SuggestionKeyDownProps } from '@tiptap/suggestion';
-import { ReactRenderer } from '@tiptap/react';
-import { computePosition, flip, shift, offset } from '@floating-ui/dom';
+import { suggestionPopup } from './suggestionPopup';
 import {
   Heading1,
   Heading2,
@@ -24,7 +22,6 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { SlashMenu } from '../components/SlashMenu';
-import type { SlashMenuRef, SlashMenuProps } from '../components/SlashMenu';
 import { CALLOUT_TYPES, CALLOUT_LABEL_KEY } from './callout';
 import type { CalloutType } from './callout';
 import { t } from '../lib/i18n';
@@ -176,64 +173,7 @@ export const SlashCommand = Extension.create({
         // Ejecuta el comando del ítem elegido tras borrar el `/consulta`.
         command: ({ editor, range, props }) => props.command({ editor, range }),
         items: ({ query }) => filterItems(query),
-        render: () => {
-          let component: ReactRenderer<SlashMenuRef, SlashMenuProps> | null = null;
-          let el: HTMLElement | null = null;
-
-          const reposition = (props: SuggestionProps<SlashItem>) => {
-            if (!el || !props.clientRect) return;
-            const rect = props.clientRect();
-            if (!rect) return;
-            const virtual = { getBoundingClientRect: () => rect };
-            void computePosition(virtual, el, {
-              placement: 'bottom-start',
-              middleware: [offset(6), flip(), shift({ padding: 8 })],
-            }).then(({ x, y }) => {
-              if (!el) return;
-              el.style.left = `${x}px`;
-              el.style.top = `${y}px`;
-            });
-          };
-
-          const props2 = (props: SuggestionProps<SlashItem>): SlashMenuProps => ({
-            items: props.items,
-            command: (item) => props.command(item),
-          });
-
-          return {
-            onStart: (props) => {
-              component = new ReactRenderer(SlashMenu, {
-                props: props2(props),
-                editor: props.editor,
-              });
-              el = component.element as HTMLElement;
-              el.style.position = 'absolute';
-              el.style.top = '0';
-              el.style.left = '0';
-              el.style.zIndex = '50';
-              document.body.appendChild(el);
-              reposition(props);
-            },
-            onUpdate: (props) => {
-              if (el) el.style.display = '';
-              component?.updateProps(props2(props));
-              reposition(props);
-            },
-            onKeyDown: (props: SuggestionKeyDownProps) => {
-              if (props.event.key === 'Escape') {
-                if (el) el.style.display = 'none';
-                return true;
-              }
-              return component?.ref?.onKeyDown(props) ?? false;
-            },
-            onExit: () => {
-              el?.remove();
-              component?.destroy();
-              component = null;
-              el = null;
-            },
-          };
-        },
+        render: suggestionPopup<SlashItem>(SlashMenu),
       }),
     ];
   },

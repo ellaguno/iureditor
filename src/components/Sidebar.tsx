@@ -4,10 +4,13 @@ import { FilesPanel } from './FilesPanel';
 import { OutlinePanel } from './OutlinePanel';
 import { SearchPanel } from './SearchPanel';
 import { IurefficientPanel } from './IurefficientPanel';
+import { LinksPanel } from './LinksPanel';
+import type { LinkOccurrence } from '../lib/wikilinks';
 import { t } from '../lib/i18n';
 
-// Panel lateral con tres vistas: árbol de archivos de la carpeta de trabajo,
-// búsqueda en esos archivos y esquema del documento (estilo Obsidian/Zettlr).
+// Panel lateral: árbol de archivos de la carpeta de trabajo, búsqueda en esos
+// archivos, esquema del documento, enlaces de la nota activa e Iurefficient
+// (estilo Obsidian/Zettlr).
 export const Sidebar = ({
   view,
   onViewChange,
@@ -27,6 +30,12 @@ export const Sidebar = ({
   onOpenSearchResult,
   activeDirty,
   onSaveActive,
+  onRenameFile,
+  vaultRoot,
+  onUseAsVault,
+  onOpenBacklink,
+  onOpenMention,
+  onOpenOutgoing,
 }: {
   view: SidebarView;
   onViewChange: (view: SidebarView) => void;
@@ -49,26 +58,47 @@ export const Sidebar = ({
   /** Para el panel de Iurefficient: estado y guardado de la pestaña activa. */
   activeDirty: boolean;
   onSaveActive: () => Promise<string | null>;
+  onRenameFile: (path: string, name: string) => Promise<boolean>;
+  vaultRoot: string | null;
+  onUseAsVault: (dir: string) => void;
+  onOpenBacklink: (source: string) => void;
+  onOpenMention: (source: string) => void;
+  onOpenOutgoing: (occ: LinkOccurrence) => void;
 }) => (
-  <div className="w-64 shrink-0 flex flex-col border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 no-select">
+  <div className="w-72 shrink-0 flex flex-col border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 no-select">
     <div className="flex shrink-0 border-b border-gray-200 dark:border-gray-700">
-      {(['files', 'search', 'outline', 'iurefficient'] as const).map((v) => (
+      {(['files', 'search', 'outline', 'links', 'iurefficient'] as const).map((v) => (
         <button
           key={v}
           type="button"
           onClick={() => onViewChange(v)}
-          className={`flex-1 py-1.5 text-xs font-medium ${
+          className={`flex-auto min-w-0 px-1 py-1.5 text-xs font-medium truncate ${
             view === v
               ? 'text-gray-900 dark:text-gray-100 border-b-2 border-primary-500'
               : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
           }`}
         >
-          {v === 'files' ? t('files.title') : v === 'search' ? t('fsearch.title') : v === 'iurefficient' ? t('iure.title') : t('outline.title')}
+          {v === 'files'
+            ? t('files.title')
+            : v === 'search'
+              ? t('fsearch.title')
+              : v === 'iurefficient'
+                ? t('iure.title')
+                : v === 'links'
+                  ? t('links.title')
+                  : t('outline.title')}
         </button>
       ))}
     </div>
     <div className="flex-1 min-h-0">
-      {view === 'iurefficient' ? (
+      {view === 'links' ? (
+        <LinksPanel
+          activePath={activePath}
+          onOpenBacklink={onOpenBacklink}
+          onOpenMention={onOpenMention}
+          onOpenOutgoing={onOpenOutgoing}
+        />
+      ) : view === 'iurefficient' ? (
         <IurefficientPanel activePath={activePath} activeDirty={activeDirty} onOpenFile={onOpenFile} onSaveActive={onSaveActive} />
       ) : view === 'search' ? (
         <SearchPanel workspace={workspace} onOpenResult={onOpenSearchResult} />
@@ -83,6 +113,9 @@ export const Sidebar = ({
           onSelectDir={onSelectDir}
           onGoUp={onGoUp}
           onEnterDir={onEnterDir}
+          onRenameFile={onRenameFile}
+          vaultRoot={vaultRoot}
+          onUseAsVault={onUseAsVault}
         />
       ) : sourceMode ? (
         <div className="px-3 py-3 text-xs italic text-gray-400 dark:text-gray-500">

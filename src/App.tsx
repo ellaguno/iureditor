@@ -2,7 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { listen } from '@tauri-apps/api/event';
-import { readFile } from '@tauri-apps/plugin-fs';
+import {
+  readFile,
+  readTextFile,
+  writeTextFile,
+  readDir,
+  mkdir,
+  rename as renamePath,
+} from '@tauri-apps/plugin-fs';
 import { Editor } from './components/Editor';
 import type { EditorHandle } from './components/Editor';
 import { TitleBar } from './components/TitleBar';
@@ -11,6 +18,14 @@ import { StatusBar } from './components/StatusBar';
 import { SourceView, type SourceViewHandle } from './components/SourceView';
 import { languageForPath } from './lib/highlight';
 import { Sidebar } from './components/Sidebar';
+import { Palette, type PaletteMode, type PaletteCommand } from './components/Palette';
+import { vault, useVault, resolveVaultRoot, suggestLinks } from './lib/vault';
+import { setLinkContext } from './lib/linkContext';
+import type { WikiParts, LinkOccurrence } from './lib/wikilinks';
+import { normPath, stripNoteExt } from './lib/vaultIndex';
+import { joinAndNormalize } from './extensions/imageResolve';
+import { findHeading, findLinkTo, findText, retargetEditorLinks, type DocRange } from './lib/editorLinks';
+import type { Node as PMNode } from '@tiptap/pm/model';
 import type { HeadingInfo } from './lib/outline';
 import { collectHeadings, buildTocHtml, lineAtPos } from './lib/outline';
 import {
@@ -27,6 +42,8 @@ import {
   setSidebarPrefs,
   getPageWidth,
   setPageWidth,
+  getVaultRoots,
+  addVaultRoot,
   ZOOM_STEP,
 } from './lib/prefs';
 import type { Theme, SidebarView, SidebarPrefs, PageWidth } from './lib/prefs';
@@ -155,6 +172,11 @@ export default function App() {
   const [cursorLine, setCursorLine] = useState(1);
   const [outlinePos, setOutlinePos] = useState(0);
   const [sourceText, setSourceText] = useState('');
+  // Bóvedas elegidas por el usuario y paleta abierta (selector de notas o
+  // comandos; null = cerrada).
+  const [vaultRoots, setVaultRoots] = useState<string[]>(getVaultRoots);
+  const [palette, setPalette] = useState<PaletteMode | null>(null);
+  const vaultSnap = useVault();
 
   // Estado por pestaña que vive fuera de React (mapas por id).
   const editorHandles = useRef(new Map<number, EditorHandle | null>());
@@ -458,6 +480,8 @@ export default function App() {
     if (typeof selected !== 'string') return;
     setWorkspace(selected);
     setLastDir(selected);
+    // La carpeta abierta es una bóveda: sus notas se enlazan entre sí.
+    setVaultRoots(addVaultRoot(selected));
     applySidebar(() => ({ visible: true, view: 'files' }));
   }, [applySidebar]);
 
@@ -683,6 +707,7 @@ export default function App() {
       if (savedMtime !== null) diskMtime.current.set(id, savedMtime);
       savedMd.current.set(id, md);
       updateTab(id, { dirty: false });
+      void vault.noteWritten(tab.path, md);
       return true;
     },
     [syncSourceToEditor, updateTab]
@@ -827,6 +852,7 @@ export default function App() {
     async (dir: string, name: string): Promise<boolean> => {
       try {
         const path = await createFile(dir, name);
+        await vault.noteWritten(path, '');
         await loadDocument(path);
         setLastDir(dir);
         return true;
@@ -925,6 +951,323 @@ export default function App() {
       }
     },
     [loadDocument]
+  );
+
+  // ---------- bóveda: enlaces entre notas ----------
+  // La bóveda sigue al documento activo (vault.ts decide cuál es); sin
+  // documento con ruta, la de la carpeta de trabajo.
+  useEffect(() => {
+    if (!isTauri) return;
+    let cancelled = false;
+    void (async () => {
+      const anchor = activeTabPath ?? (!vault.root && workspace ? `${workspace}/_` : null);
+      if (!anchor) return;
+      const { root, loose } = await resolveVaultRoot(anchor, vaultRoots);
+      if (!cancelled) await vault.setRoot(root, loose);
+    })().catch((err) => console.error('No se pudo abrir la bóveda:', err));
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTabPath, workspace, vaultRoots]);
+
+  /** «Usar como bóveda» (panel de archivos) y «Abrir carpeta…». */
+  const handleUseAsVault = useCallback((dir: string) => {
+    setVaultRoots(addVaultRoot(dir));
+  }, []);
+
+  /** Selecciona un rango en una pestaña y lo centra en pantalla, en cuanto su
+   *  editor esté montado y cargado (la pestaña puede ser nueva). */
+  const revealInTab = useCallback((id: number, find: (doc: PMNode) => DocRange | null) => {
+    let tries = 0;
+    const attempt = () => {
+      const tab = tabsRef.current.find((tb) => tb.id === id);
+      if (!tab || tab.plain || tab.sourceMode) return;
+      const editor = editorHandles.current.get(id)?.editor;
+      if (!editor || pendingLoads.current.has(id) || activeIdRef.current !== id) {
+        if (tries++ < 60) requestAnimationFrame(attempt);
+        return;
+      }
+      const range = find(editor.state.doc);
+      if (!range) return;
+      editor.chain().focus().setTextSelection(range).run();
+      requestAnimationFrame(() => {
+        try {
+          const { node } = editor.view.domAtPos(range.from);
+          const el = node instanceof HTMLElement ? node : node.parentElement;
+          el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        } catch {
+          editor.commands.scrollIntoView();
+        }
+      });
+    };
+    requestAnimationFrame(attempt);
+  }, []);
+
+  /** Crea la nota de un enlace que aún no existe: junto a la nota origen
+   *  (o, si el enlace es una ruta, relativa a la bóveda). */
+  const createNoteFor = useCallback(
+    async (target: string, source: string | null): Promise<string | null> => {
+      const rel = target.replace(/\\/g, '/').replace(/^\/+/, '').trim();
+      if (!rel || rel.split('/').some((seg) => seg === '..')) return null;
+      const slash = rel.lastIndexOf('/');
+      const near = source ? dirname(source) : null;
+      const base = slash >= 0 ? vault.root ?? near ?? defaultDir() : near ?? vault.root ?? defaultDir();
+      if (!base) return null;
+      const dir = slash >= 0 ? `${base}/${rel.slice(0, slash)}` : base;
+      const leaf = rel.slice(slash + 1);
+      const name = isMarkdownPath(leaf) ? leaf : `${leaf}.md`;
+      try {
+        if (slash >= 0) await mkdir(dir, { recursive: true });
+        const path = await createFile(dir, name);
+        await vault.noteWritten(path, '');
+        return path;
+      } catch (err) {
+        if (err instanceof Error && err.message === 'ya-existe') return `${dir}/${name}`;
+        console.error('No se pudo crear la nota del enlace:', err);
+        const { message } = await import('@tauri-apps/plugin-dialog');
+        await message(t('wikilink.createFailed', { name: rel }), { title: 'iureditor', kind: 'warning' });
+        return null;
+      }
+    },
+    [defaultDir]
+  );
+
+  /** Clic en un wikilink: abre la nota (creándola si no existe) y salta a
+   *  la sección; un adjunto se abre con la aplicación del sistema. */
+  const openWikiLink = useCallback(
+    async (parts: WikiParts, source: string | null) => {
+      if (!parts.target) {
+        // [[#Sección]]: una sección de la propia nota (la activa).
+        if (parts.heading) revealInTab(activeIdRef.current, (doc) => findHeading(doc, parts.heading));
+        return;
+      }
+      let path = vault.index?.resolve(parts.target, source) ?? null;
+      if (!path) {
+        path = await createNoteFor(parts.target, source);
+        if (!path) return;
+      }
+      if (!isMarkdownPath(path) && !isTextPath(path)) {
+        const { openPath } = await import('@tauri-apps/plugin-opener');
+        await openPath(path);
+        return;
+      }
+      const id = await loadDocument(path);
+      if (parts.heading) revealInTab(id, (doc) => findHeading(doc, parts.heading));
+    },
+    [createNoteFor, loadDocument, revealInTab]
+  );
+
+  const openWikiLinkRef = useRef(openWikiLink);
+  openWikiLinkRef.current = openWikiLink;
+
+  useEffect(() => {
+    setLinkContext({
+      ready: () => vault.isReady(),
+      resolve: (target, source) => vault.index?.resolve(target, source) ?? null,
+      suggest: suggestLinks,
+      open: (parts, source) =>
+        void openWikiLinkRef.current(parts, source).catch((err) =>
+          console.error('No se pudo abrir el enlace:', err)
+        ),
+    });
+    return () => setLinkContext(null);
+  }, []);
+
+  // Al volver a la ventana, el índice relee lo que cambió en disco.
+  useEffect(() => {
+    if (!isTauri) return;
+    const unlisten = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+      if (focused) void vault.refresh();
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  /** Panel de enlaces: abrir la nota que enlaza a la activa, en el enlace. */
+  const handleOpenBacklink = useCallback(
+    async (source: string) => {
+      const target = activeTabPath;
+      const id = await loadDocument(source);
+      const index = vault.index;
+      if (target && index) revealInTab(id, (doc) => findLinkTo(doc, index, source, target));
+    },
+    [activeTabPath, loadDocument, revealInTab]
+  );
+
+  /** Panel de enlaces: abrir la nota que menciona a la activa, en la mención. */
+  const handleOpenMention = useCallback(
+    async (source: string) => {
+      const name = activeTabPath ? stripNoteExt(basename(activeTabPath)) : '';
+      const id = await loadDocument(source);
+      if (name) revealInTab(id, (doc) => findText(doc, name));
+    },
+    [activeTabPath, loadDocument, revealInTab]
+  );
+
+  /** Panel de enlaces: seguir un enlace saliente de la nota activa. */
+  const handleOpenOutgoing = useCallback(
+    (occ: LinkOccurrence) => {
+      const source = activeTabPath;
+      if (occ.kind === 'wiki') {
+        void openWikiLink(occ, source).catch((err) => console.error('No se pudo abrir el enlace:', err));
+        return;
+      }
+      if (!source) return;
+      const path = joinAndNormalize(dirname(source), occ.target);
+      void loadDocument(path)
+        .then((id) => {
+          if (occ.heading) revealInTab(id, (doc) => findHeading(doc, occ.heading));
+        })
+        .catch((err) => console.error('No se pudo abrir el enlace:', err));
+    },
+    [activeTabPath, openWikiLink, loadDocument, revealInTab]
+  );
+
+  /** Selector rápido: crear una nota nueva con el nombre escrito. */
+  const handleCreateNoteNamed = useCallback(
+    async (name: string) => {
+      const source = tabsRef.current.find((tb) => tb.id === activeIdRef.current)?.path ?? null;
+      const path = await createNoteFor(name, source);
+      if (path) await loadDocument(path);
+    },
+    [createNoteFor, loadDocument]
+  );
+
+  /** Renombrar un archivo desde el panel. Si es una nota de la bóveda, los
+   *  enlaces que apuntan a ella (en disco y en pestañas abiertas) se
+   *  reapuntan, previa confirmación. Devuelve true si se renombró. */
+  const handleRenameFile = useCallback(
+    async (oldPath: string, rawName: string): Promise<boolean> => {
+      const { message, ask } = await import('@tauri-apps/plugin-dialog');
+      const trimmed = rawName.trim();
+      if (!trimmed || /[\\/]/.test(trimmed)) {
+        await message(t('rename.failed', { detail: trimmed }), { title: 'iureditor', kind: 'warning' });
+        return false;
+      }
+      const oldExt = /\.[^./\\]+$/.exec(basename(oldPath))?.[0] ?? '';
+      const name = /\.[A-Za-z0-9]+$/.test(trimmed) ? trimmed : `${trimmed}${oldExt}`;
+      const newPath = `${dirname(oldPath)}/${name}`;
+      if (newPath === oldPath) return true;
+      // Choque sólo si ya hay una entrada con EXACTAMENTE ese nombre: en un
+      // sistema de archivos sin distinción de mayúsculas, «nota» → «Nota»
+      // «existe» (es el mismo archivo) y no debe impedir el cambio.
+      const siblings = await readDir(dirname(oldPath)).catch(() => []);
+      if (siblings.some((e) => e.name === name)) {
+        await message(t('app.fileExists'), { title: 'iureditor', kind: 'warning' });
+        return false;
+      }
+
+      // 1) Qué enlaces cambiarían, con el índice ANTES del renombrado.
+      await vault.refresh();
+      const index = vault.index;
+      const isNote = isMarkdownPath(oldPath) && isMarkdownPath(newPath) && !!index?.contains(oldPath);
+      const openTabs = tabsRef.current.filter((tb) => tb.path && !tb.plain && isMarkdownPath(tb.path));
+      const openKeys = new Set(openTabs.map((tb) => normPath(tb.path!)));
+      const diskEdits = isNote ? index!.planRename(oldPath, newPath).filter((e) => !openKeys.has(normPath(e.path))) : [];
+      const tabPlans = isNote
+        ? openTabs
+            .map((tb) => {
+              const md = tb.sourceMode
+                ? sourceTexts.current.get(tb.id) ?? ''
+                : editorHandles.current.get(tb.id)?.getMarkdown() ?? '';
+              const { count } = index!.rewriteForRename(md, tb.path!, oldPath, newPath);
+              return { tab: tb, count, clean: !hasUnsavedChanges(tb) };
+            })
+            .filter((p) => p.count > 0)
+        : [];
+      const links = diskEdits.reduce((n, e) => n + e.count, 0) + tabPlans.reduce((n, p) => n + p.count, 0);
+      const notes = diskEdits.length + tabPlans.length;
+      const update =
+        links > 0 &&
+        (await ask(t('rename.confirm', { links, notes, name: stripNoteExt(name) }), {
+          title: t('rename.title'),
+          kind: 'info',
+          okLabel: t('rename.update'),
+          cancelLabel: t('rename.skip'),
+        }));
+
+      // 2) Renombrar en disco; las pestañas del archivo lo siguen.
+      try {
+        await renamePath(oldPath, newPath);
+      } catch (err) {
+        await message(t('rename.failed', { detail: String(err) }), { title: 'iureditor', kind: 'error' });
+        return false;
+      }
+      const moved = (p: string) => (p === oldPath ? newPath : p);
+      for (const tb of tabsRef.current) {
+        if (tb.path !== oldPath) continue;
+        updateTab(tb.id, { path: newPath });
+        const m = await getMtime(newPath);
+        if (m !== null) diskMtime.current.set(tb.id, m);
+      }
+
+      // 3) Reapuntar enlaces (todo con el índice previo; se actualiza al final).
+      const written: [string, string][] = [];
+      const failed: string[] = [];
+      const rewriteOnDisk = async (sourceOld: string) => {
+        const current = moved(sourceOld);
+        const raw = await readTextFile(current);
+        const { content, count } = index!.rewriteForRename(normalizeEol(raw), sourceOld, oldPath, newPath);
+        if (!count) return;
+        await writeTextFile(current, applyEol(content, detectEol(raw)));
+        written.push([current, content]);
+      };
+      if (update && index) {
+        for (const edit of diskEdits) {
+          try {
+            await rewriteOnDisk(edit.path);
+          } catch (err) {
+            console.error('No se pudo actualizar', edit.path, err);
+            failed.push(basename(moved(edit.path)));
+          }
+        }
+        for (const { tab, clean } of tabPlans) {
+          const sourceOld = tab.path!;
+          const current = moved(sourceOld);
+          try {
+            if (tab.sourceMode) {
+              const text = sourceTexts.current.get(tab.id) ?? '';
+              const next = index.rewriteForRename(text, sourceOld, oldPath, newPath).content;
+              sourceTexts.current.set(tab.id, next);
+              if (tab.id === activeIdRef.current) setSourceText(next);
+            } else {
+              const editor = editorHandles.current.get(tab.id)?.editor;
+              if (editor) retargetEditorLinks(editor, index, sourceOld, oldPath, newPath);
+            }
+            if (clean) {
+              // Pestaña sin cambios: se guarda tal cual queda (sigue limpia).
+              const md = tab.sourceMode
+                ? sourceTexts.current.get(tab.id) ?? ''
+                : editorHandles.current.get(tab.id)?.getMarkdown() ?? '';
+              await writeDocument(current, applyEol(md, eolFor(tab.id)));
+              savedMd.current.set(tab.id, md);
+              emittedMd.current.set(tab.id, md);
+              updateTab(tab.id, { dirty: false });
+              written.push([current, md]);
+            } else {
+              // Con cambios sin guardar: el editor ya apunta bien; en disco
+              // se reescribe la versión guardada, sin tocar lo pendiente.
+              await rewriteOnDisk(sourceOld);
+            }
+            const m = await getMtime(current);
+            if (m !== null) diskMtime.current.set(tab.id, m);
+          } catch (err) {
+            console.error('No se pudo actualizar', current, err);
+            failed.push(basename(current));
+          }
+        }
+      }
+
+      // 4) Índice: la entrada cambia de ruta y se registran las reescrituras.
+      await vault.noteRenamed(oldPath, newPath);
+      for (const [path, content] of written) await vault.noteWritten(path, content);
+      if (failed.length) {
+        await message(t('rename.partial', { list: failed.join('\n') }), { title: 'iureditor', kind: 'warning' });
+      }
+      return true;
+    },
+    [hasUnsavedChanges, updateTab]
   );
 
   // ---------- guardar ----------
@@ -1047,6 +1390,8 @@ export default function App() {
       setRecentFiles(await addRecentFile(path));
       // Guardado exitoso: re-generar borradores (sólo pestañas aún sucias).
       scheduleDraftSave();
+      // Los enlaces de la nota (y los backlinks de las demás) al día.
+      void vault.noteWritten(path, md);
       // Si el archivo está vinculado a un documento de Iurefficient, sube la versión.
       void syncAfterSave(path);
       return path;
@@ -1383,6 +1728,14 @@ export default function App() {
       } else if (key === 'i' && e.shiftKey) {
         e.preventDefault();
         handleSidebarView('iurefficient');
+      } else if (key === 'k') {
+        // Ctrl+K: ir a una nota; Ctrl+Shift+K: enlaces de la nota activa.
+        e.preventDefault();
+        if (e.shiftKey) handleSidebarView('links');
+        else setPalette('files');
+      } else if (key === 'p' && e.shiftKey) {
+        e.preventDefault();
+        setPalette('commands');
       } else if (key === 'm' && e.shiftKey) {
         e.preventDefault();
         handleToggleSource();
@@ -1691,6 +2044,41 @@ export default function App() {
 
   const sourceMode = activeTab?.sourceMode ?? false;
 
+  // Paleta de comandos (Ctrl+Shift+P): las acciones de los menús.
+  const paletteCommands: PaletteCommand[] = palette
+    ? [
+        { id: 'quick', label: t('menu.quickSwitcher'), shortcut: 'Ctrl+K', run: () => setPalette('files') },
+        { id: 'new', label: t('menu.new'), shortcut: 'Ctrl+N', run: handleNew },
+        { id: 'open', label: t('menu.open'), shortcut: 'Ctrl+O', run: () => void handleOpen() },
+        { id: 'folder', label: t('menu.openFolder'), run: () => void handlePickWorkspace() },
+        { id: 'save', label: t('menu.save'), shortcut: 'Ctrl+S', run: handleSave },
+        { id: 'saveAs', label: t('menu.saveAs'), shortcut: 'Ctrl+Shift+S', run: handleSaveAs },
+        { id: 'pdf', label: t('menu.exportPdf'), shortcut: 'Ctrl+P', run: handleExportPdf },
+        { id: 'docx', label: t('menu.exportDocx'), run: handleExportDocx },
+        { id: 'html', label: t('menu.exportHtml'), run: handleExportHtml },
+        { id: 'find', label: t('menu.findReplace'), shortcut: 'Ctrl+F', run: handleFind },
+        { id: 'line', label: t('menu.goToLine'), shortcut: 'Ctrl+L', run: handleGoToLine },
+        { id: 'toc', label: t('menu.insertToc'), run: handleInsertToc },
+        { id: 'files', label: t('menu.folderFiles'), shortcut: 'Ctrl+Shift+E', run: () => handleSidebarView('files') },
+        { id: 'search', label: t('menu.searchFiles'), shortcut: 'Ctrl+Shift+F', run: () => handleSidebarView('search') },
+        { id: 'outline', label: t('menu.outline'), shortcut: 'Ctrl+Shift+O', run: () => handleSidebarView('outline') },
+        { id: 'links', label: t('menu.links'), shortcut: 'Ctrl+Shift+K', run: () => handleSidebarView('links') },
+        { id: 'iure', label: 'Iurefficient', shortcut: 'Ctrl+Shift+I', run: () => handleSidebarView('iurefficient') },
+        { id: 'source', label: t('menu.sourceCode'), shortcut: 'Ctrl+Shift+M', run: handleToggleSource },
+        { id: 'lines', label: t('menu.lineNumbers'), run: () => handleLineNumbersChange(!lineNumbers) },
+        { id: 'width', label: t('menu.pageWidth'), shortcut: 'Ctrl+Shift+A', run: handleCyclePageWidth },
+        { id: 'zoomIn', label: t('menu.zoomIn'), shortcut: 'Ctrl++', run: handleZoomIn },
+        { id: 'zoomOut', label: t('menu.zoomOut'), shortcut: 'Ctrl+-', run: handleZoomOut },
+        { id: 'zoomReset', label: t('menu.zoomReset'), shortcut: 'Ctrl+0', run: handleZoomReset },
+        { id: 'light', label: `${t('menu.theme')}: ${t('menu.themeLight')}`, run: () => handleThemeChange('light') },
+        { id: 'dark', label: `${t('menu.theme')}: ${t('menu.themeDark')}`, run: () => handleThemeChange('dark') },
+        { id: 'system', label: `${t('menu.theme')}: ${t('menu.themeSystem')}`, run: () => handleThemeChange('system') },
+        { id: 'spell', label: t('menu.spellcheck'), run: () => handleSpellcheckChange(!spellcheck) },
+        { id: 'help', label: t('menu.appHelp'), run: handleOpenHelp },
+        { id: 'updates', label: t('menu.checkUpdates'), run: () => void checkForUpdates(false) },
+      ]
+    : [];
+
   return (
     <div className="h-full flex flex-col">
       {isTauri && <ResizeHandles />}
@@ -1734,6 +2122,8 @@ export default function App() {
             onZoomReset: handleZoomReset,
             onCheckUpdates: () => void checkForUpdates(false),
             onOpenHelp: handleOpenHelp,
+            onQuickSwitcher: () => setPalette('files'),
+            onCommandPalette: () => setPalette('commands'),
           }}
           viewPrefs={{
             theme,
@@ -1750,6 +2140,8 @@ export default function App() {
             onSearchToggle: () => handleSidebarView('search'),
             iurefficient: sidebar.visible && sidebar.view === 'iurefficient',
             onIurefficientToggle: () => handleSidebarView('iurefficient'),
+            links: sidebar.visible && sidebar.view === 'links',
+            onLinksToggle: () => handleSidebarView('links'),
             sourceMode,
             onSourceModeToggle: handleToggleSource,
             pageWidth,
@@ -1784,6 +2176,16 @@ export default function App() {
             onEnterDir={handleEnterDir}
             activeDirty={!!activeTab?.dirty}
             onSaveActive={() => doSave(false)}
+            onRenameFile={handleRenameFile}
+            vaultRoot={vaultSnap.root}
+            onUseAsVault={handleUseAsVault}
+            onOpenBacklink={(source) =>
+              void handleOpenBacklink(source).catch((err) => console.error('No se pudo abrir:', err))
+            }
+            onOpenMention={(source) =>
+              void handleOpenMention(source).catch((err) => console.error('No se pudo abrir:', err))
+            }
+            onOpenOutgoing={handleOpenOutgoing}
           />
         )}
         <div className="flex-1 min-w-0 flex flex-col" style={{ zoom }} data-page-width={pageWidth}>
@@ -1818,6 +2220,7 @@ export default function App() {
                 onReadClipboardImage={readClipboardImageFile}
                 onReadClipboardText={readClipboardText}
                 lineNumbers={lineNumbers}
+                docPath={tab.path}
               />
             </div>
           ))}
@@ -1842,6 +2245,24 @@ export default function App() {
           )}
         </div>
       </div>
+      {palette && (
+        <Palette
+          key={palette}
+          mode={palette}
+          onClose={() => {
+            setPalette(null);
+            activeHandle()?.focus();
+          }}
+          commands={paletteCommands}
+          recentFiles={recentFiles}
+          onOpenFile={(path) =>
+            void loadDocument(path).catch((err) => console.error('No se pudo abrir:', err))
+          }
+          onCreateNote={(name) =>
+            void handleCreateNoteNamed(name).catch((err) => console.error('No se pudo crear:', err))
+          }
+        />
+      )}
       <StatusBar
         line={cursorLine}
         words={counts.words}

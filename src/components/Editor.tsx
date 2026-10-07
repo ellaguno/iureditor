@@ -48,6 +48,8 @@ import { LocalImage } from '../extensions/localImage';
 import { SearchReplace } from '../extensions/searchReplace';
 import { Callout } from '../extensions/callout';
 import { SlashCommand } from '../extensions/slashCommand';
+import { WikiLink } from '../extensions/wikiLink';
+import { notifyLinks } from '../lib/linkContext';
 import { getSpellcheck } from '../lib/prefs';
 import {
   prepareContent,
@@ -135,6 +137,8 @@ interface EditorProps {
   onReadClipboardText?: () => Promise<string | null>;
   /** Números de línea en el margen (misma línea que la barra de estado). */
   lineNumbers?: boolean;
+  /** Ruta del documento: base para resolver sus wikilinks. */
+  docPath?: string | null;
 }
 
 export const Editor = forwardRef<EditorHandle, EditorProps>(
@@ -149,6 +153,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
       onReadClipboardImage,
       onReadClipboardText,
       lineNumbers = false,
+      docPath = null,
     },
     ref
   ) => {
@@ -302,6 +307,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
         LineNumbers.configure({ enabled: lineNumbers }),
         Callout,
         SlashCommand,
+        WikiLink,
       ],
       content: '',
       editorProps: {
@@ -526,6 +532,14 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
       if (!editor || editor.isDestroyed) return;
       editor.commands.setLineNumbers(lineNumbers);
     }, [editor, lineNumbers]);
+
+    // Los wikilinks se resuelven desde la carpeta del documento: al cambiar
+    // de ruta (guardar como) se re-pintan.
+    useEffect(() => {
+      if (!editor || editor.isDestroyed) return;
+      editor.storage.wikiLink.sourcePath = docPath;
+      notifyLinks();
+    }, [editor, docPath]);
 
     // Cambio de idioma: una transacción vacía recalcula las decoraciones
     // (el placeholder) sin tocar el documento ni el historial.

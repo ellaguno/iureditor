@@ -1,4 +1,5 @@
 import TurndownService from 'turndown';
+import { WIKILINK_RE, parseWikiInner, formatWikiLink, wikiDisplay } from './wikilinks';
 
 // Round-trip markdown ↔ HTML para TipTap, portado de Colaborador especialista
 // (TipTapEditor.tsx). Cambio principal para iureditor: los bloques ```mermaid
@@ -459,6 +460,22 @@ export const markdownToHtml = (markdown: string): string => {
   // cursivas (`_..._` → <em>) y la ruta guardada dejaba de existir.
   const inlineAtoms: string[] = [];
   const atomPlaceholder = (i: number) => `<!--IUR-ATOM-${i}-->`;
+  // Wikilinks `[[Nota#Sección|alias]]` (y las incrustaciones `![[…]]`):
+  // primero, para que su `|` no parta celdas de tabla ni sus corchetes los
+  // tomen los regex de enlaces, notas al pie o fórmulas.
+  html = html.replace(WIKILINK_RE, (m, bang: string, inner: string) => {
+    const parts = parseWikiInner(inner);
+    if (!parts.target && !parts.heading) return m;
+    const idx = inlineAtoms.length;
+    inlineAtoms.push(
+      `<span data-wikilink="${escapeHtmlAttr(parts.target)}"` +
+        (parts.heading ? ` data-heading="${escapeHtmlAttr(parts.heading)}"` : '') +
+        (parts.alias ? ` data-alias="${escapeHtmlAttr(parts.alias)}"` : '') +
+        (bang ? ' data-embed="true"' : '') +
+        `>${escapeHtmlForCode(wikiDisplay(parts))}</span>`
+    );
+    return atomPlaceholder(idx);
+  });
   // Math inline `$…$`. Heurísticas anti-falso-positivo (importes en pesos):
   // sin espacio tras el $ de apertura ni antes del de cierre, el cierre no va
   // seguido de dígito, y un `\$` escapado no abre fórmula.
@@ -683,6 +700,24 @@ export const buildTurndownService = (): TurndownService => {
             .join('\n')
         : '';
       return `\n\n> [!${type.toUpperCase()}]${body ? `\n${body}` : ''}\n\n`;
+    },
+  });
+
+  // Wikilink → `[[Nota#Sección|alias]]` (`![[…]]` si es incrustación). En
+  // una celda de tabla el `|` del alias sale escapado (cellToMarkdown).
+  service.addRule('wikiLink', {
+    filter: (node) =>
+      node.nodeName === 'SPAN' && node.getAttribute('data-wikilink') !== null,
+    replacement: (_content, node) => {
+      const el = node as HTMLElement;
+      return formatWikiLink(
+        {
+          target: el.getAttribute('data-wikilink') || '',
+          heading: el.getAttribute('data-heading') || '',
+          alias: el.getAttribute('data-alias') || '',
+        },
+        { embed: el.getAttribute('data-embed') === 'true' }
+      );
     },
   });
 

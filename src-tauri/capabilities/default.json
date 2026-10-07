@@ -52,6 +52,7 @@
     "fs:allow-stat",
     "fs:allow-read-dir",
     "fs:allow-remove",
+    "fs:allow-rename",
     {
       "identifier": "opener:allow-open-path",
       "allow": [
