@@ -20,8 +20,9 @@ import {
 import { SearchBarUI, type SearchDriver } from './SearchBar';
 
 export interface SourceViewHandle {
-  /** Abre la barra de búsqueda (Ctrl+F). */
-  openSearch: () => void;
+  /** Abre la barra de búsqueda (Ctrl+F), con el reemplazo a la vista si
+   *  `replace` (Ctrl+H). */
+  openSearch: (replace?: boolean) => void;
   /** Abre la barrita "Ir a línea" (Ctrl+L). */
   openGoToLine: () => void;
   /** Lleva el caret al inicio de la línea dada (1-based) y la centra. */
@@ -55,6 +56,7 @@ export const SourceView = forwardRef<
   const preRef = useRef<HTMLPreElement>(null);
 
   const [showSearch, setShowSearch] = useState(false);
+  const [replaceSignal, setReplaceSignal] = useState(0);
   const [showGoTo, setShowGoTo] = useState(false);
   const [goToValue, setGoToValue] = useState('');
   const goToInputRef = useRef<HTMLInputElement>(null);
@@ -106,11 +108,12 @@ export const SourceView = forwardRef<
   }, [caretToOffset]);
 
   useImperativeHandle(ref, () => ({
-    openSearch: () => {
+    openSearch: (replace = false) => {
       // Si ya está abierta, Ctrl+F devuelve el foco al campo (como el
       // navegador): el efecto de montaje no se repite, hay que hacerlo aquí.
-      if (showSearch) searchInputRef.current?.select();
+      if (showSearch && !replace) searchInputRef.current?.select();
       setShowSearch(true);
+      if (replace) setReplaceSignal((n) => n + 1);
     },
     openGoToLine: () => {
       if (showGoTo) goToInputRef.current?.select();
@@ -266,8 +269,10 @@ export const SourceView = forwardRef<
           driver={driver}
           total={matches.length}
           current={matches.length ? safeIndex + 1 : 0}
+          replaceSignal={replaceSignal}
           onClose={() => {
             setShowSearch(false);
+            setReplaceSignal(0);
             taRef.current?.focus();
           }}
         />

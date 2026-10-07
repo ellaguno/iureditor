@@ -49,6 +49,7 @@ export interface TitleBarActions {
   onSelectAll: () => void;
   onInsertToc: () => void;
   onFind: () => void;
+  onReplace: () => void;
   onGoToLine: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
@@ -544,6 +545,11 @@ export const TitleBar = ({
                 onClick={closeAnd(actions.onFind)}
               />
               <MenuItem
+                label={t('menu.replace')}
+                shortcut="Ctrl+H"
+                onClick={closeAnd(actions.onReplace)}
+              />
+              <MenuItem
                 label={t('menu.goToLine')}
                 shortcut="Ctrl+L"
                 onClick={closeAnd(actions.onGoToLine)}
@@ -596,6 +602,7 @@ export const TitleBar = ({
               />
               <MenuItem
                 label={t('menu.lineNumbers')}
+                shortcut="Ctrl+Shift+N"
                 checked={viewPrefs.lineNumbers}
                 onClick={() => viewPrefs.onLineNumbersChange(!viewPrefs.lineNumbers)}
               />
@@ -663,7 +670,7 @@ export const TitleBar = ({
             </MenuSection>
 
             <MenuSection label={t('menu.help')} expanded={expandedSections.has('help')} onToggle={toggleSection('help')}>
-              <MenuItem label={t('menu.appHelp')} onClick={closeAnd(actions.onOpenHelp)} />
+              <MenuItem label={t('menu.appHelp')} shortcut="F1" onClick={closeAnd(actions.onOpenHelp)} />
               <MenuSeparator />
               {HELP_LINKS.map(({ label, key, url }) => (
                 <MenuItem key={url} label={key ? t(key) : label} onClick={closeAnd(() => void openUrl(url))} />

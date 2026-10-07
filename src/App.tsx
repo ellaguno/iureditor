@@ -1607,12 +1607,12 @@ export default function App() {
     handlePageWidthChange(next);
   }, [handlePageWidthChange]);
 
-  const handleFind = useCallback(() => {
+  const handleFind = useCallback((replace = false) => {
     // Cada vista busca a su manera: el editor WYSIWYG con decoraciones de
     // ProseMirror, la vista fuente sobre el texto del textarea.
     const tab = tabsRef.current.find((tb) => tb.id === activeIdRef.current);
-    if (tab?.sourceMode) sourceViewRef.current?.openSearch();
-    else activeHandle()?.openSearch();
+    if (tab?.sourceMode) sourceViewRef.current?.openSearch(replace);
+    else activeHandle()?.openSearch(replace);
   }, [activeHandle]);
 
   /** Abre un resultado de la búsqueda en archivos: carga el documento, lo
@@ -1694,6 +1694,11 @@ export default function App() {
   // ---------- atajos de teclado (los menús no son nativos) ----------
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (e.key === 'F1' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        handleOpenHelp();
+        return;
+      }
       if (!(e.ctrlKey || e.metaKey)) return;
       const key = e.key.toLowerCase();
       if (key === 'tab') {
@@ -1739,6 +1744,10 @@ export default function App() {
       } else if (key === 'm' && e.shiftKey) {
         e.preventDefault();
         handleToggleSource();
+      } else if (key === 'n' && e.shiftKey) {
+        // Ctrl+Shift+N: números de línea (Ctrl+N sin Shift es «Nuevo»).
+        e.preventDefault();
+        handleLineNumbersChange(!getLineNumbers());
       } else if (key === 'o' && !e.shiftKey) {
         e.preventDefault();
         void handleOpen();
@@ -1757,6 +1766,10 @@ export default function App() {
       } else if (key === 'f' && !e.shiftKey) {
         e.preventDefault();
         handleFind();
+      } else if (key === 'h' && !e.shiftKey) {
+        // Ctrl+H: reemplazar (convención de Word, LibreOffice y VS Code).
+        e.preventDefault();
+        handleFind(true);
       } else if (key === 'l' && !e.shiftKey) {
         e.preventDefault();
         handleGoToLine();
@@ -1788,6 +1801,8 @@ export default function App() {
     handleZoomReset,
     handleSidebarView,
     handleToggleSource,
+    handleLineNumbersChange,
+    handleOpenHelp,
     handleCyclePageWidth,
     cycleTab,
     moveActiveTab,
@@ -2056,7 +2071,8 @@ export default function App() {
         { id: 'pdf', label: t('menu.exportPdf'), shortcut: 'Ctrl+P', run: handleExportPdf },
         { id: 'docx', label: t('menu.exportDocx'), run: handleExportDocx },
         { id: 'html', label: t('menu.exportHtml'), run: handleExportHtml },
-        { id: 'find', label: t('menu.findReplace'), shortcut: 'Ctrl+F', run: handleFind },
+        { id: 'find', label: t('menu.findReplace'), shortcut: 'Ctrl+F', run: () => handleFind() },
+        { id: 'replace', label: t('menu.replace'), shortcut: 'Ctrl+H', run: () => handleFind(true) },
         { id: 'line', label: t('menu.goToLine'), shortcut: 'Ctrl+L', run: handleGoToLine },
         { id: 'toc', label: t('menu.insertToc'), run: handleInsertToc },
         { id: 'files', label: t('menu.folderFiles'), shortcut: 'Ctrl+Shift+E', run: () => handleSidebarView('files') },
@@ -2065,7 +2081,7 @@ export default function App() {
         { id: 'links', label: t('menu.links'), shortcut: 'Ctrl+Shift+K', run: () => handleSidebarView('links') },
         { id: 'iure', label: 'Iurefficient', shortcut: 'Ctrl+Shift+I', run: () => handleSidebarView('iurefficient') },
         { id: 'source', label: t('menu.sourceCode'), shortcut: 'Ctrl+Shift+M', run: handleToggleSource },
-        { id: 'lines', label: t('menu.lineNumbers'), run: () => handleLineNumbersChange(!lineNumbers) },
+        { id: 'lines', label: t('menu.lineNumbers'), shortcut: 'Ctrl+Shift+N', run: () => handleLineNumbersChange(!lineNumbers) },
         { id: 'width', label: t('menu.pageWidth'), shortcut: 'Ctrl+Shift+A', run: handleCyclePageWidth },
         { id: 'zoomIn', label: t('menu.zoomIn'), shortcut: 'Ctrl++', run: handleZoomIn },
         { id: 'zoomOut', label: t('menu.zoomOut'), shortcut: 'Ctrl+-', run: handleZoomOut },
@@ -2074,7 +2090,7 @@ export default function App() {
         { id: 'dark', label: `${t('menu.theme')}: ${t('menu.themeDark')}`, run: () => handleThemeChange('dark') },
         { id: 'system', label: `${t('menu.theme')}: ${t('menu.themeSystem')}`, run: () => handleThemeChange('system') },
         { id: 'spell', label: t('menu.spellcheck'), run: () => handleSpellcheckChange(!spellcheck) },
-        { id: 'help', label: t('menu.appHelp'), run: handleOpenHelp },
+        { id: 'help', label: t('menu.appHelp'), shortcut: 'F1', run: handleOpenHelp },
         { id: 'updates', label: t('menu.checkUpdates'), run: () => void checkForUpdates(false) },
       ]
     : [];
@@ -2115,7 +2131,8 @@ export default function App() {
             onRedo: () => activeHandle()?.editor?.chain().focus().redo().run(),
             onSelectAll: () => activeHandle()?.editor?.chain().focus().selectAll().run(),
             onInsertToc: handleInsertToc,
-            onFind: handleFind,
+            onFind: () => handleFind(),
+            onReplace: () => handleFind(true),
             onGoToLine: handleGoToLine,
             onZoomIn: handleZoomIn,
             onZoomOut: handleZoomOut,

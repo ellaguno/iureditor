@@ -1,18 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
-import { FileText, Search } from 'lucide-react';
+import { ArrowLeft, FileText, Search } from 'lucide-react';
 import { searchInFiles, type CancelToken, type SearchOutcome } from '../lib/fileSearch';
 import { t } from '../lib/i18n';
 
-// Vista "Buscar" del panel lateral (Ctrl+Shift+F): busca un término en los
+// Búsqueda de la pestaña «Archivos» (Ctrl+Shift+F): busca un término en los
 // archivos de la carpeta de trabajo y lista las coincidencias agrupadas por
 // archivo. La búsqueda corre al pulsar Enter (recorre disco: no por tecleo).
 export const SearchPanel = ({
   workspace,
   onOpenResult,
+  onBack,
 }: {
   workspace: string | null;
   /** Abre el archivo y salta a la línea de la coincidencia. */
   onOpenResult: (path: string, line: number) => void;
+  /** Volver al árbol de archivos. */
+  onBack: () => void;
 }) => {
   const [term, setTerm] = useState('');
   const [outcome, setOutcome] = useState<SearchOutcome | null>(null);
@@ -48,6 +51,14 @@ export const SearchPanel = ({
   if (!workspace) {
     return (
       <div className="p-4 text-xs text-gray-400 dark:text-gray-500">
+        <button
+          type="button"
+          onClick={onBack}
+          className="mb-2 flex items-center gap-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          {t('fsearch.back')}
+        </button>
         {t('fsearch.noWorkspace')}
       </div>
     );
@@ -55,8 +66,16 @@ export const SearchPanel = ({
 
   return (
     <div className="h-full flex flex-col">
-      <div className="p-2 shrink-0">
-        <div className="relative">
+      <div className="p-2 shrink-0 flex items-center gap-1">
+        <button
+          type="button"
+          title={t('fsearch.back')}
+          onClick={onBack}
+          className="shrink-0 w-6 h-6 rounded flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+        </button>
+        <div className="relative flex-1 min-w-0">
           <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             ref={inputRef}
@@ -68,6 +87,9 @@ export const SearchPanel = ({
               if (e.key === 'Enter') {
                 e.preventDefault();
                 void runSearch();
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                onBack();
               }
             }}
             placeholder={t('fsearch.placeholder')}

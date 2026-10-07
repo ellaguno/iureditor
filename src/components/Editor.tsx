@@ -99,7 +99,7 @@ export interface EditorHandle {
   /** Front matter YAML del documento actual ('' si no hay). */
   getFrontMatter: () => string;
   /** Abre la barra de búsqueda (Ctrl+F). */
-  openSearch: () => void;
+  openSearch: (replace?: boolean) => void;
   /** Activa/desactiva el corrector ortográfico del contenteditable. */
   setSpellcheck: (enabled: boolean) => void;
   focus: () => void;
@@ -160,6 +160,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
     const lang = useLang();
     const turndown = useMemo(() => buildTurndownService(), []);
     const [showSearch, setShowSearch] = useState(false);
+    const [replaceSignal, setReplaceSignal] = useState(0);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const cursorDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const scrollRafRef = useRef<number | null>(null);
@@ -509,7 +510,10 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
           if (editor) insertImageAndContinue(editor, { src, alt });
         },
         getFrontMatter: () => frontMatterRef.current,
-        openSearch: () => setShowSearch(true),
+        openSearch: (replace = false) => {
+          setShowSearch(true);
+          if (replace) setReplaceSignal((n) => n + 1);
+        },
         setSpellcheck: (enabled: boolean) => {
           editor?.view.dom.setAttribute('spellcheck', String(enabled));
         },
@@ -560,7 +564,16 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
       <div className="flex flex-col h-full bg-white dark:bg-gray-900 overflow-hidden">
         <MenuBar editor={editor} onBrowseImage={onBrowseImage} />
         <TableToolbar editor={editor} />
-        {showSearch && <SearchBar editor={editor} onClose={() => setShowSearch(false)} />}
+        {showSearch && (
+          <SearchBar
+            editor={editor}
+            replaceSignal={replaceSignal}
+            onClose={() => {
+              setShowSearch(false);
+              setReplaceSignal(0);
+            }}
+          />
+        )}
 
         <BubbleMenu
           editor={editor}

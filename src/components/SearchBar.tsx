@@ -25,6 +25,7 @@ export const SearchBarUI = ({
   current,
   onClose,
   inputRef: externalInputRef,
+  replaceSignal = 0,
 }: {
   driver: SearchDriver;
   /** Nº de coincidencias. */
@@ -34,12 +35,16 @@ export const SearchBarUI = ({
   onClose: () => void;
   /** Para que el padre pueda reenfocar el campo (Ctrl+F con la barra abierta). */
   inputRef?: RefObject<HTMLInputElement | null>;
+  /** Cambia (> 0) cada vez que se pide reemplazar (Ctrl+H): la barra muestra
+   *  el campo de reemplazo y lo enfoca. */
+  replaceSignal?: number;
 }) => {
   const [term, setTerm] = useState('');
   const [replacement, setReplacement] = useState('');
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [showReplace, setShowReplace] = useState(false);
   const ownInputRef = useRef<HTMLInputElement>(null);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
   const inputRef = externalInputRef ?? ownInputRef;
   // El driver cambia de identidad en cada render del padre; el efecto de
   // limpieza debe usar el último, no el que había al montar.
@@ -55,6 +60,19 @@ export const SearchBarUI = ({
   useEffect(() => {
     driverRef.current.setQuery(unescapeSearch(term), caseSensitive);
   }, [term, caseSensitive]);
+
+  // Ctrl+H: con término ya escrito, el foco va al reemplazo; sin término,
+  // primero hay que escribir qué buscar.
+  useEffect(() => {
+    if (!replaceSignal) return;
+    setShowReplace(true);
+    requestAnimationFrame(() => {
+      const target = inputRef.current?.value ? replaceInputRef.current : inputRef.current;
+      target?.focus();
+      target?.select();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replaceSignal]);
 
   const next = () => driver.next();
   const prev = () => driver.prev();
@@ -113,6 +131,7 @@ export const SearchBarUI = ({
       {showReplace && (
         <>
           <input
+            ref={replaceInputRef}
             type="text"
             value={replacement}
             onChange={(e) => setReplacement(e.target.value)}
@@ -156,7 +175,15 @@ export const SearchBarUI = ({
 
 // Adaptador para el editor WYSIWYG: la búsqueda son decoraciones de
 // ProseMirror y el estado vive en editor.storage.searchReplace.
-export const SearchBar = ({ editor, onClose }: { editor: Editor; onClose: () => void }) => {
+export const SearchBar = ({
+  editor,
+  onClose,
+  replaceSignal,
+}: {
+  editor: Editor;
+  onClose: () => void;
+  replaceSignal?: number;
+}) => {
   // El estado vive en editor.storage y cambia sin que este componente se vuelva
   // a dibujar (findNext ni siquiera despacha transacción): se copia a estado de
   // React tras cada orden y tras cada transacción, para que el contador nunca
@@ -217,6 +244,7 @@ export const SearchBar = ({ editor, onClose }: { editor: Editor; onClose: () => 
       total={total}
       current={total ? index + 1 : 0}
       onClose={onClose}
+      replaceSignal={replaceSignal}
     />
   );
 };

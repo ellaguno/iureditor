@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Pencil,
   Library,
+  Search,
 } from 'lucide-react';
 import { basename, dirname, isMarkdownPath, isTextPath } from '../lib/fileio';
 import { t, locale } from '../lib/i18n';
@@ -71,6 +72,7 @@ export const FilesPanel = ({
   onRenameFile,
   vaultRoot,
   onUseAsVault,
+  onOpenSearch,
 }: {
   root: string | null;
   activePath: string | null;
@@ -88,6 +90,8 @@ export const FilesPanel = ({
   vaultRoot: string | null;
   /** «Usar como bóveda» en el menú contextual de una carpeta. */
   onUseAsVault: (dir: string) => void;
+  /** Pasa la pestaña a la búsqueda en los archivos de la carpeta. */
+  onOpenSearch: () => void;
 }) => {
   const [dirs, setDirs] = useState<Map<string, Entry[]>>(new Map());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -491,6 +495,14 @@ export const FilesPanel = ({
           <span className="truncate">{basename(root)}</span>
         </span>
         <div className="shrink-0 flex items-center gap-0.5">
+          <button
+            type="button"
+            title={`${t('menu.searchFiles')} (Ctrl+Shift+F)`}
+            onClick={onOpenSearch}
+            className="w-5 h-5 rounded flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700"
+          >
+            <Search className="w-3.5 h-3.5" />
+          </button>
           <button
             type="button"
             title={t('files.newFile')}
