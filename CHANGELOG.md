@@ -5,6 +5,25 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.11.1 — 2026-10-07
+
+### Cambiado
+- **La búsqueda en archivos vive dentro de «Archivos».** Ya no tiene pestaña
+  propia: se abre con la lupa del encabezado de Archivos (o `Ctrl+Shift+F`) y
+  se vuelve al árbol con la flecha ← o Esc. El panel lateral queda con cuatro
+  pestañas: Archivos, Esquema, Enlaces e Iurefficient.
+- En el menú Edición, «Buscar y reemplazar…» se divide en **Buscar…**
+  (`Ctrl+F`) y **Reemplazar…** (`Ctrl+H`).
+
+### Añadido
+- **Atajos nuevos:** `Ctrl+H` abre la barra de búsqueda con el reemplazo a la
+  vista (si ya hay un término, el cursor va directo al campo de reemplazo);
+  `Ctrl+Shift+N` muestra u oculta los números de línea; `F1` abre la ayuda.
+- **Ayuda al día** (en español e inglés): nueva sección «Enlaces entre notas»
+  —qué es la bóveda, cómo crear y editar `[[enlaces]]`, el panel Enlaces,
+  renombrar sin romper enlaces, Ir a nota y la paleta de comandos—, además del
+  panel lateral, «Guardar PDF» y la tabla de atajos completa.
+
 ## v1.11.0 — 2026-10-07
 
 ### Añadido
