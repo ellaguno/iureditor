@@ -5,6 +5,16 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.11.2 — 2026-10-07
+
+### Corregido
+- **Abrir la ayuda pedía «Guardar como».** Al abrir un documento, sus imágenes
+  incrustadas (`data:`) se trataban como si se acabaran de pegar y se intentaban
+  guardar en `assets/`, lo que exige guardar antes el documento. Por eso la
+  ayuda (F1) pedía guardarse como `document.md`, y abrir un `.md` con imágenes
+  incrustadas creaba archivos en `assets/` y lo dejaba como modificado. Ahora
+  sólo se guardan en `assets/` las imágenes que pegas o sueltas.
+
 ## v1.11.1 — 2026-10-07
 
 ### Cambiado
