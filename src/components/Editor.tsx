@@ -81,6 +81,9 @@ import { t, useLang } from '../lib/i18n';
 
 const lowlight = createLowlight(common);
 
+/** Meta de las transacciones que cargan un documento entero (setMarkdown). */
+const LOAD_META = 'iurDocumentLoad';
+
 // Heurística: ¿el texto plano pegado parece markdown? Si sí, lo convertimos
 // para que tablas/código/listas pegados desde otra herramienta entren como
 // nodos reales y no como párrafos sueltos (que romperían el round-trip).
@@ -219,6 +222,10 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
     const localizeQueueRef = useRef<Promise<void>>(Promise.resolve());
     const localizeTransientImages = useCallback((inst: TipTapEditor, transaction: Transaction) => {
       if (!insertFileRef.current || !transaction.docChanged) return;
+      // Cargar un documento (abrir, recargar, la ayuda) no es pegar: sus
+      // imágenes `data:` se quedan como están. Sin esto, abrir la ayuda pedía
+      // «Guardar como» y abrir un .md con imágenes incrustadas lo modificaba.
+      if (transaction.getMeta(LOAD_META)) return;
       const found = new Set<string>();
       for (const step of transaction.steps) {
         if (!(step instanceof ReplaceStep || step instanceof ReplaceAroundStep)) continue;
@@ -500,7 +507,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(
           if (!editor) return;
           const { frontMatter, body } = splitFrontMatter(markdown);
           frontMatterRef.current = frontMatter;
-          editor.commands.setContent(prepareContent(body));
+          editor.chain().setMeta(LOAD_META, true).setContent(prepareContent(body)).run();
           // Nuevo documento: el historial de undo no debe cruzar archivos
           // (setContent con emitUpdate false no dispara onUpdate), pero el
           // esquema sí debe reflejar el contenido recién cargado.
