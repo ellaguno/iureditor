@@ -98,7 +98,7 @@ WEBKIT_DISABLE_DMABUF_RENDERER=1 iureditor
 
 Desde el panel lateral (pestaña Iurefficient, `Ctrl+Shift+I`) puedes iniciar sesión en tu instancia de Iurefficient para abrir documentos de tus proyectos, guardar ahí un documento como nuevo y subir versiones nuevas (a demanda o en cada `Ctrl+G`). La contraseña no se guarda; sólo la sesión, en el llavero del sistema operativo. El mismo panel muestra las demás apps de escritorio de Iurefficient y si están instaladas.
 
-iureditor también abre enlaces `iureditor://open?path=…` y archivos `.md` pasados por línea de comandos o con doble clic.
+iureditor también abre enlaces `iureditor://open?path=…` y archivos `.md` pasados por línea de comandos o con doble clic. Con la app abierta, `iureditor://insert?text=…&path=…` inserta texto en el cursor de ese documento (o del activo) sin quitarle el foco a nada; IureVoz lo usa para dictar.
 
 ## Parte de la suite Iurefficient
 

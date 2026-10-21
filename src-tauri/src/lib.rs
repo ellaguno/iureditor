@@ -36,6 +36,28 @@ fn deep_link_path(arg: &str) -> Option<String> {
     u.query_pairs().find(|(k, _)| k == "path").map(|(_, v)| v.into_owned())
 }
 
+/// Enlace `iureditor://insert?text=<texto>&path=<ruta opcional>`: insertar texto en el
+/// cursor del documento (el de `path`, o el activo). Lo usa IureVoz al dictar: entra
+/// aunque la ventana no tenga el foco, que GNOME en Wayland no le da a otra app.
+#[derive(Clone, serde::Serialize)]
+struct InsertLink {
+    text: String,
+    path: Option<String>,
+}
+
+fn insert_link(arg: &str) -> Option<InsertLink> {
+    if !arg.to_ascii_lowercase().starts_with("iureditor:") {
+        return None;
+    }
+    let u = url::Url::parse(arg).ok()?;
+    let route = format!("{}{}", u.host_str().unwrap_or(""), u.path());
+    if route.trim_matches('/') != "insert" {
+        return None;
+    }
+    let get = |k: &str| u.query_pairs().find(|(q, _)| q == k).map(|(_, v)| v.into_owned());
+    Some(InsertLink { text: get("text").filter(|t| !t.is_empty())?, path: get("path").filter(|p| !p.is_empty()) })
+}
+
 /// Enlace `iureditor://iurefficient/doc?case=<id>&doc=<id>&name=<archivo>&title=<proyecto>`:
 /// abrir un documento de la instancia (se descarga como espejo local).
 #[derive(Clone, serde::Serialize)]
@@ -215,6 +237,16 @@ async fn read_clipboard_text() -> Result<Option<String>, String> {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn enlace_de_insertar() {
+        let l = super::insert_link("iureditor://insert?text=Hola%2C%20mundo.%0A&path=%2Ftmp%2Fa.md").unwrap();
+        assert_eq!(l.text, "Hola, mundo.\n");
+        assert_eq!(l.path.as_deref(), Some("/tmp/a.md"));
+        assert!(super::insert_link("iureditor://insert?text=").is_none());
+        assert!(super::insert_link("iureditor://open?path=/tmp/a.md").is_none());
+        assert!(super::insert_link("/tmp/a.md").is_none());
+    }
+
+    #[test]
     fn rasteriza_svg_de_mermaid() {
         let path = std::env::var("IUR_TEST_SVG")
             .unwrap_or_else(|_| "../src/test/fixtures/diagram.svg".to_string());
@@ -277,6 +309,14 @@ pub fn run() {
         // nuevo, que ya se cerró. Enfocamos la ventana principal y, si trae un
         // archivo, lo abrimos ahí (el frontend deduplica por ruta).
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            // Insertar texto (dictado de IureVoz): sin mostrar ni enfocar la ventana, para
+            // no quitarle el foco a lo que el usuario esté usando.
+            if let Some(link) = argv.iter().find_map(|a| insert_link(a)) {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.emit("insert-text", link);
+                }
+                return;
+            }
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.unminimize();
                 let _ = window.show();

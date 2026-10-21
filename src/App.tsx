@@ -16,6 +16,7 @@ import { TitleBar } from './components/TitleBar';
 import { ResizeHandles } from './components/ResizeHandles';
 import { StatusBar } from './components/StatusBar';
 import { SourceView, type SourceViewHandle } from './components/SourceView';
+import { markdownToHtml } from './lib/markdown';
 import { languageForPath } from './lib/highlight';
 import { Sidebar } from './components/Sidebar';
 import { Palette, type PaletteMode, type PaletteCommand } from './components/Palette';
@@ -837,6 +838,42 @@ export default function App() {
     };
     const unlisten = listen<IureDocLink>('iure-open-doc', (event) => void open(event.payload));
     void import('./lib/iurefficient').then(({ apps }) => apps.cliIureDoc().then(open).catch(() => {}));
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, [loadDocument]);
+
+  // Enlace `iureditor://insert?text=…&path=…` (IureVoz al dictar): inserta el texto en el
+  // cursor del documento —el de `path` si viene, si no el activo— sin pedir el foco, así el
+  // dictado entra aunque la ventana esté detrás. Cada salto de línea abre un párrafo y un
+  // renglón que empieza como Markdown (#, -, 1., >) se convierte en su bloque.
+  useEffect(() => {
+    if (!isTauri || detachPath) return;
+    const insert = async ({ text, path }: { text: string; path: string | null }) => {
+      const id = path ? await loadDocument(path) : activeIdRef.current;
+      // una pestaña recién abierta tarda un momento en montar su editor
+      let handle = editorHandles.current.get(id);
+      for (let i = 0; !handle && i < 40; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+        handle = editorHandles.current.get(id);
+      }
+      const editor = handle?.editor;
+      const tab = tabsRef.current.find((tb) => tb.id === id);
+      if (!editor || tab?.sourceMode) return;
+      const vacio = editor.state.selection.$from.parent.textContent === '';
+      let chain = editor.chain();
+      text.split('\n').forEach((line, i) => {
+        if (i > 0) chain = chain.splitBlock();
+        if (!line) return;
+        if ((i > 0 || vacio) && /^(#{1,6} |[-*+] |\d+\. |> )/.test(line)) {
+          chain = chain.insertContent(markdownToHtml(line));
+        } else {
+          chain = chain.insertContent({ type: 'text', text: line });
+        }
+      });
+      chain.scrollIntoView().run();
+    };
+    const unlisten = listen<{ text: string; path: string | null }>('insert-text', (event) => void insert(event.payload));
     return () => {
       void unlisten.then((fn) => fn());
     };

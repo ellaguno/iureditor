@@ -5,6 +5,16 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## Sin publicar
+
+### Añadido
+- **Enlace `iureditor://insert?text=…&path=…`.** Con la app abierta, inserta el
+  texto en el cursor del documento indicado (o del activo) sin mostrar ni enfocar
+  la ventana. Cada salto de línea abre un párrafo, y un renglón que empieza como
+  Markdown (`#`, `-`, `1.`, `>`) se convierte en su bloque. Lo usa IureVoz para
+  dictar: en GNOME (Wayland) otra app no puede darle el foco al editor, y el
+  dictado tecleado caía en la ventana que estuviera al frente.
+
 ## v1.11.2 — 2026-10-07
 
 ### Corregido
