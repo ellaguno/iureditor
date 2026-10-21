@@ -4,7 +4,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
-import { insertarDictado } from '../lib/dictado';
+import { insertarDictado, editarDictado } from '../lib/dictado';
 
 let editor: Editor | null = null;
 
@@ -18,6 +18,41 @@ const dictar = (...tramos: string[]) => {
 afterEach(() => {
   editor?.destroy();
   editor = null;
+});
+
+describe('edición por voz', () => {
+  const con = (...pasos: (string | ['edit', 'delete-word' | 'delete-line' | 'undo'])[]) => {
+    editor = new Editor({ element: document.createElement('div'), extensions: [StarterKit], content: '<p></p>' });
+    for (const p of pasos) {
+      if (typeof p === 'string') insertarDictado(editor, p);
+      else editarDictado(editor, p[1]);
+    }
+    return editor.getHTML().replace(/<p><\/p>$/, '');
+  };
+
+  it('borrar palabra', () => {
+    expect(con('Hola mundo cruel', ['edit', 'delete-word'])).toBe('<p>Hola mundo </p>');
+  });
+
+  it('borrar palabra dos veces', () => {
+    expect(con('Hola mundo cruel', ['edit', 'delete-word'], ['edit', 'delete-word'])).toBe('<p>Hola </p>');
+  });
+
+  it('borrar línea: quita el párrafo actual completo y vuelve al anterior', () => {
+    expect(con('Primero.\n', ' Segundo renglón', ['edit', 'delete-line'])).toBe('<p>Primero.</p>');
+  });
+
+  it('borrar línea en la única viñeta: se va la lista', () => {
+    expect(con('Lista:\n- uno', ['edit', 'delete-line'])).toBe('<p>Lista:</p>');
+  });
+
+  it('borrar línea y seguir dictando en el renglón anterior', () => {
+    expect(con('Primero.\n', ' Segundo', ['edit', 'delete-line'], ' Más')).toBe('<p>Primero. Más</p>');
+  });
+
+  it('borrar línea en una viñeta', () => {
+    expect(con('Lista:\n- uno', '\n- dos', ['edit', 'delete-line'])).toBe('<p>Lista:</p><ul><li><p>uno</p></li></ul>');
+  });
 });
 
 describe('dictado por enlace', () => {

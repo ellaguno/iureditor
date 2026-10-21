@@ -16,7 +16,7 @@ import { TitleBar } from './components/TitleBar';
 import { ResizeHandles } from './components/ResizeHandles';
 import { StatusBar } from './components/StatusBar';
 import { SourceView, type SourceViewHandle } from './components/SourceView';
-import { insertarDictado } from './lib/dictado';
+import { insertarDictado, editarDictado, type AccionDictado } from './lib/dictado';
 import { languageForPath } from './lib/highlight';
 import { Sidebar } from './components/Sidebar';
 import { Palette, type PaletteMode, type PaletteCommand } from './components/Palette';
@@ -846,9 +846,10 @@ export default function App() {
   // Enlace `iureditor://insert?text=…&path=…` (IureVoz al dictar): inserta el texto en el
   // cursor del documento —el de `path` si viene, si no el activo— sin pedir el foco, así el
   // dictado entra aunque la ventana esté detrás (ver lib/dictado.ts: saltos, listas, títulos).
+  // `iureditor://edit?action=delete-word|delete-line|undo` hace la edición mínima por voz.
   useEffect(() => {
     if (!isTauri || detachPath) return;
-    const insert = async ({ text, path }: { text: string; path: string | null }) => {
+    const editorDe = async (path: string | null) => {
       const id = path ? await loadDocument(path) : activeIdRef.current;
       // una pestaña recién abierta tarda un momento en montar su editor
       let handle = editorHandles.current.get(id);
@@ -856,14 +857,29 @@ export default function App() {
         await new Promise((r) => setTimeout(r, 50));
         handle = editorHandles.current.get(id);
       }
-      const editor = handle?.editor;
       const tab = tabsRef.current.find((tb) => tb.id === id);
-      if (!editor || tab?.sourceMode) return;
-      insertarDictado(editor, text);
+      return tab?.sourceMode ? null : (handle?.editor ?? null);
     };
-    const unlisten = listen<{ text: string; path: string | null }>('insert-text', (event) => void insert(event.payload));
+    // en orden: una orden de borrar no debe adelantarse al texto que llegó antes
+    let cola = Promise.resolve();
+    const enCola = (f: () => Promise<void>) => {
+      cola = cola.then(f).catch((e) => console.error('dictado', e));
+    };
+    const unInsert = listen<{ text: string; path: string | null }>('insert-text', ({ payload }) =>
+      enCola(async () => {
+        const editor = await editorDe(payload.path);
+        if (editor) insertarDictado(editor, payload.text);
+      })
+    );
+    const unEdit = listen<{ action: AccionDictado; path: string | null }>('edit-text', ({ payload }) =>
+      enCola(async () => {
+        const editor = await editorDe(payload.path);
+        if (editor) editarDictado(editor, payload.action);
+      })
+    );
     return () => {
-      void unlisten.then((fn) => fn());
+      void unInsert.then((fn) => fn());
+      void unEdit.then((fn) => fn());
     };
   }, [loadDocument]);
 

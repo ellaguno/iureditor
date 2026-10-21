@@ -58,6 +58,28 @@ fn insert_link(arg: &str) -> Option<InsertLink> {
     Some(InsertLink { text: get("text").filter(|t| !t.is_empty())?, path: get("path").filter(|p| !p.is_empty()) })
 }
 
+/// Enlace `iureditor://edit?action=<delete-word|delete-line|undo>&path=<ruta opcional>`:
+/// edición mínima por voz (IureVoz), también sin tomar el foco.
+#[derive(Clone, serde::Serialize)]
+struct EditLink {
+    action: String,
+    path: Option<String>,
+}
+
+fn edit_link(arg: &str) -> Option<EditLink> {
+    if !arg.to_ascii_lowercase().starts_with("iureditor:") {
+        return None;
+    }
+    let u = url::Url::parse(arg).ok()?;
+    let route = format!("{}{}", u.host_str().unwrap_or(""), u.path());
+    if route.trim_matches('/') != "edit" {
+        return None;
+    }
+    let get = |k: &str| u.query_pairs().find(|(q, _)| q == k).map(|(_, v)| v.into_owned());
+    let action = get("action").filter(|a| ["delete-word", "delete-line", "undo"].contains(&a.as_str()))?;
+    Some(EditLink { action, path: get("path").filter(|p| !p.is_empty()) })
+}
+
 /// Enlace `iureditor://iurefficient/doc?case=<id>&doc=<id>&name=<archivo>&title=<proyecto>`:
 /// abrir un documento de la instancia (se descarga como espejo local).
 #[derive(Clone, serde::Serialize)]
@@ -244,6 +266,11 @@ mod tests {
         assert!(super::insert_link("iureditor://insert?text=").is_none());
         assert!(super::insert_link("iureditor://open?path=/tmp/a.md").is_none());
         assert!(super::insert_link("/tmp/a.md").is_none());
+        let e = super::edit_link("iureditor://edit?action=delete-word&path=%2Ftmp%2Fa.md").unwrap();
+        assert_eq!(e.action, "delete-word");
+        assert_eq!(e.path.as_deref(), Some("/tmp/a.md"));
+        assert!(super::edit_link("iureditor://edit?action=rm-rf").is_none());
+        assert!(super::edit_link("iureditor://insert?text=x").is_none());
     }
 
     #[test]
@@ -314,6 +341,12 @@ pub fn run() {
             if let Some(link) = argv.iter().find_map(|a| insert_link(a)) {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.emit("insert-text", link);
+                }
+                return;
+            }
+            if let Some(link) = argv.iter().find_map(|a| edit_link(a)) {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.emit("edit-text", link);
                 }
                 return;
             }

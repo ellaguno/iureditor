@@ -5,6 +5,14 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## Sin publicar
+
+### Añadido
+- **Enlace `iureditor://edit?action=…&path=…`** para editar por voz sin tomar el
+  foco: `delete-word` borra la palabra antes del cursor, `delete-line` el renglón
+  (o el elemento de la lista) y `undo` deshace. IureVoz lo usa con «borra la
+  palabra», «borra la línea» y «deshaz».
+
 ## v1.12.1 — 2026-10-21
 
 ### Corregido

@@ -98,7 +98,7 @@ WEBKIT_DISABLE_DMABUF_RENDERER=1 iureditor
 
 From the side panel (Iurefficient tab, `Ctrl+Shift+I`) you can sign in to your Iurefficient instance to open documents from your projects, save a document there as a new one, and upload new versions (on demand or on every `Ctrl+S`). The password is not stored; only the session, in the operating system keychain. The same panel lists the other Iurefficient desktop apps and whether they are installed.
 
-iureditor also opens `iureditor://open?path=…` links and `.md` files passed on the command line or by double-click. With the app running, `iureditor://insert?text=…&path=…` inserts text at the cursor of that document (or the active one) without taking focus; IureVoz uses it for dictation.
+iureditor also opens `iureditor://open?path=…` links and `.md` files passed on the command line or by double-click. With the app running, `iureditor://insert?text=…&path=…` inserts text at the cursor of that document (or the active one) without taking focus; IureVoz uses it for dictation, along with `iureditor://edit?action=delete-word|delete-line|undo&path=…` for small voice edits.
 
 ## Part of the Iurefficient suite
 
