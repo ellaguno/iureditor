@@ -34,6 +34,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Selección legible en toda la app (diálogos, campos, código fuente): en modo
+   oscuro el resaltado por defecto de WebKitGTK dejaba el texto ilegible. */
+::selection {
+  @apply bg-primary-200 text-gray-900 dark:bg-primary-700 dark:text-white;
+}
+
 /* Evita el resaltado azul de selección de la webview en la UI (no en el editor) */
 .no-select {
   user-select: none;

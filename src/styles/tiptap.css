@@ -331,7 +331,7 @@
 
 /* Selection */
 .tiptap-editor ::selection {
-  @apply bg-primary-200 dark:bg-primary-800;
+  @apply bg-primary-200 text-gray-900 dark:bg-primary-700 dark:text-white;
 }
 
 /* Gap cursor */
