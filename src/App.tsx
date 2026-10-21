@@ -16,7 +16,7 @@ import { TitleBar } from './components/TitleBar';
 import { ResizeHandles } from './components/ResizeHandles';
 import { StatusBar } from './components/StatusBar';
 import { SourceView, type SourceViewHandle } from './components/SourceView';
-import { markdownToHtml } from './lib/markdown';
+import { insertarDictado } from './lib/dictado';
 import { languageForPath } from './lib/highlight';
 import { Sidebar } from './components/Sidebar';
 import { Palette, type PaletteMode, type PaletteCommand } from './components/Palette';
@@ -845,8 +845,7 @@ export default function App() {
 
   // Enlace `iureditor://insert?text=…&path=…` (IureVoz al dictar): inserta el texto en el
   // cursor del documento —el de `path` si viene, si no el activo— sin pedir el foco, así el
-  // dictado entra aunque la ventana esté detrás. Cada salto de línea abre un párrafo y un
-  // renglón que empieza como Markdown (#, -, 1., >) se convierte en su bloque.
+  // dictado entra aunque la ventana esté detrás (ver lib/dictado.ts: saltos, listas, títulos).
   useEffect(() => {
     if (!isTauri || detachPath) return;
     const insert = async ({ text, path }: { text: string; path: string | null }) => {
@@ -860,18 +859,7 @@ export default function App() {
       const editor = handle?.editor;
       const tab = tabsRef.current.find((tb) => tb.id === id);
       if (!editor || tab?.sourceMode) return;
-      const vacio = editor.state.selection.$from.parent.textContent === '';
-      let chain = editor.chain();
-      text.split('\n').forEach((line, i) => {
-        if (i > 0) chain = chain.splitBlock();
-        if (!line) return;
-        if ((i > 0 || vacio) && /^(#{1,6} |[-*+] |\d+\. |> )/.test(line)) {
-          chain = chain.insertContent(markdownToHtml(line));
-        } else {
-          chain = chain.insertContent({ type: 'text', text: line });
-        }
-      });
-      chain.scrollIntoView().run();
+      insertarDictado(editor, text);
     };
     const unlisten = listen<{ text: string; path: string | null }>('insert-text', (event) => void insert(event.payload));
     return () => {

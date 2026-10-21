@@ -5,6 +5,14 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## Sin publicar
+
+### Corregido
+- **Dictado por `iureditor://insert`: listas y párrafos.** Un salto de línea dentro
+  de una lista crea un elemento nuevo (antes un párrafo dentro del mismo), un
+  renglón sin marca sale de la lista, «- » solo empieza una viñeta para el texto
+  que llega después, y no se apilan párrafos vacíos.
+
 ## v1.12.0 — 2026-10-21
 
 ### Añadido
