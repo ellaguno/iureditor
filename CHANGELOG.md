@@ -18,6 +18,9 @@ añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
   - El mapa se edita: un clic en un nodo lleva el cursor a su elemento de la
     lista y la barra bajo el nodo añade ramas hijas o hermanas o las elimina. Los
     nodos con `[[enlace]]` abren la nota con Ctrl+clic.
+  - **Mapa de enlaces** (`/enlaces`): mapa con la nota al centro, sus enlaces,
+    los enlaces de esas notas y las notas que la enlazan, sacado del índice de la
+    carpeta.
   - En el PDF, DOCX y HTML exportados va el mapa en lugar de la lista; en
     Obsidian o GitHub se ve como un callout con su lista.
 
