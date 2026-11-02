@@ -54,7 +54,9 @@ describe('export DOCX: mapa mental', () => {
       null,
       'Mi nota'
     );
-    expect(renderFullSizeDiagram).toHaveBeenCalledWith('mindmap\n  Mi nota\n    Rama');
+    expect(renderFullSizeDiagram).toHaveBeenCalledWith(
+      '---\nconfig:\n  layout: tidy-tree\n---\nmindmap\n  Mi nota\n    Rama'
+    );
 
     const blob = await Packer.toBlob(doc);
     const { default: JSZip } = await import('jszip');

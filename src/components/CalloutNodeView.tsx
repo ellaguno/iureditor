@@ -36,9 +36,10 @@ type MapPlace = 'right' | 'below';
 const PLACE_KEY = 'iur.mindmapPlace';
 const readPlace = (): MapPlace => {
   try {
-    return localStorage.getItem(PLACE_KEY) === 'below' ? 'below' : 'right';
+    // Debajo por omisión: el árbol es ancho y a la derecha quedaba diminuto.
+    return localStorage.getItem(PLACE_KEY) === 'right' ? 'right' : 'below';
   } catch {
-    return 'right';
+    return 'below';
   }
 };
 

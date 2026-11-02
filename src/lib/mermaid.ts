@@ -144,8 +144,14 @@ const centerMindmapLabels = (svg: string): string => {
 export async function getMermaid() {
   if (mermaidInstance) return mermaidInstance;
   if (!mermaidInitPromise) {
-    mermaidInitPromise = import('mermaid').then((mod) => {
+    // Junto con mermaid se carga el acomodo en árbol (tidy-tree) que usan los
+    // mapas mentales: ramas ordenadas como la lista y estables al editar.
+    mermaidInitPromise = Promise.all([
+      import('mermaid'),
+      import('@mermaid-js/layout-tidy-tree'),
+    ]).then(([mod, tidyTree]) => {
       mermaidInstance = mod.default;
+      mermaidInstance.registerLayoutLoaders(tidyTree.default);
       applyConfig(mermaidInstance, BASE_CONFIG);
       return mermaidInstance;
     });

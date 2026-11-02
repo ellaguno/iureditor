@@ -58,6 +58,8 @@ const SHAPE_DELIMS: Record<MindmapShape, [string, string]> = {
   hexagon: ['{{', '}}'],
 };
 
+const TIDY_TREE = '---\nconfig:\n  layout: tidy-tree\n---\n';
+
 /** Centro por omisión: el nombre de la nota (o «Mapa mental» si no tiene). */
 export const mindmapFallbackRoot = (sourcePath: string | null | undefined): string =>
   sourcePath ? stripNoteExt(sourcePath.split(/[\\/]/).pop() ?? '') : t('mindmap.root');
@@ -186,5 +188,7 @@ export const mindmapFromCallout = (callout: MindmapJson, fallbackRoot: string): 
     }
   });
 
-  return { code: `mindmap\n${lines.join('\n')}`, links, nodes };
+  // Acomodo en árbol (registrado en lib/mermaid.ts): el radial por omisión
+  // reacomodaba todo el mapa con cada nodo nuevo.
+  return { code: `${TIDY_TREE}mindmap\n${lines.join('\n')}`, links, nodes };
 };

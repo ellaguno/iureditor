@@ -5,9 +5,16 @@ import StarterKit from '@tiptap/starter-kit';
 import { Callout } from '../extensions/callout';
 import { WikiLink } from '../extensions/wikiLink';
 import { markdownToHtml, buildTurndownService } from '../lib/markdown';
-import { mindmapFromCallout, mindmapFallbackRoot, isMindmapCallout } from '../lib/mindmap';
+import { mindmapFromCallout as fromCallout, mindmapFallbackRoot, isMindmapCallout } from '../lib/mindmap';
 import type { MindmapJson } from '../lib/mindmap';
 import { nodeAt, addChild, addSibling, removeNode, canRemove, labelRange } from '../lib/mindmapEdit';
+
+const TIDY = '---\nconfig:\n  layout: tidy-tree\n---\n';
+/** Código sin el encabezado de acomodo (se prueba aparte). */
+const mindmapFromCallout = (...args: Parameters<typeof fromCallout>) => {
+  const r = fromCallout(...args);
+  return { ...r, code: r.code.startsWith(TIDY) ? r.code.slice(TIDY.length) : `SIN-ENCABEZADO\n${r.code}` };
+};
 
 const extensions = [StarterKit.configure({ link: false }), Callout, WikiLink];
 
@@ -64,6 +71,10 @@ describe('mapa mental: código mermaid', () => {
     );
     expect([...links.keys()]).toEqual([4]);
     expect(links.get(4)).toMatchObject({ target: 'Otra nota', alias: 'la otra' });
+  });
+
+  it('pide el acomodo en árbol', () => {
+    expect(fromCallout(firstCallout('> [!MINDMAP] C\n> - x'), 'n').code.startsWith(TIDY)).toBe(true);
   });
 
   it('sin centro usa el nombre de la nota', () => {

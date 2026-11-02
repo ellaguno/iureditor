@@ -10,7 +10,9 @@ añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 ### Añadido
 - **Mapas mentales.** Un callout `> [!MINDMAP] Centro` con una lista con sangría
   se dibuja como mapa mental (mermaid) junto a la lista, a la derecha o debajo, y
-  se actualiza mientras escribes. Negritas y cursivas pasan a los nodos.
+  se actualiza mientras escribes. Negritas y cursivas pasan a los nodos. El mapa
+  se dibuja como árbol (ramas alternadas a izquierda y derecha, en el orden de la
+  lista) y no se reacomoda entero al añadir o quitar ramas.
   - El botón de mapa mental de la barra convierte la lista del cursor en mapa (el
     párrafo previo es el centro) y lo deshace; también `/mapa`.
   - Forma de los nodos en la cabecera (cuadrado, redondeado, círculo, nube,
