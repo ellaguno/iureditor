@@ -27,6 +27,25 @@ export interface MindmapCode {
   links: Map<number, WikiParts>;
 }
 
+/** Formas de nodo de mermaid. `default` es la de mermaid sin delimitadores
+ *  (texto subrayado). En markdown van como metadato del callout:
+ *  `> [!MINDMAP|bang] Centro`. */
+export const MINDMAP_SHAPES = ['default', 'square', 'rounded', 'circle', 'cloud', 'bang', 'hexagon'] as const;
+export type MindmapShape = (typeof MINDMAP_SHAPES)[number];
+
+export const isMindmapShape = (s: unknown): s is MindmapShape =>
+  typeof s === 'string' && (MINDMAP_SHAPES as readonly string[]).includes(s);
+
+const SHAPE_DELIMS: Record<MindmapShape, [string, string]> = {
+  default: ['', ''],
+  square: ['[', ']'],
+  rounded: ['(', ')'],
+  circle: ['((', '))'],
+  cloud: [')', '('],
+  bang: ['))', '(('],
+  hexagon: ['{{', '}}'],
+};
+
 /** Centro por omisión: el nombre de la nota (o «Mapa mental» si no tiene). */
 export const mindmapFallbackRoot = (sourcePath: string | null | undefined): string =>
   sourcePath ? stripNoteExt(sourcePath.split(/[\\/]/).pop() ?? '') : t('mindmap.root');
@@ -113,16 +132,17 @@ export const mindmapFromCallout = (callout: MindmapJson, fallbackRoot: string): 
   const links = new Map<number, WikiParts>();
   let count = 0;
   const indent = (level: number) => '  '.repeat(level + 1);
+  const shape = isMindmapShape(callout.attrs?.shape) ? callout.attrs.shape : 'default';
+  const [open, close] = SHAPE_DELIMS[shape];
 
-  // Todos los nodos con la forma por omisión (también el centro, que mermaid
-  // ya resalta): con htmlLabels:false el círculo `((…))` y el redondeado
-  // `(…)` descentran la etiqueta y el texto se sale de la forma.
+  // Todos los nodos con la forma del mapa (el centro lo resalta mermaid con
+  // su color). Con delimitadores el nodo lleva un id (`n3[Texto]`).
   const addNode = (level: number, content: MindmapJson[] | undefined) => {
     const { label, link } = inlineLabel(content);
     const text = label || '…';
     if (link) links.set(count, link);
+    lines.push(`${indent(level)}${open ? `n${count}${open}${text}${close}` : text}`);
     count++;
-    lines.push(`${indent(level)}${text}`);
   };
 
   const addList = (list: MindmapJson, level: number) => {

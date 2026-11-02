@@ -119,6 +119,28 @@ const applyConfig = (m: typeof import('mermaid').default, config: object) => {
 const stripHtmlInLabels = (code: string): string =>
   code.replace(/<\/?(?:b|strong|i|em|u|s|small|sup|sub|span|font|mark)(?:\s[^>]*)?>/gi, '');
 
+// Mapas mentales con etiquetas <text> (htmlLabels:false): en las formas
+// cuadrado, redondeado, círculo y hexágono mermaid deja la etiqueta en
+// `translate(0, y)` con el texto anclado al inicio, así que empieza en el
+// centro del nodo y se sale por la derecha. Anclarlo al medio lo centra (cada
+// renglón por separado); en el resto de formas la etiqueta ya viene corrida
+// (`translate(-ancho/2, y)`) y no se toca. Se serializa con XMLSerializer
+// porque el SVG también va a resvg (export PNG/DOCX), que exige XML válido.
+const centerMindmapLabels = (svg: string): string => {
+  if (!svg.includes('mindmap-node')) return svg;
+  const holder = document.createElement('div');
+  holder.innerHTML = svg;
+  const root = holder.querySelector('svg');
+  if (!root) return svg;
+  let changed = false;
+  root.querySelectorAll('g.mindmap-node > g.label').forEach((label) => {
+    if (!/^translate\(\s*0\s*[,\s]/.test(label.getAttribute('transform') ?? '')) return;
+    label.querySelectorAll('text').forEach((text) => text.setAttribute('text-anchor', 'middle'));
+    changed = true;
+  });
+  return changed ? new XMLSerializer().serializeToString(root) : svg;
+};
+
 export async function getMermaid() {
   if (mermaidInstance) return mermaidInstance;
   if (!mermaidInitPromise) {
@@ -173,7 +195,7 @@ export function renderMermaidSvg(
     applyConfig(m, theme !== 'light' && isDarkTheme() ? DARK_CONFIG : BASE_CONFIG);
     const id = `iur-mermaid-${++renderCounter}`;
     const { svg } = await m.render(id, stripHtmlInLabels(code));
-    return svg;
+    return centerMindmapLabels(svg);
   });
 }
 
@@ -188,7 +210,7 @@ export function renderFullSizeDiagram(code: string): Promise<string> {
 
     applyConfig(m, FULL_SIZE_CONFIG);
     const { svg } = await m.render(id, stripHtmlInLabels(code));
-    return svg;
+    return centerMindmapLabels(svg);
   });
 }
 

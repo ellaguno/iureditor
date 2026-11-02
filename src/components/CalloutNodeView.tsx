@@ -15,7 +15,7 @@ import {
 import { CALLOUT_TYPES, CALLOUT_LABEL_KEY } from '../extensions/callout';
 import type { CalloutType } from '../extensions/callout';
 import { t, useLang } from '../lib/i18n';
-import { MindmapView } from './MindmapView';
+import { MindmapView, MindmapShapeMenu } from './MindmapView';
 
 type IconType = React.ComponentType<{ className?: string }>;
 
@@ -107,18 +107,24 @@ export const CalloutNodeView = ({ node, editor, updateAttributes }: NodeViewProp
           )}
         </div>
         {mindmap && (
-          <button
-            type="button"
-            title={place === 'right' ? t('mindmap.placeBelow') : t('mindmap.placeRight')}
-            onClick={togglePlace}
-            className="iur-callout-title opacity-70 hover:opacity-100"
-          >
-            {place === 'right' ? (
-              <PanelBottom className="w-4 h-4" />
-            ) : (
-              <PanelRight className="w-4 h-4" />
-            )}
-          </button>
+          <div className="flex items-center gap-3">
+            <MindmapShapeMenu
+              shape={node.attrs.shape}
+              onChange={(shape) => updateAttributes({ shape })}
+            />
+            <button
+              type="button"
+              title={place === 'right' ? t('mindmap.placeBelow') : t('mindmap.placeRight')}
+              onClick={togglePlace}
+              className="iur-callout-title opacity-70 hover:opacity-100"
+            >
+              {place === 'right' ? (
+                <PanelBottom className="w-4 h-4" />
+              ) : (
+                <PanelRight className="w-4 h-4" />
+              )}
+            </button>
+          </div>
         )}
       </div>
       {/* Misma estructura con y sin mapa: cambiar de tipo no debe remontar

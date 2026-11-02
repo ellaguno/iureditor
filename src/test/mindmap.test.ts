@@ -136,3 +136,29 @@ describe('mapa mental: convertir una lista', () => {
     editor.destroy();
   });
 });
+
+describe('mapa mental: forma de los nodos', () => {
+  const md = '> [!MINDMAP|bang] Centro\n> - Rama (uno)\n>   - Sub';
+
+  it('el metadato `|forma` llega al callout y vuelve igual al guardar', () => {
+    const callout = firstCallout(md);
+    expect(callout.attrs).toMatchObject({ type: 'mindmap', shape: 'bang' });
+    const saved = buildTurndownService().turndown(generateHTML(docOf(md), extensions));
+    expect(saved).toContain('> [!MINDMAP|bang] Centro');
+  });
+
+  it('cada nodo lleva id y los delimitadores de su forma', () => {
+    expect(mindmapFromCallout(firstCallout(md), 'n').code).toBe(
+      ['mindmap', '  n0))Centro((', '    n1))Rama （uno）((', '      n2))Sub(('].join('\n')
+    );
+    const square = firstCallout(md.replace('|bang', '|square'));
+    expect(mindmapFromCallout(square, 'n').code.split('\n')[1]).toBe('  n0[Centro]');
+  });
+
+  it('una forma desconocida cae en la de por omisión; otros callouts no aceptan metadato', () => {
+    expect(mindmapFromCallout(firstCallout(md.replace('|bang', '|rara')), 'n').code.split('\n')[1]).toBe(
+      '  Centro'
+    );
+    expect(markdownToHtml('> [!NOTE|x] hola')).not.toContain('data-callout');
+  });
+});

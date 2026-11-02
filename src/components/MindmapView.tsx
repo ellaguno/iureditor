@@ -1,17 +1,116 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Editor } from '@tiptap/core';
 import type { Node as PMNode } from '@tiptap/pm/model';
-import { AlertTriangle, Download, Image as ImageIcon } from 'lucide-react';
+import {
+  AlertTriangle,
+  Download,
+  Image as ImageIcon,
+  ChevronDown,
+  Underline,
+  Square,
+  RectangleHorizontal,
+  Circle,
+  Cloud,
+  Zap,
+  Hexagon,
+} from 'lucide-react';
 import {
   renderMermaidSvg,
   useDarkTheme,
   cleanupMermaidOrphans,
   lightSvgElement,
 } from '../lib/mermaid';
-import { mindmapFromCallout, mindmapFallbackRoot } from '../lib/mindmap';
+import { mindmapFromCallout, mindmapFallbackRoot, MINDMAP_SHAPES, isMindmapShape } from '../lib/mindmap';
+import type { MindmapShape } from '../lib/mindmap';
 import { saveSvg, savePng } from '../lib/diagramExport';
 import { getLinkContext } from '../lib/linkContext';
 import { t } from '../lib/i18n';
+
+type IconType = React.ComponentType<{ className?: string }>;
+
+const SHAPE_ICONS: Record<MindmapShape, IconType> = {
+  default: Underline,
+  square: Square,
+  rounded: RectangleHorizontal,
+  circle: Circle,
+  cloud: Cloud,
+  bang: Zap,
+  hexagon: Hexagon,
+};
+
+// Clave i18n literal por forma (t() exige claves de la unión).
+const SHAPE_LABEL_KEY = {
+  default: 'mindmap.shape.default',
+  square: 'mindmap.shape.square',
+  rounded: 'mindmap.shape.rounded',
+  circle: 'mindmap.shape.circle',
+  cloud: 'mindmap.shape.cloud',
+  bang: 'mindmap.shape.bang',
+  hexagon: 'mindmap.shape.hexagon',
+} as const;
+
+/** Selector de la forma de los nodos, en la cabecera del callout. */
+export const MindmapShapeMenu = ({
+  shape,
+  onChange,
+}: {
+  shape: unknown;
+  onChange: (shape: MindmapShape | null) => void;
+}) => {
+  const current: MindmapShape = isMindmapShape(shape) ? shape : 'default';
+  const CurrentIcon = SHAPE_ICONS[current];
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener('click', close);
+    return () => window.removeEventListener('click', close);
+  }, [open]);
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        title={t('mindmap.shape')}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((o) => !o);
+        }}
+        className="iur-callout-title opacity-70 hover:opacity-100"
+      >
+        <CurrentIcon className="w-4 h-4" />
+        <span className="font-normal">{t(SHAPE_LABEL_KEY[current])}</span>
+        <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-20 min-w-[160px] py-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl">
+          {MINDMAP_SHAPES.map((sh) => {
+            const ShIcon = SHAPE_ICONS[sh];
+            return (
+              <button
+                key={sh}
+                type="button"
+                onClick={() => {
+                  onChange(sh === 'default' ? null : sh);
+                  setOpen(false);
+                }}
+                className={`w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 ${
+                  sh === current
+                    ? 'text-primary-700 dark:text-primary-300 font-medium'
+                    : 'text-gray-700 dark:text-gray-200'
+                }`}
+              >
+                <ShIcon className="w-4 h-4 opacity-70" />
+                {t(SHAPE_LABEL_KEY[sh])}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const NODE_INDEX_RE = /-node_(\d+)$/;
 

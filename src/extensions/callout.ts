@@ -57,6 +57,12 @@ export const Callout = Node.create({
         },
         renderHTML: (attrs) => ({ 'data-callout': attrs.type }),
       },
+      // Forma de los nodos de un mapa mental (`> [!MINDMAP|forma]`).
+      shape: {
+        default: null,
+        parseHTML: (el) => el.getAttribute('data-shape'),
+        renderHTML: (attrs) => (attrs.shape ? { 'data-shape': attrs.shape } : {}),
+      },
     };
   },
 
