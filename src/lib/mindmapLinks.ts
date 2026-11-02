@@ -15,6 +15,8 @@ export interface LinkMapOptions {
   maxSub?: number;
   /** Título de la rama de notas que enlazan aquí. */
   backlinksLabel: string;
+  /** Forma de los nodos (se conserva al regenerar). */
+  shape?: string | null;
 }
 
 /** Notas (rutas, sin repetir) a las que enlaza `sourcePath` en `content`. */
@@ -41,12 +43,14 @@ export const buildLinkMap = (
   index: VaultIndex,
   sourcePath: string,
   content: string,
-  { maxBranches = 20, maxSub = 8, backlinksLabel }: LinkMapOptions
+  { maxBranches = 20, maxSub = 8, backlinksLabel, shape }: LinkMapOptions
 ): string => {
   const self = normPath(sourcePath);
   const link = (path: string) =>
     formatWikiLink({ target: index.linkTextFor(path, sourcePath), heading: '', alias: '' });
-  const lines = [`> [!MINDMAP] ${stripNoteExt(sourcePath.split(/[\\/]/).pop() ?? '')}`];
+  // `links` marca el mapa como generado: su cabecera ofrece regenerarlo.
+  const meta = shape ? `${shape} links` : 'links';
+  const lines = [`> [!MINDMAP|${meta}] ${stripNoteExt(sourcePath.split(/[\\/]/).pop() ?? '')}`];
 
   for (const path of linkedNotes(index, sourcePath, content).slice(0, maxBranches)) {
     lines.push(`> - ${link(path)}`);

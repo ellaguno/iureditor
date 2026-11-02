@@ -27,11 +27,7 @@ import { SlashMenu } from '../components/SlashMenu';
 import { CALLOUT_TYPES, CALLOUT_LABEL_KEY } from './callout';
 import type { CalloutType } from './callout';
 import { t } from '../lib/i18n';
-import { vault } from '../lib/vault';
-import { markdownToHtml, buildTurndownService } from '../lib/markdown';
-import { buildLinkMap } from '../lib/mindmapLinks';
-import { mindmapFallbackRoot } from '../lib/mindmap';
-import { formatWikiLink } from '../lib/wikilinks';
+import { insertLinkMap } from '../lib/linkMapEditor';
 
 type IconType = React.ComponentType<{ className?: string }>;
 
@@ -50,28 +46,6 @@ const CALLOUT_ICONS: Record<CalloutType, IconType> = {
   warning: AlertTriangle,
   caution: ShieldAlert,
   mindmap: Network,
-};
-
-/** Markdown del mapa de enlaces de la nota del editor. Con índice de la
- *  bóveda: enlaces, sus enlaces y las notas que la enlazan. Sin él (nota sin
- *  guardar): sólo los wikilinks del propio documento. */
-const linkMapMarkdown = (editor: Editor): string => {
-  const sourcePath: string | null = editor.storage.wikiLink?.sourcePath ?? null;
-  const index = vault.index;
-  if (sourcePath && index?.contains(sourcePath)) {
-    const content = buildTurndownService().turndown(editor.getHTML());
-    return buildLinkMap(index, sourcePath, content, { backlinksLabel: t('mindmap.backlinks') });
-  }
-  const seen = new Set<string>();
-  const lines = [`> [!MINDMAP] ${mindmapFallbackRoot(sourcePath)}`];
-  editor.state.doc.descendants((node) => {
-    if (node.type.name !== 'wikiLink') return;
-    const target = String(node.attrs.target ?? '');
-    if (!target || seen.has(target)) return;
-    seen.add(target);
-    lines.push(`> - ${formatWikiLink({ target, heading: '', alias: '' })}`);
-  });
-  return lines.join('\n');
 };
 
 // Se reconstruye en cada consulta para reflejar el idioma actual.
@@ -173,8 +147,8 @@ const buildItems = (): SlashItem[] => {
     keywords: 'mapa enlaces links graph grafo mindmap mind map notas backlinks',
     icon: Waypoints,
     command: ({ editor, range }) => {
-      const html = markdownToHtml(linkMapMarkdown(editor));
-      editor.chain().focus().deleteRange(range).insertContent(html).run();
+      editor.chain().focus().deleteRange(range).run();
+      insertLinkMap(editor);
     },
   });
 

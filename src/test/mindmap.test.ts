@@ -156,6 +156,14 @@ describe('mapa mental: forma de los nodos', () => {
     expect(mindmapFromCallout(square, 'n').code.split('\n')[1]).toBe('  n0[Centro]');
   });
 
+  it('`|forma links` marca un mapa de enlaces y vuelve igual al guardar', () => {
+    const src = '> [!MINDMAP|bang links] Centro\n> - [[A]]';
+    expect(firstCallout(src).attrs).toMatchObject({ shape: 'bang', links: true });
+    expect(firstCallout('> [!MINDMAP|links] C\n> - x').attrs).toMatchObject({ shape: null, links: true });
+    const saved = buildTurndownService().turndown(generateHTML(docOf(src), extensions));
+    expect(saved).toContain('> [!MINDMAP|bang links] Centro');
+  });
+
   it('una forma desconocida cae en la de por omisión; otros callouts no aceptan metadato', () => {
     expect(mindmapFromCallout(firstCallout(md.replace('|bang', '|rara')), 'n').code.split('\n')[1]).toBe(
       '  Centro'

@@ -597,17 +597,22 @@ export const markdownToHtml = (markdown: string): string => {
     };
     const flushQuote = () => {
       if (quoteBuffer.length === 0) return;
-      // `[!TIPO]` o, sólo en mapas mentales, `[!MINDMAP|forma]` (metadato
-      // estilo Obsidian: la forma de los nodos).
-      const marker = /^\[!(\w+)(?:\|([\w-]*))?\]\s*(.*)$/.exec(quoteBuffer[0]);
+      // `[!TIPO]` o, sólo en mapas mentales, `[!MINDMAP|forma links]`
+      // (metadato estilo Obsidian: la forma de los nodos y si es un mapa de
+      // enlaces generado).
+      const marker = /^\[!(\w+)(?:\|([\w -]*))?\]\s*(.*)$/.exec(quoteBuffer[0]);
       const type = marker?.[1].toLowerCase();
       const meta = marker?.[2];
       if (type && CALLOUT_TYPES.has(type) && (meta === undefined || type === 'mindmap')) {
         const body: string[] = [];
         if (marker?.[3]) body.push(marker[3]);
         for (let i = 1; i < quoteBuffer.length; i++) body.push(quoteBuffer[i]);
-        const shape = meta ? ` data-shape="${escapeHtmlAttr(meta.toLowerCase())}"` : '';
-        out.push(`<div data-callout="${type}"${shape}>${quoteBody(body)}</div>`);
+        const tokens = (meta ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+        const shapeToken = tokens.find((tk) => tk !== 'links');
+        const attrs =
+          (shapeToken ? ` data-shape="${escapeHtmlAttr(shapeToken)}"` : '') +
+          (tokens.includes('links') ? ' data-links=""' : '');
+        out.push(`<div data-callout="${type}"${attrs}>${quoteBody(body)}</div>`);
       } else {
         out.push(`<blockquote>${quoteBody(quoteBuffer)}</blockquote>`);
       }
@@ -711,8 +716,14 @@ export const buildTurndownService = (): TurndownService => {
             .map((l) => (l.trim() ? `> ${l}` : '>'))
             .join('\n')
         : '';
-      const shape = (node as HTMLElement).getAttribute('data-shape');
-      const meta = type === 'mindmap' && shape && shape !== 'default' ? `|${shape}` : '';
+      const el = node as HTMLElement;
+      const shape = el.getAttribute('data-shape');
+      const tokens =
+        type === 'mindmap'
+          ? [shape && shape !== 'default' ? shape : '', el.hasAttribute('data-links') ? 'links' : '']
+          : [];
+      const metaText = tokens.filter(Boolean).join(' ');
+      const meta = metaText ? `|${metaText}` : '';
       return `\n\n> [!${type.toUpperCase()}${meta}]${title}${body ? `\n${body}` : ''}\n\n`;
     },
   });

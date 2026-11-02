@@ -11,11 +11,13 @@ import {
   Network,
   PanelRight,
   PanelBottom,
+  RefreshCw,
 } from 'lucide-react';
 import { CALLOUT_TYPES, CALLOUT_LABEL_KEY } from '../extensions/callout';
 import type { CalloutType } from '../extensions/callout';
 import { t, useLang } from '../lib/i18n';
 import { MindmapView, MindmapShapeMenu } from './MindmapView';
+import { regenerateLinkMap } from '../lib/linkMapEditor';
 
 type IconType = React.ComponentType<{ className?: string }>;
 
@@ -108,6 +110,19 @@ export const CalloutNodeView = ({ node, editor, getPos, updateAttributes }: Node
         </div>
         {mindmap && (
           <div className="flex items-center gap-3">
+            {node.attrs.links && (
+              <button
+                type="button"
+                title={t('mindmap.regenerate')}
+                onClick={() => {
+                  const pos = getPos();
+                  if (pos !== undefined) regenerateLinkMap(editor, pos);
+                }}
+                className="iur-callout-title opacity-70 hover:opacity-100"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            )}
             <MindmapShapeMenu
               shape={node.attrs.shape}
               onChange={(shape) => updateAttributes({ shape })}

@@ -63,6 +63,12 @@ export const Callout = Node.create({
         parseHTML: (el) => el.getAttribute('data-shape'),
         renderHTML: (attrs) => (attrs.shape ? { 'data-shape': attrs.shape } : {}),
       },
+      // Mapa de enlaces generado (`> [!MINDMAP|links]`): se puede regenerar.
+      links: {
+        default: false,
+        parseHTML: (el) => el.hasAttribute('data-links'),
+        renderHTML: (attrs) => (attrs.links ? { 'data-links': '' } : {}),
+      },
     };
   },
 

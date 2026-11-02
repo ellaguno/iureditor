@@ -24,7 +24,7 @@ describe('mapa de enlaces', () => {
     });
     expect(md).toBe(
       [
-        '> [!MINDMAP] Inicio',
+        '> [!MINDMAP|links] Inicio',
         '> - [[Proyecto]]',
         // Sin volver al centro ni adjuntos.
         '>   - [[Tareas]]',
@@ -40,7 +40,12 @@ describe('mapa de enlaces', () => {
 
   it('usa el texto actual del editor, no el guardado', () => {
     const md = buildLinkMap(v, '/v/Inicio.md', 'Sólo [[Tareas]].', { backlinksLabel: 'B' });
-    expect(md.split('\n').slice(0, 2)).toEqual(['> [!MINDMAP] Inicio', '> - [[Tareas]]']);
+    expect(md.split('\n').slice(0, 2)).toEqual(['> [!MINDMAP|links] Inicio', '> - [[Tareas]]']);
+  });
+
+  it('conserva la forma en el metadato', () => {
+    const md = buildLinkMap(v, '/v/Tareas.md', '', { backlinksLabel: 'B', shape: 'bang' });
+    expect(md.split('\n')[0]).toBe('> [!MINDMAP|bang links] Tareas');
   });
 
   it('respeta los topes', () => {
@@ -49,6 +54,6 @@ describe('mapa de enlaces', () => {
       maxBranches: 1,
       maxSub: 0,
     });
-    expect(md).toBe('> [!MINDMAP] Inicio\n> - [[Proyecto]]');
+    expect(md).toBe('> [!MINDMAP|links] Inicio\n> - [[Proyecto]]');
   });
 });

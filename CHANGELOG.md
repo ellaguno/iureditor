@@ -20,7 +20,8 @@ añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
     nodos con `[[enlace]]` abren la nota con Ctrl+clic.
   - **Mapa de enlaces** (`/enlaces`): mapa con la nota al centro, sus enlaces,
     los enlaces de esas notas y las notas que la enlazan, sacado del índice de la
-    carpeta.
+    carpeta. Se marca como `> [!MINDMAP|links]` y su cabecera ofrece regenerarlo
+    con los enlaces actuales.
   - En el PDF, DOCX y HTML exportados va el mapa en lugar de la lista; en
     Obsidian o GitHub se ve como un callout con su lista.
 
