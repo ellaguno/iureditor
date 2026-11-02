@@ -43,7 +43,7 @@ const readPlace = (): MapPlace => {
 // NodeView de callouts: cabecera (icono + etiqueta + selector de tipo) no
 // editable, y cuerpo editable (NodeViewContent). El render/serialización a
 // markdown lo define callout.ts (renderHTML → <div data-callout>).
-export const CalloutNodeView = ({ node, editor, updateAttributes }: NodeViewProps) => {
+export const CalloutNodeView = ({ node, editor, getPos, updateAttributes }: NodeViewProps) => {
   useLang();
   const type = (node.attrs.type as CalloutType) || 'note';
   const Icon = ICONS[type] ?? Info;
@@ -131,7 +131,7 @@ export const CalloutNodeView = ({ node, editor, updateAttributes }: NodeViewProp
           el contenido editable. */}
       <div className={mindmap ? `iur-mindmap-layout iur-mindmap-${place}` : undefined}>
         <NodeViewContent className="iur-callout-body" />
-        {mindmap && <MindmapView node={node} editor={editor} />}
+        {mindmap && <MindmapView node={node} editor={editor} getPos={getPos} />}
       </div>
     </NodeViewWrapper>
   );

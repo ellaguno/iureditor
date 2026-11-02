@@ -7,6 +7,7 @@ import { WikiLink } from '../extensions/wikiLink';
 import { markdownToHtml, buildTurndownService } from '../lib/markdown';
 import { mindmapFromCallout, mindmapFallbackRoot, isMindmapCallout } from '../lib/mindmap';
 import type { MindmapJson } from '../lib/mindmap';
+import { nodeAt, addChild, addSibling, removeNode, canRemove, labelRange } from '../lib/mindmapEdit';
 
 const extensions = [StarterKit.configure({ link: false }), Callout, WikiLink];
 
@@ -160,5 +161,67 @@ describe('mapa mental: forma de los nodos', () => {
       '  Centro'
     );
     expect(markdownToHtml('> [!NOTE|x] hola')).not.toContain('data-callout');
+  });
+});
+
+describe('mapa mental: edición desde el dibujo', () => {
+  const MD = '> [!MINDMAP] Centro\n> - Rama 1\n>   - Sub 1.1\n> - Rama 2';
+
+  const setup = async (md = MD) => {
+    const { Editor } = await import('@tiptap/core');
+    const editor = new Editor({ extensions, content: markdownToHtml(md) });
+    // El callout es el primer bloque: posición 0.
+    const map = () => {
+      const callout = editor.state.doc.child(0);
+      return { callout, ...mindmapFromCallout(callout.toJSON(), 'n') };
+    };
+    const saved = () => buildTurndownService().turndown(editor.getHTML());
+    return { editor, map, saved };
+  };
+
+  it('cada nodo sabe de qué bloque sale y el cursor lo identifica', async () => {
+    const { editor, map } = await setup();
+    const { callout, nodes } = map();
+    expect(nodes.map((n) => n.kind)).toEqual(['root', 'item', 'item', 'item']);
+    const texts = nodes.map((ref) => {
+      const r = labelRange(callout, 0, ref)!;
+      return editor.state.doc.textBetween(r.from, r.to);
+    });
+    expect(texts).toEqual(['Centro', 'Rama 1', 'Sub 1.1', 'Rama 2']);
+    const r = labelRange(callout, 0, nodes[2])!;
+    expect(nodeAt(callout, 0, nodes, r.from + 1)).toBe(2);
+    expect(canRemove(nodes[0])).toBe(false);
+    editor.destroy();
+  });
+
+  it('rama hija, rama hermana y eliminar editan la lista', async () => {
+    const { editor, map, saved } = await setup();
+    let m = map();
+    addChild(editor, m.callout, 0, m.nodes[3]); // hija de «Rama 2»
+    editor.commands.insertContent('Sub 2.1');
+    m = map();
+    addSibling(editor, m.callout, 0, m.nodes[1]); // hermana de «Rama 1»
+    editor.commands.insertContent('Rama 1b');
+    m = map();
+    addChild(editor, m.callout, 0, m.nodes[0]); // desde el centro: primer nivel
+    editor.commands.insertContent('Rama 3');
+    expect(saved()).toBe(
+      '> [!MINDMAP] Centro\n> - Rama 1\n>   - Sub 1.1\n> - Rama 1b\n> - Rama 2\n>   - Sub 2.1\n> - Rama 3'
+    );
+    m = map();
+    removeNode(editor, m.callout, 0, m.nodes[2]); // «Sub 1.1», única hija: se va la sublista
+    m = map();
+    removeNode(editor, m.callout, 0, m.nodes[3]); // «Rama 2» con su hija
+    expect(saved()).toBe('> [!MINDMAP] Centro\n> - Rama 1\n> - Rama 1b\n> - Rama 3');
+    editor.destroy();
+  });
+
+  it('sin lista, la primera rama crea la lista tras el centro', async () => {
+    const { editor, map, saved } = await setup('> [!MINDMAP] Solo centro');
+    const m = map();
+    addChild(editor, m.callout, 0, m.nodes[0]);
+    editor.commands.insertContent('Primera');
+    expect(saved()).toBe('> [!MINDMAP] Solo centro\n> - Primera');
+    editor.destroy();
   });
 });

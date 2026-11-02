@@ -25,6 +25,18 @@ export interface MindmapCode {
    *  su etiqueta. Mermaid numera los nodos en ese mismo orden
    *  (`<id-del-svg>-node_N`), lo que permite hacerlos clicables. */
   links: Map<number, WikiParts>;
+  /** Origen de cada nodo (mismo índice), para editar la lista desde el mapa. */
+  nodes: MindmapNodeRef[];
+}
+
+/** De qué bloque del callout sale un nodo del mapa. */
+export interface MindmapNodeRef {
+  /** `root`: párrafo central; `fallback`: centro sin párrafo (nombre de la
+   *  nota); `item`: elemento de lista; `para`: párrafo suelto (rama). */
+  kind: 'root' | 'fallback' | 'item' | 'para';
+  /** Índices de hijo desde el callout hasta el bloque: el párrafo (`root`,
+   *  `para`) o el elemento de lista (`item`). Vacío en `fallback`. */
+  path: number[];
 }
 
 /** Formas de nodo de mermaid. `default` es la de mermaid sin delimitadores
@@ -130,28 +142,31 @@ const inlineLabel = (
 export const mindmapFromCallout = (callout: MindmapJson, fallbackRoot: string): MindmapCode => {
   const lines: string[] = [];
   const links = new Map<number, WikiParts>();
-  let count = 0;
+  const nodes: MindmapNodeRef[] = [];
   const indent = (level: number) => '  '.repeat(level + 1);
   const shape = isMindmapShape(callout.attrs?.shape) ? callout.attrs.shape : 'default';
   const [open, close] = SHAPE_DELIMS[shape];
 
   // Todos los nodos con la forma del mapa (el centro lo resalta mermaid con
   // su color). Con delimitadores el nodo lleva un id (`n3[Texto]`).
-  const addNode = (level: number, content: MindmapJson[] | undefined) => {
+  const addNode = (level: number, content: MindmapJson[] | undefined, ref: MindmapNodeRef) => {
     const { label, link } = inlineLabel(content);
     const text = label || '…';
-    if (link) links.set(count, link);
-    lines.push(`${indent(level)}${open ? `n${count}${open}${text}${close}` : text}`);
-    count++;
+    const index = nodes.length;
+    if (link) links.set(index, link);
+    lines.push(`${indent(level)}${open ? `n${index}${open}${text}${close}` : text}`);
+    nodes.push(ref);
   };
 
-  const addList = (list: MindmapJson, level: number) => {
-    for (const item of list.content ?? []) {
+  const addList = (list: MindmapJson, level: number, path: number[]) => {
+    (list.content ?? []).forEach((item, i) => {
       const children = item.content ?? [];
       const first = children.find((c) => c.type === 'paragraph' || c.type === 'heading');
-      addNode(level, first?.content);
-      for (const c of children) if (LISTS.has(c.type ?? '')) addList(c, level + 1);
-    }
+      addNode(level, first?.content, { kind: 'item', path: [...path, i] });
+      children.forEach((c, j) => {
+        if (LISTS.has(c.type ?? '')) addList(c, level + 1, [...path, i, j]);
+      });
+    });
   };
 
   const blocks = callout.content ?? [];
@@ -161,14 +176,15 @@ export const mindmapFromCallout = (callout: MindmapJson, fallbackRoot: string): 
   const firstList = blocks.findIndex((b) => LISTS.has(b.type ?? ''));
   // El centro sólo puede ir antes de la primera lista; después sería una rama.
   const hasRoot = rootIdx >= 0 && (firstList < 0 || rootIdx < firstList);
-  addNode(0, hasRoot ? blocks[rootIdx].content : [{ type: 'text', text: fallbackRoot }]);
+  if (hasRoot) addNode(0, blocks[rootIdx].content, { kind: 'root', path: [rootIdx] });
+  else addNode(0, [{ type: 'text', text: fallbackRoot }], { kind: 'fallback', path: [] });
   blocks.forEach((b, i) => {
     if (hasRoot && i === rootIdx) return;
-    if (LISTS.has(b.type ?? '')) addList(b, 1);
+    if (LISTS.has(b.type ?? '')) addList(b, 1, [i]);
     else if ((b.type === 'paragraph' || b.type === 'heading') && inlineLabel(b.content).label) {
-      addNode(1, b.content);
+      addNode(1, b.content, { kind: 'para', path: [i] });
     }
   });
 
-  return { code: `mindmap\n${lines.join('\n')}`, links };
+  return { code: `mindmap\n${lines.join('\n')}`, links, nodes };
 };

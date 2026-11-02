@@ -10,13 +10,16 @@ añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 ### Añadido
 - **Mapas mentales.** Un callout `> [!MINDMAP] Centro` con una lista con sangría
   se dibuja como mapa mental (mermaid) junto a la lista, a la derecha o debajo, y
-  se actualiza mientras escribes. El botón de mapa mental de la barra convierte la
-  lista del cursor en mapa (el párrafo previo es el centro) y lo deshace. En la cabecera se
-  elige la forma de los nodos (cuadrado, redondeado, círculo, nube, explosión o
-  hexágono), que se guarda como `> [!MINDMAP|bang]`. Negritas y cursivas pasan a los nodos, y los
-  nodos con `[[enlace]]` abren la nota con un clic. Se inserta con `/mapa`. En el
-  PDF, DOCX y HTML exportados va el mapa en lugar de la lista; en Obsidian o
-  GitHub se ve como un callout con su lista.
+  se actualiza mientras escribes. Negritas y cursivas pasan a los nodos.
+  - El botón de mapa mental de la barra convierte la lista del cursor en mapa (el
+    párrafo previo es el centro) y lo deshace; también `/mapa`.
+  - Forma de los nodos en la cabecera (cuadrado, redondeado, círculo, nube,
+    explosión o hexágono), guardada como `> [!MINDMAP|bang]`.
+  - El mapa se edita: un clic en un nodo lleva el cursor a su elemento de la
+    lista y la barra bajo el nodo añade ramas hijas o hermanas o las elimina. Los
+    nodos con `[[enlace]]` abren la nota con Ctrl+clic.
+  - En el PDF, DOCX y HTML exportados va el mapa en lugar de la lista; en
+    Obsidian o GitHub se ve como un callout con su lista.
 
 ## v1.13.0 — 2026-10-21
 

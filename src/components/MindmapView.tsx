@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEditorState } from '@tiptap/react';
 import type { Editor } from '@tiptap/core';
 import type { Node as PMNode } from '@tiptap/pm/model';
 import {
@@ -13,6 +14,10 @@ import {
   Cloud,
   Zap,
   Hexagon,
+  CornerDownRight,
+  Plus,
+  Trash2,
+  ExternalLink,
 } from 'lucide-react';
 import {
   renderMermaidSvg,
@@ -24,6 +29,7 @@ import { mindmapFromCallout, mindmapFallbackRoot, MINDMAP_SHAPES, isMindmapShape
 import type { MindmapShape } from '../lib/mindmap';
 import { saveSvg, savePng } from '../lib/diagramExport';
 import { getLinkContext } from '../lib/linkContext';
+import { nodeAt, focusNode, addChild, addSibling, removeNode, canRemove } from '../lib/mindmapEdit';
 import { t } from '../lib/i18n';
 
 type IconType = React.ComponentType<{ className?: string }>;
@@ -128,28 +134,46 @@ const markLinks = (svg: string, links: Map<number, unknown>): string => {
   return holder.innerHTML;
 };
 
+const TOOL_BTN =
+  'p-1 rounded text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-transparent';
+
 // Mapa mental de un callout `[!MINDMAP]`: se regenera (con debounce) al
-// editar la lista del callout. Los nodos con wikilink se abren con un clic,
-// igual que el enlace en el texto.
-export const MindmapView = ({ node, editor }: { node: PMNode; editor: Editor }) => {
+// editar la lista del callout. Es también un control de la lista: el nodo
+// del cursor se resalta, un clic lleva el cursor a su elemento (doble clic
+// selecciona su texto) y la barra bajo el nodo añade ramas o las elimina.
+// Ctrl+clic en un nodo con wikilink abre la nota.
+export const MindmapView = ({
+  node,
+  editor,
+  getPos,
+}: {
+  node: PMNode;
+  editor: Editor;
+  getPos: () => number | undefined;
+}) => {
   const dark = useDarkTheme();
   const sourcePath: string | null = editor.storage.wikiLink?.sourcePath ?? null;
-  const { code, links } = useMemo(
+  const { code, links, nodes } = useMemo(
     () => mindmapFromCallout(node.toJSON(), mindmapFallbackRoot(sourcePath)),
     [node, sourcePath]
   );
-  const hasBranches = useMemo(() => code.split('\n').length > 2, [code]);
-  const [svg, setSvg] = useState('');
+  const hasBranches = nodes.length > 1;
+  // SVG y el código del que salió: mientras llega el render de un cambio
+  // (debounce) el dibujo no corresponde a la lista y no se edita desde él.
+  const [rendered, setRendered] = useState({ svg: '', code: '' });
   const [error, setError] = useState<string | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const svg = rendered.svg;
+  const inSync = rendered.code === code;
 
   useEffect(() => {
     let cancelled = false;
     const id = setTimeout(() => {
       renderMermaidSvg(code)
-        .then((rendered) => {
+        .then((out) => {
           if (cancelled) return;
-          setSvg(markLinks(rendered, links));
+          setRendered({ svg: markLinks(out, links), code });
           setError(null);
         })
         .catch((err: unknown) => {
@@ -164,21 +188,71 @@ export const MindmapView = ({ node, editor }: { node: PMNode; editor: Editor }) 
     };
   }, [code, links, dark]);
 
-  const onClick = (e: React.MouseEvent) => {
-    const g = (e.target as Element).closest('g[id*="-node_"]');
+  // Nodo del cursor (sólo si el cursor está en el texto de un nodo).
+  const cursor = useEditorState({ editor, selector: ({ editor: e }) => e?.state.selection.from ?? -1 });
+  const pos = getPos();
+  const current = pos === undefined || cursor < 0 ? -1 : nodeAt(node, pos, nodes, cursor);
+  const currentRef = current >= 0 ? nodes[current] : null;
+
+  // Id del <svg> que generó mermaid: base de los ids de nodo (`<id>-node_N`).
+  const svgId = useMemo(() => /<svg[^>]*\sid="([\w-]+)"/.exec(svg)?.[1] ?? '', [svg]);
+
+  // Posición de la barra de herramientas: bajo el nodo resaltado.
+  const [toolPos, setToolPos] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const place = () => {
+      const wrap = wrapRef.current;
+      const g = current >= 0 && svgId ? wrap?.querySelector(`#${svgId}-node_${current}`) : null;
+      if (!wrap || !g || !inSync) return setToolPos(null);
+      const r = g.getBoundingClientRect();
+      const w = wrap.getBoundingClientRect();
+      setToolPos({ left: r.left - w.left + r.width / 2, top: r.bottom - w.top + 4 });
+    };
+    place();
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const ro = new ResizeObserver(place);
+    ro.observe(wrap);
+    const scroller = containerRef.current;
+    scroller?.addEventListener('scroll', place);
+    return () => {
+      ro.disconnect();
+      scroller?.removeEventListener('scroll', place);
+    };
+  }, [current, svgId, inSync]);
+
+  const indexOf = (target: EventTarget): number => {
+    const g = (target as Element).closest('g[id*="-node_"]');
     const m = g && NODE_INDEX_RE.exec(g.id);
-    const parts = m ? links.get(Number(m[1])) : undefined;
-    if (!parts) return;
-    e.preventDefault();
-    getLinkContext()?.open(parts, sourcePath);
+    return m ? Number(m[1]) : -1;
   };
+
+  const onClick = (e: React.MouseEvent) => {
+    const i = indexOf(e.target);
+    if (i < 0 || !inSync) return;
+    e.preventDefault();
+    const parts = links.get(i);
+    if (parts && (e.ctrlKey || e.metaKey)) {
+      getLinkContext()?.open(parts, sourcePath);
+      return;
+    }
+    if (pos !== undefined) focusNode(editor, node, pos, nodes[i], e.detail >= 2);
+  };
+
+  const act = (fn: typeof addChild) => {
+    if (pos !== undefined && currentRef) fn(editor, node, pos, currentRef);
+  };
+  const currentLink = current >= 0 ? links.get(current) : undefined;
 
   const getExportSvg = async (): Promise<SVGElement | null> =>
     dark ? lightSvgElement(code) : (containerRef.current?.querySelector('svg') ?? null);
   const fileName = mindmapFallbackRoot(sourcePath);
 
   return (
-    <div className="iur-mindmap group/map relative" contentEditable={false}>
+    <div ref={wrapRef} className="iur-mindmap group/map relative" contentEditable={false}>
+      {svgId && current >= 0 && inSync && (
+        <style>{`#${svgId}-node_${current} > :first-child { stroke: #0284c7; stroke-width: 3px; }`}</style>
+      )}
       {svg && (
         <div className="absolute top-1 right-1 z-10 hidden group-hover/map:flex gap-1">
           <button
@@ -218,6 +292,40 @@ export const MindmapView = ({ node, editor }: { node: PMNode; editor: Editor }) 
         onClick={onClick}
         dangerouslySetInnerHTML={{ __html: svg }}
       />
+      {toolPos && currentRef && (
+        <div
+          className="iur-mindmap-tools absolute z-10 -translate-x-1/2 flex gap-0.5 p-0.5 rounded-md border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 shadow-md"
+          style={{ left: toolPos.left, top: toolPos.top }}
+          // Sin robar el foco al editor: el cursor sigue en la lista.
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <button type="button" title={t('mindmap.addChild')} onClick={() => act(addChild)} className={TOOL_BTN}>
+            <CornerDownRight className="w-4 h-4" />
+          </button>
+          <button type="button" title={t('mindmap.addSibling')} onClick={() => act(addSibling)} className={TOOL_BTN}>
+            <Plus className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            title={t('mindmap.remove')}
+            disabled={!canRemove(currentRef)}
+            onClick={() => act(removeNode)}
+            className={TOOL_BTN}
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+          {currentLink && (
+            <button
+              type="button"
+              title={t('mindmap.openLink')}
+              onClick={() => getLinkContext()?.open(currentLink, sourcePath)}
+              className={TOOL_BTN}
+            >
+              <ExternalLink className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      )}
       {!hasBranches && (
         <p className="text-xs italic text-gray-500 dark:text-gray-400 text-center mt-1">
           {t('mindmap.hint')}
