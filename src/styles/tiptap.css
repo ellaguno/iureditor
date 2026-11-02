@@ -441,7 +441,7 @@
   @apply text-cyan-700 dark:text-cyan-300;
 }
 .iur-mindmap-layout {
-  @apply flex gap-3;
+  @apply relative flex gap-3;
 }
 .iur-mindmap-right {
   @apply flex-row items-start;
@@ -449,8 +449,19 @@
 .iur-mindmap-right > .iur-callout-body {
   @apply w-2/5 min-w-[12rem] shrink-0;
 }
-.iur-mindmap-below {
+.iur-mindmap-below,
+.iur-mindmap-map {
   @apply flex-col;
+}
+/* Sólo mapa: la lista sigue en el documento (y recibe el cursor al hacer clic
+   en un nodo), pero no se ve: lo que se escribe aparece en el mapa. */
+.iur-mindmap-map > .iur-callout-body {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .iur-mindmap {
   @apply flex-1 min-w-0 rounded-md bg-white dark:bg-gray-800 p-2 select-none;

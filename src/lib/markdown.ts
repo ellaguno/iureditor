@@ -607,10 +607,15 @@ export const markdownToHtml = (markdown: string): string => {
         const body: string[] = [];
         if (marker?.[3]) body.push(marker[3]);
         for (let i = 1; i < quoteBuffer.length; i++) body.push(quoteBuffer[i]);
+        // Metadato: forma, vista (`right`/`map`; `below` es la de omisión) y
+        // `links`, en cualquier orden.
         const tokens = (meta ?? '').toLowerCase().split(/\s+/).filter(Boolean);
-        const shapeToken = tokens.find((tk) => tk !== 'links');
+        const VIEWS = ['right', 'map', 'below'];
+        const shapeToken = tokens.find((tk) => tk !== 'links' && !VIEWS.includes(tk));
+        const viewToken = tokens.find((tk) => tk === 'right' || tk === 'map');
         const attrs =
           (shapeToken ? ` data-shape="${escapeHtmlAttr(shapeToken)}"` : '') +
+          (viewToken ? ` data-view="${viewToken}"` : '') +
           (tokens.includes('links') ? ' data-links=""' : '');
         out.push(`<div data-callout="${type}"${attrs}>${quoteBody(body)}</div>`);
       } else {
@@ -720,7 +725,11 @@ export const buildTurndownService = (): TurndownService => {
       const shape = el.getAttribute('data-shape');
       const tokens =
         type === 'mindmap'
-          ? [shape && shape !== 'default' ? shape : '', el.hasAttribute('data-links') ? 'links' : '']
+          ? [
+              shape && shape !== 'default' ? shape : '',
+              el.getAttribute('data-view') ?? '',
+              el.hasAttribute('data-links') ? 'links' : '',
+            ]
           : [];
       const metaText = tokens.filter(Boolean).join(' ');
       const meta = metaText ? `|${metaText}` : '';

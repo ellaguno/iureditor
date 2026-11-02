@@ -28,42 +28,61 @@ vi.stubGlobal('Image', LoadingImage);
 
 const { buildDocxDocument } = await import('../lib/exportDocx');
 
+const mindmapDoc = (view: string | null) => ({
+  type: 'doc',
+  content: [
+    {
+      type: 'callout',
+      attrs: { type: 'mindmap', view },
+      content: [
+        {
+          type: 'bulletList',
+          content: [
+            {
+              type: 'listItem',
+              content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Rama' }] }],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+});
+
+const documentXml = async (view: string | null) => {
+  const doc = await buildDocxDocument(mindmapDoc(view), null, 'Mi nota');
+  const blob = await Packer.toBlob(doc);
+  const { default: JSZip } = await import('jszip');
+  const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+  return zip.file('word/document.xml')!.async('string');
+};
+
 describe('export DOCX: mapa mental', () => {
-  it('sustituye el callout por la imagen del mapa', async () => {
-    const doc = await buildDocxDocument(
-      {
-        type: 'doc',
-        content: [
-          {
-            type: 'callout',
-            attrs: { type: 'mindmap' },
-            content: [
-              {
-                type: 'bulletList',
-                content: [
-                  {
-                    type: 'listItem',
-                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Rama' }] }],
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-      null,
-      'Mi nota'
-    );
+  it('dibuja el código del mapa', async () => {
+    await documentXml('map');
     expect(renderFullSizeDiagram).toHaveBeenCalledWith(
       '---\nconfig:\n  layout: tidy-tree\n---\nmindmap\n  Mi nota\n    Rama'
     );
+  });
 
-    const blob = await Packer.toBlob(doc);
-    const { default: JSZip } = await import('jszip');
-    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
-    const xml = await zip.file('word/document.xml')!.async('string');
+  it('sólo mapa: la imagen sin la lista', async () => {
+    const xml = await documentXml('map');
     expect(xml).toContain('<w:drawing>');
-    // La lista no se duplica como texto.
     expect(xml).not.toContain('>Rama<');
+  });
+
+  it('debajo (por omisión): la lista y luego el mapa', async () => {
+    const xml = await documentXml(null);
+    expect(xml.indexOf('>Rama<')).toBeGreaterThan(0);
+    expect(xml.indexOf('<w:drawing>')).toBeGreaterThan(xml.indexOf('>Rama<'));
+    expect(xml).not.toContain('<w:tbl>');
+  });
+
+  it('derecha: tabla sin bordes con la lista y el mapa lado a lado', async () => {
+    const xml = await documentXml('right');
+    const tbl = xml.slice(xml.indexOf('<w:tbl>'), xml.indexOf('</w:tbl>'));
+    expect(tbl).toContain('>Rama<');
+    expect(tbl).toContain('<w:drawing>');
+    expect(tbl.indexOf('>Rama<')).toBeLessThan(tbl.indexOf('<w:drawing>'));
   });
 });

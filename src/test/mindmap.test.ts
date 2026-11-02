@@ -175,6 +175,17 @@ describe('mapa mental: forma de los nodos', () => {
     expect(saved).toContain('> [!MINDMAP|bang links] Centro');
   });
 
+  it('`|right` y `|map` son la vista; `below` es la de omisión y no se escribe', () => {
+    const src = '> [!MINDMAP|bang right links] Centro\n> - x';
+    expect(firstCallout(src).attrs).toMatchObject({ shape: 'bang', view: 'right', links: true });
+    expect(firstCallout('> [!MINDMAP|map] C\n> - x').attrs).toMatchObject({ shape: null, view: 'map' });
+    expect(firstCallout('> [!MINDMAP|below] C\n> - x').attrs).toMatchObject({ shape: null, view: null });
+    const saved = buildTurndownService().turndown(generateHTML(docOf(src), extensions));
+    expect(saved).toContain('> [!MINDMAP|bang right links] Centro');
+    const below = buildTurndownService().turndown(generateHTML(docOf('> [!MINDMAP|below] C\n> - x'), extensions));
+    expect(below).toContain('> [!MINDMAP] C');
+  });
+
   it('una forma desconocida cae en la de por omisión; otros callouts no aceptan metadato', () => {
     expect(mindmapFromCallout(firstCallout(md.replace('|bang', '|rara')), 'n').code.split('\n')[1]).toBe(
       '  Centro'

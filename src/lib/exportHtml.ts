@@ -1,7 +1,8 @@
 import type { Editor } from '@tiptap/react';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { renderFullSizeDiagram } from './mermaid';
-import { isMindmapCallout, mindmapFromCallout, mindmapFallbackRoot } from './mindmap';
+import { isMindmapCallout, mindmapFromCallout, mindmapFallbackRoot, mindmapViewOf } from './mindmap';
+import type { MindmapView } from './mindmap';
 import { svgToPngDataUrl } from './diagramExport';
 import { basename } from './fileio';
 import { uniqueSlugs } from './outline';
@@ -63,20 +64,43 @@ export const buildExportHtml = async (
   container.innerHTML = editor.getHTML();
 
   // 0) Mapas mentales → bloque mermaid, que dibuja el paso 1. El código sale
-  //    del documento (mismo orden que en el HTML); en el export va el mapa,
-  //    no la lista de la que se genera.
-  const mindmaps: string[] = [];
+  //    del documento (mismo orden que en el HTML). Se exporta como se ve:
+  //    sólo el mapa, o la lista con el mapa debajo o a la derecha.
+  const mindmaps: { code: string; view: MindmapView }[] = [];
   editor.state.doc.descendants((n) => {
     const json = n.toJSON();
     if (isMindmapCallout(json)) {
-      mindmaps.push(mindmapFromCallout(json, mindmapFallbackRoot(filePath)).code);
+      mindmaps.push({
+        code: mindmapFromCallout(json, mindmapFallbackRoot(filePath)).code,
+        view: mindmapViewOf(json.attrs),
+      });
     }
   });
   container.querySelectorAll('div[data-callout="mindmap"]').forEach((el, i) => {
+    const { code = '', view = 'map' } = mindmaps[i] ?? {};
     const diagram = document.createElement('div');
     diagram.setAttribute('data-type', 'mermaid');
-    diagram.setAttribute('data-code', mindmaps[i] ?? '');
-    el.replaceWith(diagram);
+    diagram.setAttribute('data-code', code);
+    if (view === 'map') {
+      el.replaceWith(diagram);
+      return;
+    }
+    const box = document.createElement('div');
+    box.className = `mindmap-export mindmap-${view}`;
+    if (view === 'right') {
+      // Estilos en línea: valen igual en el HTML exportado y en el PDF.
+      box.style.cssText = 'display:flex;gap:1.5em;align-items:center';
+      const list = document.createElement('div');
+      list.style.cssText = 'flex:0 0 38%;min-width:0';
+      list.append(...Array.from(el.childNodes));
+      const map = document.createElement('div');
+      map.style.cssText = 'flex:1;min-width:0';
+      map.appendChild(diagram);
+      box.append(list, map);
+    } else {
+      box.append(...Array.from(el.childNodes), diagram);
+    }
+    el.replaceWith(box);
   });
 
   // 1) Mermaid → SVG full-size o PNG

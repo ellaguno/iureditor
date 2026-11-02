@@ -24,8 +24,11 @@ añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
     los enlaces de esas notas y las notas que la enlazan, sacado del índice de la
     carpeta. Se marca como `> [!MINDMAP|links]` y su cabecera ofrece regenerarlo
     con los enlaces actuales.
-  - En el PDF, DOCX y HTML exportados va el mapa en lugar de la lista; en
-    Obsidian o GitHub se ve como un callout con su lista.
+  - Tres vistas, guardadas en el documento: lista con el mapa debajo (por
+    omisión), lista y mapa lado a lado (`|right`) o sólo el mapa (`|map`; la lista
+    se oculta y se edita desde el mapa). El PDF, DOCX y HTML exportados lo
+    muestran tal como se ve. En Obsidian o GitHub se ve como un callout con su
+    lista.
 
 ## v1.13.0 — 2026-10-21
 

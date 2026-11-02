@@ -18,6 +18,8 @@ import type { CalloutType } from '../extensions/callout';
 import { t, useLang } from '../lib/i18n';
 import { MindmapView, MindmapShapeMenu } from './MindmapView';
 import { regenerateLinkMap } from '../lib/linkMapEditor';
+import { MINDMAP_VIEWS, mindmapViewOf } from '../lib/mindmap';
+import type { MindmapView as MindmapViewMode } from '../lib/mindmap';
 
 type IconType = React.ComponentType<{ className?: string }>;
 
@@ -30,18 +32,18 @@ const ICONS: Record<CalloutType, IconType> = {
   mindmap: Network,
 };
 
-// Posición del mapa mental respecto a su lista: preferencia de la vista, no
-// del documento (no viaja en el markdown).
-type MapPlace = 'right' | 'below';
-const PLACE_KEY = 'iur.mindmapPlace';
-const readPlace = (): MapPlace => {
-  try {
-    // Debajo por omisión: el árbol es ancho y a la derecha quedaba diminuto.
-    return localStorage.getItem(PLACE_KEY) === 'right' ? 'right' : 'below';
-  } catch {
-    return 'below';
-  }
+// Vista del mapa mental (propiedad del documento: decide también cómo se
+// exporta). «Sólo mapa» oculta la lista, que sigue editándose desde el mapa.
+const VIEW_ICONS: Record<MindmapViewMode, IconType> = {
+  below: PanelBottom,
+  right: PanelRight,
+  map: Network,
 };
+const VIEW_LABEL_KEY = {
+  below: 'mindmap.view.below',
+  right: 'mindmap.view.right',
+  map: 'mindmap.view.map',
+} as const;
 
 // NodeView de callouts: cabecera (icono + etiqueta + selector de tipo) no
 // editable, y cuerpo editable (NodeViewContent). El render/serialización a
@@ -52,16 +54,7 @@ export const CalloutNodeView = ({ node, editor, getPos, updateAttributes }: Node
   const Icon = ICONS[type] ?? Info;
   const [open, setOpen] = useState(false);
   const mindmap = type === 'mindmap';
-  const [place, setPlace] = useState<MapPlace>(readPlace);
-  const togglePlace = () => {
-    const next: MapPlace = place === 'right' ? 'below' : 'right';
-    setPlace(next);
-    try {
-      localStorage.setItem(PLACE_KEY, next);
-    } catch {
-      // Sin almacenamiento: la preferencia dura lo que la sesión.
-    }
-  };
+  const view = mindmapViewOf(node.attrs);
 
   useEffect(() => {
     if (!open) return;
@@ -128,24 +121,31 @@ export const CalloutNodeView = ({ node, editor, getPos, updateAttributes }: Node
               shape={node.attrs.shape}
               onChange={(shape) => updateAttributes({ shape })}
             />
-            <button
-              type="button"
-              title={place === 'right' ? t('mindmap.placeBelow') : t('mindmap.placeRight')}
-              onClick={togglePlace}
-              className="iur-callout-title opacity-70 hover:opacity-100"
-            >
-              {place === 'right' ? (
-                <PanelBottom className="w-4 h-4" />
-              ) : (
-                <PanelRight className="w-4 h-4" />
-              )}
-            </button>
+            <div className="iur-mindmap-views flex items-center">
+              {MINDMAP_VIEWS.map((v) => {
+                const ViewIcon = VIEW_ICONS[v];
+                return (
+                  <button
+                    key={v}
+                    type="button"
+                    title={t(VIEW_LABEL_KEY[v])}
+                    aria-pressed={view === v}
+                    onClick={() => updateAttributes({ view: v === 'below' ? null : v })}
+                    className={`iur-callout-title p-0.5 rounded ${
+                      view === v ? 'bg-cyan-200/70 dark:bg-cyan-800/60' : 'opacity-60 hover:opacity-100'
+                    }`}
+                  >
+                    <ViewIcon className="w-4 h-4" />
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
       {/* Misma estructura con y sin mapa: cambiar de tipo no debe remontar
           el contenido editable. */}
-      <div className={mindmap ? `iur-mindmap-layout iur-mindmap-${place}` : undefined}>
+      <div className={mindmap ? `iur-mindmap-layout iur-mindmap-${view}` : undefined}>
         <NodeViewContent className="iur-callout-body" />
         {mindmap && <MindmapView node={node} editor={editor} getPos={getPos} />}
       </div>

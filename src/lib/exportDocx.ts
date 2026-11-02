@@ -19,13 +19,15 @@ import {
   ShadingType,
   Table,
   TableCell,
+  TableBorders,
   TableRow,
   TextRun,
+  VerticalAlign,
   WidthType,
 } from 'docx';
 import type { FileChild } from 'docx';
 import { renderFullSizeDiagram } from './mermaid';
-import { isMindmapCallout, mindmapFromCallout } from './mindmap';
+import { isMindmapCallout, mindmapFromCallout, mindmapViewOf } from './mindmap';
 import { basename, inDir } from './fileio';
 import { t } from './i18n';
 import { wikiDisplay } from './wikilinks';
@@ -91,14 +93,15 @@ const imageRunFor = async (
   bytes: Uint8Array,
   type: DocxImageType,
   mime: string,
-  displayScale = 1
+  displayScale = 1,
+  maxWidth = CONTENT_WIDTH_PX
 ): Promise<ImageRun> => {
   const { w, h } = await imageDims(bytes, mime);
   let width = w / displayScale;
   let height = h / displayScale;
-  if (width > CONTENT_WIDTH_PX) {
-    height = (height * CONTENT_WIDTH_PX) / width;
-    width = CONTENT_WIDTH_PX;
+  if (width > maxWidth) {
+    height = (height * maxWidth) / width;
+    width = maxWidth;
   }
   return new ImageRun({
     type,
@@ -274,6 +277,28 @@ const codeBlockParagraphs = (code: string): Paragraph[] => {
   );
 };
 
+/** Diagrama mermaid → párrafo con su PNG (rasterizado en Rust), limitado a
+ *  `maxWidth`; si falla, va como código para no perderlo. */
+const diagramBlocks = async (code: string, maxWidth = CONTENT_WIDTH_PX): Promise<FileChild[]> => {
+  if (!code) return [];
+  try {
+    const svg = await renderFullSizeDiagram(code);
+    const b64 = await invoke<string>('render_svg_png', { svg, scale: 2 });
+    const bytes = base64ToBytes(b64);
+    const run = await imageRunFor(bytes, 'png', 'image/png', 2, maxWidth);
+    return [
+      new Paragraph({
+        children: [run],
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 120, after: 120 },
+      }),
+    ];
+  } catch (err) {
+    console.error('Mermaid → PNG falló, va como código:', err);
+    return codeBlockParagraphs(code);
+  }
+};
+
 /** Convierte un bloque ProseMirror en elementos docx. Recursivo y async
  *  (imágenes y mermaid). */
 const blockToDocx = async (
@@ -371,26 +396,8 @@ const blockToDocx = async (
     case 'codeBlock':
       return codeBlockParagraphs(node.content?.map((c) => c.text ?? '').join('') ?? '');
 
-    case 'mermaid': {
-      const code = ((node.attrs?.code as string) || '').trim();
-      if (!code) return [];
-      try {
-        const svg = await renderFullSizeDiagram(code);
-        const b64 = await invoke<string>('render_svg_png', { svg, scale: 2 });
-        const bytes = base64ToBytes(b64);
-        const run = await imageRunFor(bytes, 'png', 'image/png', 2);
-        return [
-          new Paragraph({
-            children: [run],
-            alignment: AlignmentType.CENTER,
-            spacing: { before: 120, after: 120 },
-          }),
-        ];
-      } catch (err) {
-        console.error('Mermaid → PNG falló, va como código:', err);
-        return codeBlockParagraphs(code);
-      }
-    }
+    case 'mermaid':
+      return diagramBlocks(((node.attrs?.code as string) || '').trim());
 
     case 'mathBlock': {
       const latex = String(node.attrs?.latex ?? '').trim();
@@ -482,14 +489,39 @@ const blockToDocx = async (
     }
 
     case 'callout': {
-      // Mapa mental: va el diagrama (como un bloque mermaid), no la lista.
-      if (isMindmapCallout(node)) {
-        const { code } = mindmapFromCallout(node, ctx.title);
-        return blockToDocx({ type: 'mermaid', attrs: { code } } as PMNode, ctx);
-      }
       const out: FileChild[] = [];
       for (const child of node.content ?? []) out.push(...(await blockToDocx(child, ctx)));
-      return out;
+      if (!isMindmapCallout(node)) return out;
+      // Mapa mental: se exporta como se ve — sólo el mapa, la lista con el
+      // mapa debajo, o lista y mapa lado a lado (tabla sin bordes).
+      const { code } = mindmapFromCallout(node, ctx.title);
+      const view = mindmapViewOf(node.attrs);
+      if (view === 'map') return diagramBlocks(code);
+      if (view === 'below') return [...out, ...(await diagramBlocks(code))];
+      const LIST_PCT = 38;
+      const cell = (children: FileChild[], pct: number) =>
+        new TableCell({
+          children: (children.length ? children : [new Paragraph('')]) as Paragraph[],
+          width: { size: pct, type: WidthType.PERCENTAGE },
+          verticalAlign: VerticalAlign.CENTER,
+        });
+      const mapWidth = Math.round((CONTENT_WIDTH_PX * (100 - LIST_PCT)) / 100);
+      return [
+        new Table({
+          rows: [
+            new TableRow({
+              children: [
+                cell(out, LIST_PCT),
+                cell(await diagramBlocks(code, mapWidth), 100 - LIST_PCT),
+              ],
+              cantSplit: true,
+            }),
+          ],
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          borders: TableBorders.NONE,
+        }),
+        new Paragraph({ spacing: { after: 120 } }),
+      ];
     }
 
     default: {

@@ -63,6 +63,12 @@ export const Callout = Node.create({
         parseHTML: (el) => el.getAttribute('data-shape'),
         renderHTML: (attrs) => (attrs.shape ? { 'data-shape': attrs.shape } : {}),
       },
+      // Vista del mapa (`> [!MINDMAP|right]`, `|map`; null = debajo).
+      view: {
+        default: null,
+        parseHTML: (el) => el.getAttribute('data-view'),
+        renderHTML: (attrs) => (attrs.view ? { 'data-view': attrs.view } : {}),
+      },
       // Mapa de enlaces generado (`> [!MINDMAP|links]`): se puede regenerar.
       links: {
         default: false,

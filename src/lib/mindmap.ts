@@ -58,6 +58,15 @@ const SHAPE_DELIMS: Record<MindmapShape, [string, string]> = {
   hexagon: ['{{', '}}'],
 };
 
+/** Cómo se ve (y se exporta) un mapa: lista y mapa debajo (por omisión),
+ *  lado a lado, o sólo el mapa (la lista queda oculta). En markdown:
+ *  `> [!MINDMAP|right]`, `> [!MINDMAP|map]`. */
+export const MINDMAP_VIEWS = ['below', 'right', 'map'] as const;
+export type MindmapView = (typeof MINDMAP_VIEWS)[number];
+
+export const mindmapViewOf = (attrs: Record<string, unknown> | undefined): MindmapView =>
+  attrs?.view === 'right' || attrs?.view === 'map' ? attrs.view : 'below';
+
 const TIDY_TREE = '---\nconfig:\n  layout: tidy-tree\n---\n';
 
 /** Centro por omisión: el nombre de la nota (o «Mapa mental» si no tiene). */
