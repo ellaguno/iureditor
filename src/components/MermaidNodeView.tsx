@@ -1,6 +1,6 @@
 import { NodeViewWrapper } from '@tiptap/react';
 import type { NodeViewProps } from '@tiptap/react';
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Pencil,
   Download,
@@ -8,7 +8,12 @@ import {
   AlertTriangle,
   ChevronDown,
 } from 'lucide-react';
-import { renderMermaidSvg, isDarkTheme } from '../lib/mermaid';
+import {
+  renderMermaidSvg,
+  useDarkTheme,
+  cleanupMermaidOrphans,
+  lightSvgElement,
+} from '../lib/mermaid';
 import { saveSvg, savePng } from '../lib/diagramExport';
 import { t, useLang } from '../lib/i18n';
 
@@ -44,48 +49,6 @@ const TEMPLATES = [
     codeKey: 'mermaid.code.pie',
   },
 ] as const;
-
-// Tema de la app (clase `dark` en <html>): un único MutationObserver
-// compartido por todos los diagramas, para re-renderizarlos con el tema de
-// mermaid que toca cuando el usuario cambia de tema (o lo cambia el SO en
-// modo sistema).
-const themeListeners = new Set<() => void>();
-let themeObserver: MutationObserver | null = null;
-const subscribeTheme = (cb: () => void) => {
-  themeListeners.add(cb);
-  if (!themeObserver) {
-    themeObserver = new MutationObserver(() => themeListeners.forEach((l) => l()));
-    themeObserver.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class'],
-    });
-  }
-  return () => {
-    themeListeners.delete(cb);
-    if (!themeListeners.size && themeObserver) {
-      themeObserver.disconnect();
-      themeObserver = null;
-    }
-  };
-};
-const useDarkTheme = () => useSyncExternalStore(subscribeTheme, isDarkTheme);
-
-/** SVG del diagrama con el tema claro (export SVG/PNG apto para imprimir,
- *  aunque en pantalla se vea con el tema oscuro). */
-const lightSvgElement = async (code: string): Promise<SVGElement | null> => {
-  const holder = document.createElement('div');
-  holder.innerHTML = await renderMermaidSvg(code, { theme: 'light' });
-  return holder.querySelector('svg');
-};
-
-// Limpia los nodos huérfanos que mermaid deja en el <body> cuando falla render.
-const cleanupMermaidOrphans = (keep?: HTMLElement | null) => {
-  document
-    .querySelectorAll('body > div[id^="diur-mermaid-"], body > [id^="iur-mermaid-"]')
-    .forEach((n) => {
-      if (!keep?.contains(n)) n.remove();
-    });
-};
 
 // NodeView de diagramas mermaid: render en vivo dentro del WYSIWYG. Al editar
 // se abre un panel con código a la izquierda y vista previa en vivo a la

@@ -25,6 +25,7 @@ import {
 } from 'docx';
 import type { FileChild } from 'docx';
 import { renderFullSizeDiagram } from './mermaid';
+import { isMindmapCallout, mindmapFromCallout } from './mindmap';
 import { basename, inDir } from './fileio';
 import { t } from './i18n';
 import { wikiDisplay } from './wikilinks';
@@ -217,6 +218,8 @@ interface Ctx {
   nextOlInstance: () => number;
   /** Etiqueta de nota al pie → id numérico OOXML. */
   fnIds: Map<string, number>;
+  /** Centro de los mapas mentales sin centro propio (el título). */
+  title: string;
 }
 
 const sep = (dir: string) => (dir.includes('\\') ? '\\' : '/');
@@ -478,6 +481,17 @@ const blockToDocx = async (
       ];
     }
 
+    case 'callout': {
+      // Mapa mental: va el diagrama (como un bloque mermaid), no la lista.
+      if (isMindmapCallout(node)) {
+        const { code } = mindmapFromCallout(node, ctx.title);
+        return blockToDocx({ type: 'mermaid', attrs: { code } } as PMNode, ctx);
+      }
+      const out: FileChild[] = [];
+      for (const child of node.content ?? []) out.push(...(await blockToDocx(child, ctx)));
+      return out;
+    }
+
     default: {
       // Nodo desconocido con contenido: procesa los hijos.
       if (node.content?.length) {
@@ -516,6 +530,7 @@ export const buildDocxDocument = async (
     docDir,
     nextOlInstance: () => ++olCounter,
     fnIds,
+    title,
   };
 
   // Contenido de cada nota (el texto de la definición, con sus marcas).

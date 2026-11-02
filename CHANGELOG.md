@@ -5,6 +5,17 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## Sin publicar
+
+### Añadido
+- **Mapas mentales.** Un callout `> [!MINDMAP] Centro` con una lista con sangría
+  se dibuja como mapa mental (mermaid) junto a la lista, a la derecha o debajo, y
+  se actualiza mientras escribes. El botón de mapa mental de la barra convierte la
+  lista del cursor en mapa (el párrafo previo es el centro) y lo deshace. Negritas y cursivas pasan a los nodos, y los
+  nodos con `[[enlace]]` abren la nota con un clic. Se inserta con `/mapa`. En el
+  PDF, DOCX y HTML exportados va el mapa en lugar de la lista; en Obsidian o
+  GitHub se ve como un callout con su lista.
+
 ## v1.13.0 — 2026-10-21
 
 ### Añadido

@@ -33,6 +33,7 @@ import {
   Asterisk,
   Info,
   Sigma,
+  Network,
 } from 'lucide-react';
 import { ToolbarButton, ToolbarDivider } from './ToolbarButton';
 import { LinkModal } from './LinkModal';
@@ -320,6 +321,13 @@ export const MenuBar = ({
             title={t('editor.insertCallout')}
           >
             <Info className="w-4 h-4" />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleMindmap().run()}
+            isActive={editor.isActive('callout', { type: 'mindmap' })}
+            title={t('editor.insertMindmap')}
+          >
+            <Network className="w-4 h-4" />
           </ToolbarButton>
           <ToolbarButton
             onClick={() => editor.chain().focus().insertMathInline().run()}

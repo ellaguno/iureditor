@@ -1,6 +1,7 @@
 import type { Editor } from '@tiptap/react';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { renderFullSizeDiagram } from './mermaid';
+import { isMindmapCallout, mindmapFromCallout, mindmapFallbackRoot } from './mindmap';
 import { svgToPngDataUrl } from './diagramExport';
 import { basename } from './fileio';
 import { uniqueSlugs } from './outline';
@@ -60,6 +61,23 @@ export const buildExportHtml = async (
 ): Promise<{ html: string; title: string }> => {
   const container = document.createElement('div');
   container.innerHTML = editor.getHTML();
+
+  // 0) Mapas mentales → bloque mermaid, que dibuja el paso 1. El código sale
+  //    del documento (mismo orden que en el HTML); en el export va el mapa,
+  //    no la lista de la que se genera.
+  const mindmaps: string[] = [];
+  editor.state.doc.descendants((n) => {
+    const json = n.toJSON();
+    if (isMindmapCallout(json)) {
+      mindmaps.push(mindmapFromCallout(json, mindmapFallbackRoot(filePath)).code);
+    }
+  });
+  container.querySelectorAll('div[data-callout="mindmap"]').forEach((el, i) => {
+    const diagram = document.createElement('div');
+    diagram.setAttribute('data-type', 'mermaid');
+    diagram.setAttribute('data-code', mindmaps[i] ?? '');
+    el.replaceWith(diagram);
+  });
 
   // 1) Mermaid → SVG full-size o PNG
   for (const node of Array.from(container.querySelectorAll('div[data-type="mermaid"]'))) {

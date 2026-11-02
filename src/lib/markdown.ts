@@ -582,7 +582,7 @@ export const markdownToHtml = (markdown: string): string => {
     let quoteBuffer: string[] = [];
 
     // Callout / admonición: primera línea `[!TIPO]` (GitHub/Obsidian).
-    const CALLOUT_TYPES = new Set(['note', 'tip', 'important', 'warning', 'caution']);
+    const CALLOUT_TYPES = new Set(['note', 'tip', 'important', 'warning', 'caution', 'mindmap']);
     // Cuerpo de la cita: si trae listas, se convierten en nodos reales (y el
     // resto en párrafos); si no, un único párrafo con saltos duros. Todo en
     // una sola línea para que el envoltorio quede entero ante STEP 7.
@@ -692,14 +692,22 @@ export const buildTurndownService = (): TurndownService => {
       node.nodeName === 'DIV' && node.getAttribute('data-callout') !== null,
     replacement: (content, node) => {
       const type = (node as HTMLElement).getAttribute('data-callout') || 'note';
-      const inner = content.trim();
+      let inner = content.trim();
+      // Mapa mental: el centro (primer párrafo de una línea) va en la línea
+      // del marcador, `> [!MINDMAP] Centro`, como título del callout.
+      let title = '';
+      const first = /^([^\n]+)(?:\n\n|$)/.exec(inner);
+      if (type === 'mindmap' && first && !/^\s*([-*+]|\d+[.)]|#|>)\s/.test(first[1])) {
+        title = ` ${first[1]}`;
+        inner = inner.slice(first[0].length).trim();
+      }
       const body = inner
         ? inner
             .split('\n')
             .map((l) => (l.trim() ? `> ${l}` : '>'))
             .join('\n')
         : '';
-      return `\n\n> [!${type.toUpperCase()}]${body ? `\n${body}` : ''}\n\n`;
+      return `\n\n> [!${type.toUpperCase()}]${title}${body ? `\n${body}` : ''}\n\n`;
     },
   });
 

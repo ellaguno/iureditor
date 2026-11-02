@@ -433,6 +433,37 @@
 .iur-callout-caution .iur-callout-title {
   @apply text-red-700 dark:text-red-300;
 }
+/* Mapa mental (cian): la lista a la izquierda o arriba y el mapa al lado. */
+.iur-callout-mindmap {
+  @apply border-cyan-400 bg-cyan-50/60 dark:bg-cyan-950/30 dark:border-cyan-500;
+}
+.iur-callout-mindmap .iur-callout-title {
+  @apply text-cyan-700 dark:text-cyan-300;
+}
+.iur-mindmap-layout {
+  @apply flex gap-3;
+}
+.iur-mindmap-right {
+  @apply flex-row items-start;
+}
+.iur-mindmap-right > .iur-callout-body {
+  @apply w-2/5 min-w-[12rem] shrink-0;
+}
+.iur-mindmap-below {
+  @apply flex-col;
+}
+.iur-mindmap {
+  @apply flex-1 min-w-0 rounded-md bg-white dark:bg-gray-800 p-2 select-none;
+}
+.iur-mindmap-svg svg {
+  @apply max-w-full h-auto;
+}
+.iur-mindmap-link {
+  cursor: pointer;
+}
+.iur-mindmap-link text {
+  text-decoration: underline;
+}
 
 /* ---------- Vista fuente con resaltado de sintaxis ---------- */
 /* Fondo oscuro en ambos temas (estilo editor de código); reutiliza la misma

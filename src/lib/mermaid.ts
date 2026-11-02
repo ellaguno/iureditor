@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from 'react';
+
 // Carga perezosa de mermaid (~2MB) sólo cuando aparece un diagrama.
 // Portado de MarkdownRenderer.tsx (Colaborador especialista).
 
@@ -65,6 +67,40 @@ const DARK_CONFIG = {
 /** ¿La app está en tema oscuro? (clase `dark` en <html>, ver prefs.ts). */
 export const isDarkTheme = (): boolean =>
   typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
+
+// Tema de la app (clase `dark` en <html>): un único MutationObserver
+// compartido por todos los diagramas, para re-renderizarlos con el tema de
+// mermaid que toca cuando el usuario cambia de tema (o lo cambia el SO en
+// modo sistema).
+const themeListeners = new Set<() => void>();
+let themeObserver: MutationObserver | null = null;
+const subscribeTheme = (cb: () => void) => {
+  themeListeners.add(cb);
+  if (!themeObserver) {
+    themeObserver = new MutationObserver(() => themeListeners.forEach((l) => l()));
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+  }
+  return () => {
+    themeListeners.delete(cb);
+    if (!themeListeners.size && themeObserver) {
+      themeObserver.disconnect();
+      themeObserver = null;
+    }
+  };
+};
+export const useDarkTheme = () => useSyncExternalStore(subscribeTheme, isDarkTheme);
+
+// Limpia los nodos huérfanos que mermaid deja en el <body> cuando falla render.
+export const cleanupMermaidOrphans = (keep?: HTMLElement | null) => {
+  document
+    .querySelectorAll('body > div[id^="diur-mermaid-"], body > [id^="iur-mermaid-"]')
+    .forEach((n) => {
+      if (!keep?.contains(n)) n.remove();
+    });
+};
 
 // Configuración actualmente aplicada a la instancia global de mermaid, para
 // re-inicializar sólo cuando cambia (tema de la app o render de export).
@@ -155,3 +191,11 @@ export function renderFullSizeDiagram(code: string): Promise<string> {
     return svg;
   });
 }
+
+/** SVG del diagrama con el tema claro (export SVG/PNG apto para imprimir,
+ *  aunque en pantalla se vea con el tema oscuro). */
+export const lightSvgElement = async (code: string): Promise<SVGElement | null> => {
+  const holder = document.createElement('div');
+  holder.innerHTML = await renderMermaidSvg(code, { theme: 'light' });
+  return holder.querySelector('svg');
+};

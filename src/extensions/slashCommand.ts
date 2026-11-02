@@ -20,6 +20,7 @@ import {
   AlertCircle,
   AlertTriangle,
   ShieldAlert,
+  Network,
 } from 'lucide-react';
 import { SlashMenu } from '../components/SlashMenu';
 import { CALLOUT_TYPES, CALLOUT_LABEL_KEY } from './callout';
@@ -42,6 +43,7 @@ const CALLOUT_ICONS: Record<CalloutType, IconType> = {
   important: AlertCircle,
   warning: AlertTriangle,
   caution: ShieldAlert,
+  mindmap: Network,
 };
 
 // Se reconstruye en cada consulta para reflejar el idioma actual.
@@ -140,9 +142,12 @@ const buildItems = (): SlashItem[] => {
 
   // Callouts (uno por tipo).
   for (const ct of CALLOUT_TYPES) {
+    const mindmap = ct === 'mindmap';
     items.push({
-      title: `${t('slash.callout')}: ${t(CALLOUT_LABEL_KEY[ct])}`,
-      keywords: `callout admonition aviso nota ${ct}`,
+      title: mindmap ? t(CALLOUT_LABEL_KEY[ct]) : `${t('slash.callout')}: ${t(CALLOUT_LABEL_KEY[ct])}`,
+      keywords: mindmap
+        ? 'mindmap mind map mapa mental diagrama ramas'
+        : `callout admonition aviso nota ${ct}`,
       icon: CALLOUT_ICONS[ct],
       command: ({ editor, range }) =>
         editor.chain().focus().deleteRange(range).setCallout(ct).run(),
