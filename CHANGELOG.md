@@ -5,7 +5,7 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
-## Sin publicar
+## v1.18.0 — 2026-11-06
 
 ### Añadido
 - **Análisis del documento** en el asistente. Bajo la pregunta se elige qué la
