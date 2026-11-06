@@ -40,6 +40,7 @@ export const Sidebar = ({
   onOpenMention,
   onOpenOutgoing,
   getSelection,
+  getDocument,
   onAssistantInsert,
 }: {
   view: SidebarView;
@@ -71,6 +72,7 @@ export const Sidebar = ({
   onOpenOutgoing: (occ: LinkOccurrence) => void;
   /** Para el asistente: texto seleccionado e inserción en el cursor. */
   getSelection: () => string;
+  getDocument: () => { name: string; markdown: string } | null;
   onAssistantInsert: (markdown: string, replace: boolean) => boolean;
 }) => (
   <div className="w-72 shrink-0 flex flex-col border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 no-select">
@@ -114,6 +116,7 @@ export const Sidebar = ({
         <AssistantPanel
           activePath={activePath}
           getSelection={getSelection}
+          getDocument={getDocument}
           onInsert={onAssistantInsert}
           onOpenIurefficient={() => onViewChange('iurefficient')}
         />

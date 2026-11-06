@@ -5,6 +5,18 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## Sin publicar
+
+### Añadido
+- **Análisis del documento** en el asistente. Bajo la pregunta se elige qué la
+  acompaña: nada, la selección o el documento completo. El botón de la lupa
+  ofrece análisis listos: revisar inconsistencias y errores, resumen y puntos
+  clave, qué le falta y, en un documento de un proyecto, contrastarlo con el
+  expediente. El documento se manda como texto (sin imágenes incrustadas), hasta
+  100 000 caracteres; más largo, se pide seleccionar la parte. Cada envío del
+  documento abre una conversación nueva en la instancia para no pagarlo de nuevo
+  en cada pregunta siguiente.
+
 ## v1.17.0 — 2026-11-06
 
 ### Añadido

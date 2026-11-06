@@ -482,6 +482,19 @@ export default function App() {
     return editor.state.doc.textBetween(from, to, '\n\n').trim();
   }, [activeHandle]);
 
+  /** Documento activo para el análisis del asistente: el texto de la vista
+   *  fuente si está abierta (o es texto plano), si no el Markdown del editor. */
+  const handleGetDocument = useCallback((): { name: string; markdown: string } | null => {
+    const tab = tabsRef.current.find((tb) => tb.id === activeIdRef.current);
+    if (!tab) return null;
+    const markdown =
+      tab.plain || tab.sourceMode
+        ? (sourceTexts.current.get(tab.id) ?? sourceTextRef.current)
+        : (activeHandle()?.getMarkdown() ?? '');
+    const name = tab.path ? (tab.path.split(/[\\/]/).pop() ?? tab.path) : t('app.untitled');
+    return { name, markdown };
+  }, [activeHandle]);
+
   /** Inserta Markdown (respuesta del asistente) en el editor visual activo:
    *  tras la selección (sin borrarla) o, con `replace`, en su lugar. */
   const handleAssistantInsert = useCallback(
@@ -2285,6 +2298,7 @@ export default function App() {
             }
             onOpenOutgoing={handleOpenOutgoing}
             getSelection={handleGetSelection}
+            getDocument={handleGetDocument}
             onAssistantInsert={handleAssistantInsert}
           />
         )}

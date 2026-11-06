@@ -41,3 +41,32 @@ describe('threadFor', () => {
     expect(threadFor('/d/a.md', 'case-1').messages).toEqual([]);
   });
 });
+
+import { buildDocumentMessage, countWords, prepareDocument, rotateConversation } from '../lib/assistant';
+
+describe('análisis del documento', () => {
+  it('quita las imágenes en base64 y conserva las de archivo', () => {
+    const md = 'Texto\n\n![firma](data:image/png;base64,AAAA)\n\n![logo](assets/logo.png)';
+    expect(prepareDocument(md)).toBe('Texto\n\n![firma]()\n\n![logo](assets/logo.png)');
+  });
+
+  it('manda el documento entre marcas y la instrucción al final', () => {
+    setLang('es');
+    expect(buildDocumentMessage('Resúmelo', 'demanda.md', '# Hechos')).toBe(
+      'Documento «demanda.md»:\n-----BEGIN DOCUMENT-----\n# Hechos\n-----END DOCUMENT-----\n\nResúmelo'
+    );
+  });
+
+  it('cuenta palabras', () => {
+    expect(countWords('  uno dos\n\ntres  ')).toBe(3);
+  });
+
+  it('rotar cambia la conversación y conserva los mensajes', () => {
+    const th = threadFor('/d/b.md', null);
+    th.messages.push({ role: 'user', content: 'hola' });
+    const before = th.conversation;
+    rotateConversation(th);
+    expect(th.conversation).not.toBe(before);
+    expect(th.messages).toHaveLength(1);
+  });
+});

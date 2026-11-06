@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowUp, Check, Copy, CornerDownLeft, Loader2, Replace, RotateCcw, Sparkles } from 'lucide-react';
+import { ArrowUp, Check, Copy, CornerDownLeft, FileSearch, FileText, Info, Loader2, Replace, RotateCcw, Sparkles } from 'lucide-react';
 import { t, useLang } from '../lib/i18n';
 import { iure, type IureMirror } from '../lib/iurefficient';
 import {
+  ANALYSES,
   ASSISTANT_SYSTEM_PROMPT,
+  DOC_CHAR_LIMIT,
+  buildDocumentMessage,
   buildQuestion,
+  countWords,
+  prepareDocument,
+  rotateConversation,
   stripCitations,
   threadFor,
   resetThread,
@@ -12,19 +18,26 @@ import {
   type AssistantMessage,
 } from '../lib/assistant';
 
+/** Qué acompaña a la pregunta. */
+type Context = 'none' | 'selection' | 'document';
+
 // Panel lateral «Asistente»: preguntas a la IA de Iurefficient para el documento
 // activo. Si el documento está vinculado a un proyecto, por omisión se pregunta
 // en el chat de ese proyecto (busca en sus documentos y cita las fuentes); si
-// no, en el chat general. La respuesta se inserta en el cursor como Markdown.
+// no, en el chat general. La pregunta puede llevar la selección o el documento
+// completo (análisis); la respuesta se inserta en el cursor como Markdown.
 export const AssistantPanel = ({
   activePath,
   getSelection,
+  getDocument,
   onInsert,
   onOpenIurefficient,
 }: {
   activePath: string | null;
   /** Texto seleccionado en el editor activo ('' si no hay). */
   getSelection: () => string;
+  /** Markdown y nombre del documento activo (null si no hay pestaña). */
+  getDocument: () => { name: string; markdown: string } | null;
   /** Inserta Markdown en el editor activo, tras la selección o (`replace`) en
    *  su lugar; false si no se pudo (vista fuente, texto plano). */
   onInsert: (markdown: string, replace: boolean) => boolean;
@@ -36,7 +49,8 @@ export const AssistantPanel = ({
   const [useCase, setUseCase] = useState(true);
   const [input, setInput] = useState('');
   const [selection, setSelection] = useState('');
-  const [withSelection, setWithSelection] = useState(true);
+  const [context, setContext] = useState<Context>('none');
+  const [analyzeOpen, setAnalyzeOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ index: number; text: string } | null>(null);
@@ -71,27 +85,64 @@ export const AssistantPanel = ({
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [thread.messages.length, busy]);
 
-  const refreshSelection = useCallback(() => setSelection(getSelection()), [getSelection]);
+  // Al enfocar la pregunta se relee la selección: si aparece una, pasa a ser el
+  // contexto; si ya no hay, la opción «Selección» deja de valer.
+  const refreshSelection = useCallback(() => {
+    const sel = getSelection();
+    setSelection(sel);
+    setContext((c) => (sel && c === 'none' ? 'selection' : !sel && c === 'selection' ? 'none' : c));
+  }, [getSelection]);
 
-  const send = async (text = input) => {
+  // Cierra el menú de análisis al hacer clic fuera.
+  useEffect(() => {
+    if (!analyzeOpen) return;
+    const close = () => setAnalyzeOpen(false);
+    window.addEventListener('click', close);
+    return () => window.removeEventListener('click', close);
+  }, [analyzeOpen]);
+
+  const send = async (text = input, ctx: Context = context, shown?: string) => {
     const question = text.trim();
     if (!question || busy) return;
-    const sel = withSelection ? selection : '';
+    const sel = ctx === 'selection' ? selection : '';
+    let message = buildQuestion(question, sel);
+    let document: AssistantMessage['document'];
+    if (ctx === 'document') {
+      const doc = getDocument();
+      const markdown = prepareDocument(doc?.markdown ?? '');
+      if (!doc || !markdown) {
+        setError(t('assistant.docEmpty'));
+        return;
+      }
+      if (markdown.length > DOC_CHAR_LIMIT) {
+        setError(t('assistant.docTooLong', { n: markdown.length.toLocaleString(), max: DOC_CHAR_LIMIT.toLocaleString() }));
+        return;
+      }
+      message = buildDocumentMessage(question, doc.name, markdown);
+      document = { name: doc.name, words: countWords(markdown) };
+      // El documento entra a una conversación nueva: si no, la instancia lo
+      // reenviaría (y cobraría) en cada pregunta siguiente junto con el
+      // documento de cualquier análisis anterior.
+      if (thread.messages.some((m) => m.role !== 'note')) {
+        rotateConversation(thread);
+        thread.messages.push({ role: 'note', content: t('assistant.docNotice') });
+      }
+    }
     const req = ++reqRef.current;
-    const asked: AssistantMessage = { role: 'user', content: question, selection: sel || undefined };
+    const asked: AssistantMessage = { role: 'user', content: shown ?? question, selection: sel || undefined, document };
     thread.messages.push(asked);
     setInput('');
     setBusy(true);
     setError(null);
     bump();
     try {
-      const reply = await thread.conversation.send(buildQuestion(question, sel), ASSISTANT_SYSTEM_PROMPT);
+      const reply = await thread.conversation.send(message, ASSISTANT_SYSTEM_PROMPT);
       thread.messages.push({ role: 'assistant', content: reply.content, references: reply.references });
     } catch (e) {
       // La pregunta que falló se quita del hilo para poder reintentarla.
       thread.messages.splice(thread.messages.indexOf(asked), 1);
       if (req === reqRef.current) {
-        setInput(question);
+        if (!shown) setInput(question);
         setError(e instanceof Error ? e.message : String(e));
       }
     } finally {
@@ -178,6 +229,40 @@ export const AssistantPanel = ({
             </span>
           )}
         </div>
+        <div className="relative">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={(e) => {
+              e.stopPropagation();
+              setAnalyzeOpen((o) => !o);
+            }}
+            title={t('assistant.analyze')}
+            className="p-1 rounded text-gray-500 hover:bg-gray-200 dark:text-gray-400 dark:hover:bg-gray-700 disabled:opacity-40"
+          >
+            <FileSearch className="w-3.5 h-3.5" />
+          </button>
+          {analyzeOpen && (
+            <div className="absolute right-0 top-full mt-1 z-20 w-56 py-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl">
+              <div className="px-3 py-1 text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                {t('assistant.analyze')}
+              </div>
+              {ANALYSES.filter((a) => !a.caseOnly || caseId).map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => {
+                    setAnalyzeOpen(false);
+                    void send(t(a.prompt), 'document', t(a.label));
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  {t(a.label)}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <button
           type="button"
           onClick={newThread}
@@ -212,8 +297,19 @@ export const AssistantPanel = ({
           </div>
         )}
         {thread.messages.map((m, i) =>
-          m.role === 'user' ? (
+          m.role === 'note' ? (
+            <div key={i} className="flex items-start gap-1.5 text-xs text-gray-400 dark:text-gray-500">
+              <Info className="w-3.5 h-3.5 shrink-0 mt-px" />
+              {m.content}
+            </div>
+          ) : m.role === 'user' ? (
             <div key={i} className="ml-6 px-2.5 py-1.5 rounded-lg bg-primary-50 dark:bg-primary-900/30 text-gray-800 dark:text-gray-100 whitespace-pre-wrap break-words">
+              {m.document && (
+                <div className="mb-1 flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                  <FileText className="w-3 h-3 shrink-0" />
+                  <span className="truncate">{t('assistant.docBadge', { words: m.document.words.toLocaleString() })}</span>
+                </div>
+              )}
               {m.selection && (
                 <div className="mb-1 pl-2 border-l-2 border-primary-300 dark:border-primary-700 text-xs text-gray-500 dark:text-gray-400 line-clamp-3">
                   {m.selection}
@@ -296,16 +392,30 @@ export const AssistantPanel = ({
       {/* Pregunta */}
       <div className="shrink-0 border-t border-gray-200 dark:border-gray-700 p-2 space-y-1.5">
         {error && <div className="text-xs text-amber-700 dark:text-amber-400">{error}</div>}
-        {selection && (
-          <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
-            <input
-              type="checkbox"
-              checked={withSelection}
-              onChange={(e) => setWithSelection(e.target.checked)}
-            />
-            {t('assistant.withSelection', { n: selection.length })}
-          </label>
-        )}
+        <div className="flex rounded border border-gray-300 dark:border-gray-600 overflow-hidden text-xs">
+          {(['none', 'selection', 'document'] as const).map((c) => (
+            <button
+              key={c}
+              type="button"
+              disabled={c === 'selection' && !selection}
+              onClick={() => setContext(c)}
+              title={
+                c === 'selection'
+                  ? t('assistant.ctxSelectionHint', { n: selection.length })
+                  : c === 'document'
+                    ? t('assistant.ctxDocumentHint')
+                    : undefined
+              }
+              className={`flex-1 min-w-0 px-1 py-0.5 truncate disabled:opacity-40 ${
+                context === c
+                  ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+            >
+              {c === 'none' ? t('assistant.ctxNone') : c === 'selection' ? t('assistant.ctxSelection') : t('assistant.ctxDocument')}
+            </button>
+          ))}
+        </div>
         <div className="relative">
           <textarea
             ref={inputRef}
@@ -332,7 +442,7 @@ export const AssistantPanel = ({
             <ArrowUp className="w-3.5 h-3.5" />
           </button>
         </div>
-        <p className="text-[11px] leading-snug text-gray-400 dark:text-gray-500">{t('assistant.privacy')}</p>
+        <p className="text-[11px] leading-snug text-gray-400 dark:text-gray-500">{t('assistant.privacyDoc')}</p>
       </div>
     </div>
   );
