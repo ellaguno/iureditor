@@ -74,6 +74,9 @@
   content-visibility: auto;
   contain-intrinsic-size: auto 320px;
 }
+.tiptap-editor .iur-mermaid-node.iur-cv-off {
+  content-visibility: visible;
+}
 
 /* Placeholder */
 .tiptap-editor p.is-editor-empty:first-child::before {

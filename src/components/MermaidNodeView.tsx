@@ -48,6 +48,62 @@ const TEMPLATES = [
     labelKey: 'mermaid.tpl.pie',
     codeKey: 'mermaid.code.pie',
   },
+  {
+    labelKey: 'mermaid.tpl.quadrant',
+    codeKey: 'mermaid.code.quadrant',
+  },
+  {
+    labelKey: 'mermaid.tpl.mindmap',
+    codeKey: 'mermaid.code.mindmap',
+  },
+  {
+    labelKey: 'mermaid.tpl.timeline',
+    codeKey: 'mermaid.code.timeline',
+  },
+  {
+    labelKey: 'mermaid.tpl.journey',
+    codeKey: 'mermaid.code.journey',
+  },
+  {
+    labelKey: 'mermaid.tpl.git',
+    codeKey: 'mermaid.code.git',
+  },
+  {
+    labelKey: 'mermaid.tpl.xychart',
+    codeKey: 'mermaid.code.xychart',
+  },
+  {
+    labelKey: 'mermaid.tpl.sankey',
+    codeKey: 'mermaid.code.sankey',
+  },
+  {
+    labelKey: 'mermaid.tpl.kanban',
+    codeKey: 'mermaid.code.kanban',
+  },
+  {
+    labelKey: 'mermaid.tpl.block',
+    codeKey: 'mermaid.code.block',
+  },
+  {
+    labelKey: 'mermaid.tpl.requirement',
+    codeKey: 'mermaid.code.requirement',
+  },
+  {
+    labelKey: 'mermaid.tpl.packet',
+    codeKey: 'mermaid.code.packet',
+  },
+  {
+    labelKey: 'mermaid.tpl.radar',
+    codeKey: 'mermaid.code.radar',
+  },
+  {
+    labelKey: 'mermaid.tpl.treemap',
+    codeKey: 'mermaid.code.treemap',
+  },
+  {
+    labelKey: 'mermaid.tpl.c4',
+    codeKey: 'mermaid.code.c4',
+  },
 ] as const;
 
 // NodeView de diagramas mermaid: render en vivo dentro del WYSIWYG. Al editar
@@ -63,8 +119,14 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
   const [draft, setDraft] = useState(code);
   // Vista previa en vivo del borrador (debounced) mientras se edita.
   const [previewSvg, setPreviewSvg] = useState('');
+  // Código del que sale previewSvg (el debounce lo deja atrás del borrador).
+  const [previewCode, setPreviewCode] = useState('');
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [tplOpen, setTplOpen] = useState(false);
+  // Un diagrama que ya se editó deja de usar content-visibility:auto (ver
+  // tiptap.css): WebKitGTK no repintaba el nodo al cerrar el editor y el
+  // diagrama quedaba en blanco hasta salir y volver con el scroll.
+  const [touched, setTouched] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -109,6 +171,7 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
         .then((rendered) => {
           if (cancelled) return;
           setPreviewSvg(rendered);
+          setPreviewCode(draft);
           setPreviewError(null);
         })
         .catch((err: unknown) => {
@@ -126,6 +189,7 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
 
   useEffect(() => {
     if (editing) {
+      setTouched(true);
       setDraft(code);
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
@@ -140,6 +204,12 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
   }, [tplOpen]);
 
   const apply = () => {
+    // Si la vista previa ya corresponde al borrador se muestra de inmediato:
+    // si no, el contenedor quedaba vacío hasta que terminara el render nuevo.
+    if (previewSvg && previewCode === draft) {
+      setSvg(previewSvg);
+      setError(null);
+    }
     updateAttributes({ code: draft });
     setEditing(false);
   };
@@ -171,7 +241,7 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
 
   return (
     <NodeViewWrapper
-      className={`iur-mermaid-node group relative my-4 rounded-lg border ${
+      className={`iur-mermaid-node ${touched ? 'iur-cv-off ' : ''}group relative my-4 rounded-lg border ${
         selected
           ? 'border-primary-400 ring-2 ring-primary-200 dark:ring-primary-800'
           : 'border-gray-200 dark:border-gray-700'
@@ -237,7 +307,7 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
                 <ChevronDown className="w-3.5 h-3.5" />
               </button>
               {tplOpen && (
-                <div className="absolute left-0 top-full mt-1 z-20 min-w-[180px] py-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl">
+                <div className="absolute left-0 top-full mt-1 z-20 min-w-[180px] max-h-80 overflow-y-auto py-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl">
                   {TEMPLATES.map((tpl) => (
                     <button
                       key={tpl.labelKey}
