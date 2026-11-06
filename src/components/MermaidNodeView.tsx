@@ -127,6 +127,9 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
   // tiptap.css): WebKitGTK no repintaba el nodo al cerrar el editor y el
   // diagrama quedaba en blanco hasta salir y volver con el scroll.
   const [touched, setTouched] = useState(false);
+  // Última plantilla insertada tal cual: si el borrador sigue igual, elegir
+  // otra la sustituye sin preguntar.
+  const lastTemplateRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -191,6 +194,7 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
     if (editing) {
       setTouched(true);
       setDraft(code);
+      lastTemplateRef.current = null;
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
   }, [editing, code]);
@@ -214,9 +218,22 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
     setEditing(false);
   };
 
-  const insertTemplate = (tplCode: string) => {
-    setDraft((d) => (d.trim() ? `${d.replace(/\n*$/, '')}\n\n${tplCode}` : tplCode));
+  const insertTemplate = async (tplCode: string) => {
     setTplOpen(false);
+    // Un bloque admite un solo diagrama: la plantilla sustituye al borrador.
+    // Si éste ya tiene cambios del usuario, se pide confirmación antes.
+    const pristine = !draft.trim() || draft === code || draft === lastTemplateRef.current;
+    if (!pristine) {
+      const { ask } = await import('@tauri-apps/plugin-dialog');
+      const ok = await ask(t('mermaid.replaceWithTemplate'), {
+        kind: 'warning',
+        okLabel: t('mermaid.replace'),
+        cancelLabel: t('editor.cancel'),
+      });
+      if (!ok) return;
+    }
+    lastTemplateRef.current = tplCode;
+    setDraft(tplCode);
     setTimeout(() => textareaRef.current?.focus(), 0);
   };
 
@@ -312,7 +329,7 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
                     <button
                       key={tpl.labelKey}
                       type="button"
-                      onClick={() => insertTemplate(t(tpl.codeKey))}
+                      onClick={() => void insertTemplate(t(tpl.codeKey))}
                       className="w-full px-3 py-1.5 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                     >
                       {t(tpl.labelKey)}
