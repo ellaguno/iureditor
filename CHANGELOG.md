@@ -5,6 +5,13 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.15.1 — 2026-11-06
+
+### Corregido
+- Elegir una plantilla en el editor de diagramas reemplaza el código en vez de
+  sumarse al anterior (dos diagramas en un bloque daban error de mermaid). Si ya
+  editaste el código, pregunta antes de reemplazarlo.
+
 ## v1.15.0 — 2026-11-06
 
 ### Añadido
