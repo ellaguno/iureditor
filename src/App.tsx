@@ -90,6 +90,7 @@ import {
 import { checkForUpdates } from './lib/updater';
 import { exportToPdf } from './lib/exportPdf';
 import { HELP_MARKDOWN } from './lib/help';
+import { markdownToHtml } from './lib/markdown';
 import { HELP_MARKDOWN_EN } from './lib/helpEn';
 import {
   t,
@@ -469,6 +470,39 @@ export default function App() {
       );
     },
     [applySidebar]
+  );
+
+  // ---------- asistente ----------
+  /** Texto seleccionado en el editor visual activo ('' si no hay o en fuente). */
+  const handleGetSelection = useCallback((): string => {
+    const tab = tabsRef.current.find((tb) => tb.id === activeIdRef.current);
+    const editor = tab?.sourceMode ? null : activeHandle()?.editor;
+    if (!editor) return '';
+    const { from, to } = editor.state.selection;
+    return editor.state.doc.textBetween(from, to, '\n\n').trim();
+  }, [activeHandle]);
+
+  /** Inserta Markdown (respuesta del asistente) en el editor visual activo:
+   *  tras la selección (sin borrarla) o, con `replace`, en su lugar. */
+  const handleAssistantInsert = useCallback(
+    (markdown: string, replace: boolean): boolean => {
+      const tab = tabsRef.current.find((tb) => tb.id === activeIdRef.current);
+      const editor = tab?.sourceMode || tab?.plain ? null : activeHandle()?.editor;
+      if (!editor) return false;
+      const { from, to } = editor.state.selection;
+      const at = replace ? from : to;
+      // Una respuesta de un solo párrafo entra en línea: si no, partía en tres
+      // el párrafo donde estaba el cursor. Pegada a una palabra, lleva espacio.
+      const html = markdownToHtml(markdown).trim();
+      const single = /^<p>([\s\S]*)<\/p>$/.exec(html);
+      const inline = single && !single[1].includes('<p') ? single[1] : null;
+      const before = editor.state.doc.textBetween(Math.max(0, at - 1), at);
+      const content = inline !== null ? (before && !/\s/.test(before) ? ' ' : '') + inline : html;
+      const chain = editor.chain().focus();
+      if (!replace) chain.setTextSelection(to);
+      return chain.insertContent(content).run();
+    },
+    [activeHandle]
   );
 
   // ---------- carpeta de trabajo ----------
@@ -1774,6 +1808,9 @@ export default function App() {
       } else if (key === 'i' && e.shiftKey) {
         e.preventDefault();
         handleSidebarView('iurefficient');
+      } else if (key === 'j' && e.shiftKey) {
+        e.preventDefault();
+        handleSidebarView('assistant');
       } else if (key === 'k') {
         // Ctrl+K: ir a una nota; Ctrl+Shift+K: enlaces de la nota activa.
         e.preventDefault();
@@ -2121,6 +2158,7 @@ export default function App() {
         { id: 'outline', label: t('menu.outline'), shortcut: 'Ctrl+Shift+O', run: () => handleSidebarView('outline') },
         { id: 'links', label: t('menu.links'), shortcut: 'Ctrl+Shift+K', run: () => handleSidebarView('links') },
         { id: 'iure', label: 'Iurefficient', shortcut: 'Ctrl+Shift+I', run: () => handleSidebarView('iurefficient') },
+        { id: 'assistant', label: t('assistant.menu'), shortcut: 'Ctrl+Shift+J', run: () => handleSidebarView('assistant') },
         { id: 'source', label: t('menu.sourceCode'), shortcut: 'Ctrl+Shift+M', run: handleToggleSource },
         { id: 'lines', label: t('menu.lineNumbers'), shortcut: 'Ctrl+Shift+N', run: () => handleLineNumbersChange(!lineNumbers) },
         { id: 'width', label: t('menu.pageWidth'), shortcut: 'Ctrl+Shift+A', run: handleCyclePageWidth },
@@ -2200,6 +2238,8 @@ export default function App() {
             onIurefficientToggle: () => handleSidebarView('iurefficient'),
             links: sidebar.visible && sidebar.view === 'links',
             onLinksToggle: () => handleSidebarView('links'),
+            assistant: sidebar.visible && sidebar.view === 'assistant',
+            onAssistantToggle: () => handleSidebarView('assistant'),
             sourceMode,
             onSourceModeToggle: handleToggleSource,
             pageWidth,
@@ -2244,6 +2284,8 @@ export default function App() {
               void handleOpenMention(source).catch((err) => console.error('No se pudo abrir:', err))
             }
             onOpenOutgoing={handleOpenOutgoing}
+            getSelection={handleGetSelection}
+            onAssistantInsert={handleAssistantInsert}
           />
         )}
         <div className="flex-1 min-w-0 flex flex-col" style={{ zoom }} data-page-width={pageWidth}>

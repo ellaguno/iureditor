@@ -23,6 +23,8 @@ tauri-plugin-store = "2"
 tauri-plugin-window-state = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Mismo reqwest que iurefficient-connect (DELETE con su sesión, que v0.7.1 no expone).
+reqwest = { version = "0.12", default-features = false }
 url = "2"
 resvg = "0.47.0"
 base64 = "0.22.1"

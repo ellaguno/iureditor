@@ -77,6 +77,8 @@ export interface ViewPrefs {
   onIurefficientToggle: () => void;
   links: boolean;
   onLinksToggle: () => void;
+  assistant: boolean;
+  onAssistantToggle: () => void;
   sourceMode: boolean;
   onSourceModeToggle: () => void;
   pageWidth: PageWidth;
@@ -471,6 +473,12 @@ export const TitleBar = ({
               shortcut="Ctrl+Shift+I"
               checked={viewPrefs.iurefficient}
               onClick={viewPrefs.onIurefficientToggle}
+            />
+            <MenuItem
+              label={t('assistant.menu')}
+              shortcut="Ctrl+Shift+J"
+              checked={viewPrefs.assistant}
+              onClick={viewPrefs.onAssistantToggle}
             />
             <MenuSeparator />
             <MenuSection label={t('menu.file')} expanded={expandedSections.has('file')} onToggle={toggleSection('file')}>

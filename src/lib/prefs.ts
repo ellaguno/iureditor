@@ -54,9 +54,9 @@ export const setZoom = (zoom: number): number => {
 
 // ---------- panel lateral (archivos / esquema) ----------
 
-export type SidebarView = 'files' | 'outline' | 'search' | 'iurefficient' | 'links';
+export type SidebarView = 'files' | 'outline' | 'search' | 'iurefficient' | 'links' | 'assistant';
 
-const SIDEBAR_VIEWS: SidebarView[] = ['files', 'outline', 'search', 'iurefficient', 'links'];
+const SIDEBAR_VIEWS: SidebarView[] = ['files', 'outline', 'search', 'iurefficient', 'links', 'assistant'];
 
 export interface SidebarPrefs {
   visible: boolean;

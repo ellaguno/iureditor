@@ -5,12 +5,14 @@ import { OutlinePanel } from './OutlinePanel';
 import { SearchPanel } from './SearchPanel';
 import { IurefficientPanel } from './IurefficientPanel';
 import { LinksPanel } from './LinksPanel';
+import { AssistantPanel } from './AssistantPanel';
+import { Sparkles } from 'lucide-react';
 import type { LinkOccurrence } from '../lib/wikilinks';
 import { t } from '../lib/i18n';
 
 // Panel lateral: archivos de la carpeta de trabajo (árbol o búsqueda en sus
 // archivos, que comparten pestaña), esquema del documento, enlaces de la nota
-// activa e Iurefficient (estilo Obsidian/Zettlr). La búsqueda sigue siendo la
+// activa, Iurefficient y el asistente de IA (estilo Obsidian/Zettlr). La búsqueda sigue siendo la
 // vista 'search' (Ctrl+Shift+F), pero se muestra dentro de «Archivos».
 export const Sidebar = ({
   view,
@@ -37,6 +39,8 @@ export const Sidebar = ({
   onOpenBacklink,
   onOpenMention,
   onOpenOutgoing,
+  getSelection,
+  onAssistantInsert,
 }: {
   view: SidebarView;
   onViewChange: (view: SidebarView) => void;
@@ -65,6 +69,9 @@ export const Sidebar = ({
   onOpenBacklink: (source: string) => void;
   onOpenMention: (source: string) => void;
   onOpenOutgoing: (occ: LinkOccurrence) => void;
+  /** Para el asistente: texto seleccionado e inserción en el cursor. */
+  getSelection: () => string;
+  onAssistantInsert: (markdown: string, replace: boolean) => boolean;
 }) => (
   <div className="w-72 shrink-0 flex flex-col border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 no-select">
     <div className="flex shrink-0 border-b border-gray-200 dark:border-gray-700">
@@ -88,9 +95,29 @@ export const Sidebar = ({
                 : t('outline.title')}
         </button>
       ))}
+      {/* El asistente va con icono: con cinco pestañas el texto no cabe. */}
+      <button
+        type="button"
+        onClick={() => onViewChange('assistant')}
+        title={t('assistant.title')}
+        className={`shrink-0 px-2 py-1.5 ${
+          view === 'assistant'
+            ? 'text-gray-900 dark:text-gray-100 border-b-2 border-primary-500'
+            : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+        }`}
+      >
+        <Sparkles className="w-3.5 h-3.5" />
+      </button>
     </div>
     <div className="flex-1 min-h-0">
-      {view === 'links' ? (
+      {view === 'assistant' ? (
+        <AssistantPanel
+          activePath={activePath}
+          getSelection={getSelection}
+          onInsert={onAssistantInsert}
+          onOpenIurefficient={() => onViewChange('iurefficient')}
+        />
+      ) : view === 'links' ? (
         <LinksPanel
           activePath={activePath}
           onOpenBacklink={onOpenBacklink}

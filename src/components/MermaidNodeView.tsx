@@ -18,6 +18,7 @@ import {
 } from '../lib/mermaid';
 import { saveSvg, savePng } from '../lib/diagramExport';
 import { assistDiagram } from '../lib/mermaidAssist';
+import { IureConversation } from '../lib/iureChat';
 import { t, useLang } from '../lib/i18n';
 
 // Andamiaje inicial por tipo de diagrama (el usuario lo edita después); el
@@ -144,6 +145,8 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
   // respuesta que llegue después.
   const assistReqRef = useRef(0);
   const assistInputRef = useRef<HTMLInputElement>(null);
+  // Conversación con la instancia mientras dura la edición del diagrama.
+  const assistConvRef = useRef<IureConversation | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -217,6 +220,14 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
     }
   }, [editing, code]);
 
+  // La conversación del asistente se borra al cerrar el editor (o el nodo).
+  useEffect(() => {
+    if (editing) return;
+    assistConvRef.current?.dispose();
+    assistConvRef.current = null;
+  }, [editing]);
+  useEffect(() => () => assistConvRef.current?.dispose(), []);
+
   // Al abrir el asistente, el foco va a su campo (tras pintarse).
   useEffect(() => {
     if (assistOpen) assistInputRef.current?.focus();
@@ -268,7 +279,8 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
     setAssistBusy(true);
     setAssistError(null);
     try {
-      const result = await assistDiagram(request, before);
+      assistConvRef.current ??= new IureConversation(null, t('mermaid.assistConversation'));
+      const result = await assistDiagram(assistConvRef.current, request, before);
       if (req !== assistReqRef.current) return;
       if (!result.code) {
         setAssistError(t('mermaid.assistEmpty'));

@@ -5,6 +5,22 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## Sin publicar
+
+### Añadido
+- **Asistente** en el panel lateral (icono de destellos, Ctrl+Shift+J): preguntas
+  a la IA de Iurefficient para el documento. Si está guardado en un proyecto, por
+  omisión pregunta en el chat del proyecto, que busca en sus documentos y cita
+  las fuentes; si no, en el chat general. Puede llevar el texto seleccionado.
+  **Insertar** pone la respuesta tras el cursor y **Reemplazar** la pone en lugar
+  de la selección, sin las marcas de cita. La conversación se conserva por
+  documento hasta empezar otra.
+
+### Corregido
+- El asistente de diagramas mandaba como contexto todo el historial de chat del
+  usuario en la instancia; ahora cada edición del diagrama usa su propia
+  conversación, que se borra al cerrar el editor.
+
 ## v1.16.0 — 2026-11-06
 
 ### Añadido

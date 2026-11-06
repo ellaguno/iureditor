@@ -403,7 +403,9 @@ pub fn run() {
             iurefficient::iure_mirror_of,
             iurefficient::iure_upload_version,
             iurefficient::iure_save_new,
-            iurefficient::iure_chat
+            iurefficient::iure_chat_new,
+            iurefficient::iure_chat_send,
+            iurefficient::iure_chat_delete,
         ])
         .setup(|app| {
             // Primero el idioma: los mensajes posteriores ya salen traducidos.

@@ -1,9 +1,10 @@
 // Asistente de diagramas: pide a la IA de Iurefficient el código mermaid de un
 // diagrama descrito en lenguaje natural (o un cambio sobre el borrador actual),
 // lo valida con el parser de mermaid y, si no compila, reintenta una vez
-// pasándole el error. Las llamadas de red van por Rust (comando `iure_chat`).
-import { invoke } from '@tauri-apps/api/core';
+// pasándole el error. Cada sesión de edición del diagrama es una conversación
+// (ver iureChat.ts): los cambios sucesivos llevan el contexto de los anteriores.
 import { getLang } from './i18n';
+import type { IureConversation } from './iureChat';
 import { mermaidSyntaxError } from './mermaid';
 
 const SYSTEM_PROMPT = `You write Mermaid diagrams (Mermaid 11) for a Markdown editor.
@@ -34,8 +35,6 @@ const buildRetry = (code: string, error: string): string =>
     ? `Este código mermaid no compila:\n\`\`\`mermaid\n${code}\n\`\`\`\n\nError del parser:\n${error}\n\nCorrígelo y devuelve el diagrama completo.`
     : `This Mermaid code does not compile:\n\`\`\`mermaid\n${code}\n\`\`\`\n\nParser error:\n${error}\n\nFix it and return the whole diagram.`;
 
-const ask = (message: string) =>
-  invoke<string>('iure_chat', { message, systemPrompt: SYSTEM_PROMPT });
 
 export interface AssistResult {
   code: string;
@@ -46,7 +45,12 @@ export interface AssistResult {
 
 /** Genera o modifica un diagrama. Lanza si la instancia falla (sin sesión,
  *  cuota agotada, red…). */
-export async function assistDiagram(request: string, current: string): Promise<AssistResult> {
+export async function assistDiagram(
+  conversation: IureConversation,
+  request: string,
+  current: string
+): Promise<AssistResult> {
+  const ask = async (message: string) => (await conversation.send(message, SYSTEM_PROMPT)).content;
   let code = extractMermaid(await ask(buildMessage(request, current)));
   let error = code ? await mermaidSyntaxError(code) : 'empty';
   if (error) {

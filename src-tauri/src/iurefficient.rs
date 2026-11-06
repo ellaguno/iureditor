@@ -324,20 +324,132 @@ pub async fn iure_save_new(state: State<'_, IureState>, path: String, case_id: O
     Ok(mirror)
 }
 
-/// Consulta al asistente de IA de la instancia (chat global, sin proyecto) con unas
-/// instrucciones propias. Devuelve el texto de la respuesta. Gasta cuota de IA.
+// ---------------------------------------------------------------------------
+// Asistente (chat de la instancia)
+// ---------------------------------------------------------------------------
+//
+// Cada consulta va en una conversación propia de iureditor: sin `conversation_id`
+// la instancia arma el historial con TODO el chat global del usuario (o con todo
+// el del proyecto, de todos sus miembros), lo que encarece y ensucia la respuesta.
+
+/// Prefijo de las rutas de chat: el del proyecto (búsqueda en sus documentos) o el
+/// global.
+fn chat_base(case_id: &Option<String>) -> String {
+    match case_id.as_deref().filter(|c| !c.is_empty()) {
+        Some(c) => format!("/api/chat/cases/{c}"),
+        None => "/api/chat/global".into(),
+    }
+}
+
+/// Errores del chat en palabras del usuario (cuota, términos); el resto, tal cual.
+fn chat_err(e: anyhow::Error) -> String {
+    let m = err(e);
+    if m.contains("terms_acceptance_required") || (m.starts_with("403") && m.contains("terms")) {
+        tr!(
+            "Accept the current terms of use in Iurefficient (in the browser) to use the assistant",
+            "Acepta los términos de uso vigentes en Iurefficient (en el navegador) para usar el asistente"
+        )
+    } else if m.contains("quota") || m.contains("cuota") {
+        tr!(
+            "The plan's AI quota on the instance has been reached",
+            "Se alcanzó la cuota de IA del plan en la instancia"
+        )
+    } else {
+        m
+    }
+}
+
+/// Crea una conversación (global o del proyecto) y devuelve su id.
 #[tauri::command]
-pub async fn iure_chat(state: State<'_, IureState>, message: String, system_prompt: Option<String>) -> Result<String, String> {
+pub async fn iure_chat_new(state: State<'_, IureState>, case_id: Option<String>, title: String) -> Result<String, String> {
     let sess = state.session().await.map_err(err)?;
-    api::global_chat(&sess, &message, system_prompt.as_deref(), &[]).await.map_err(|e| {
-        let m = err(e);
-        if m.contains("terms_acceptance_required") {
-            tr!(
-                "Accept the current terms of use in Iurefficient (in the browser) to use the assistant",
-                "Acepta los términos de uso vigentes en Iurefficient (en el navegador) para usar el asistente"
-            )
-        } else {
-            m
-        }
-    })
+    let v = sess
+        .post_json(&format!("{}/conversations", chat_base(&case_id)), &serde_json::json!({ "title": title }))
+        .await
+        .map_err(chat_err)?;
+    v["conversation"]["id"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| tr!("The instance did not create the conversation", "La instancia no creó la conversación"))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatReference {
+    index: u64,
+    /// document, task, deadline…
+    kind: String,
+    title: String,
+    excerpt: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatReply {
+    content: String,
+    references: Vec<ChatReference>,
+}
+
+/// Envía un mensaje a una conversación y devuelve la respuesta con sus fuentes.
+/// Gasta cuota de IA del plan.
+#[tauri::command]
+pub async fn iure_chat_send(
+    state: State<'_, IureState>,
+    case_id: Option<String>,
+    conversation_id: String,
+    message: String,
+    system_prompt: Option<String>,
+) -> Result<ChatReply, String> {
+    let sess = state.session().await.map_err(err)?;
+    let mut body = serde_json::json!({
+        "message": message,
+        "conversation_id": conversation_id,
+        "enable_url_extraction": false,
+    });
+    if let Some(sp) = system_prompt.filter(|s| !s.trim().is_empty()) {
+        body["system_prompt"] = serde_json::json!(sp);
+    }
+    let v = sess
+        .post_json(&format!("{}/chat", chat_base(&case_id)), &body)
+        .await
+        .map_err(chat_err)?;
+    let msg = &v["assistant_message"];
+    let content = msg["content"].as_str().unwrap_or_default().trim().to_string();
+    if content.is_empty() {
+        return Err(tr!("The instance returned no response", "La instancia no devolvió respuesta"));
+    }
+    let str_of = |r: &serde_json::Value, k: &str| r[k].as_str().unwrap_or_default().to_string();
+    let references = msg["references"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|r| ChatReference {
+                    index: r["index"].as_u64().unwrap_or(0),
+                    kind: str_of(r, "type"),
+                    title: str_of(r, "title"),
+                    excerpt: str_of(r, "excerpt"),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(ChatReply { content, references })
+}
+
+/// Borra una conversación de iureditor (al empezar otra o cerrar el asistente).
+#[tauri::command]
+pub async fn iure_chat_delete(state: State<'_, IureState>, case_id: Option<String>, conversation_id: String) -> Result<(), String> {
+    let sess = state.session().await.map_err(err)?;
+    let path = format!("{}/conversations/{conversation_id}", chat_base(&case_id));
+    let resp = sess
+        .request(reqwest::Method::DELETE, &path)
+        .await
+        .map_err(err)?
+        .send()
+        .await
+        .map_err(|e| err(e.into()))?;
+    if resp.status().is_success() || resp.status() == reqwest::StatusCode::NOT_FOUND {
+        Ok(())
+    } else {
+        Err(format!("{}", resp.status()))
+    }
 }
