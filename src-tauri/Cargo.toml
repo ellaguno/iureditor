@@ -23,8 +23,6 @@ tauri-plugin-store = "2"
 tauri-plugin-window-state = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# Mismo reqwest que iurefficient-connect (DELETE con su sesión, que v0.7.1 no expone).
-reqwest = { version = "0.12", default-features = false }
 url = "2"
 resvg = "0.47.0"
 base64 = "0.22.1"
@@ -42,9 +40,9 @@ tauri-plugin-process = "2.3.1"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-deep-link = "2"
 # Conector común con Iurefficient (sesión REST, documentos, llavero compartido).
-iurefficient-connect = { git = "https://github.com/ellaguno/iurefficient-connect", tag = "v0.7.1" }
+iurefficient-connect = { git = "https://github.com/ellaguno/iurefficient-connect", tag = "v0.9.0" }
 anyhow = "1"
-tokio = { version = "1", features = ["sync"] }
+tokio = { version = "1", features = ["sync", "macros"] }
 
 # Para activar la corrección ortográfica de WebKitGTK (misma versión que
 # usa wry, ver Cargo.lock).

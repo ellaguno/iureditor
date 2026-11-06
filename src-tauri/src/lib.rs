@@ -405,6 +405,7 @@ pub fn run() {
             iurefficient::iure_save_new,
             iurefficient::iure_chat_new,
             iurefficient::iure_chat_send,
+            iurefficient::iure_chat_cancel,
             iurefficient::iure_chat_delete,
         ])
         .setup(|app| {

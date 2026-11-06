@@ -5,6 +5,19 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## Sin publicar
+
+### Añadido
+- **Respuestas en streaming.** En el panel del asistente la respuesta aparece
+  mientras se escribe, y en el asistente de diagramas se ve cuántas líneas lleva.
+  «Cancelar» ahora deja de recibir la respuesta en curso (antes sólo dejaba de
+  esperarla); la pregunta vuelve al campo para reintentarla.
+
+### Cambiado
+- El chat usa el módulo `chat` de iurefficient-connect v0.9.0: si la conexión se
+  corta a media respuesta se retoma donde iba, y un fallo de la IA de la
+  instancia se avisa en segundos en vez de esperar a que se agote el tiempo.
+
 ## v1.18.0 — 2026-11-06
 
 ### Añadido

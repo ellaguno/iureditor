@@ -71,6 +71,7 @@ pub fn init(app: &App) -> Result<(), Box<dyn std::error::Error>> {
         config: Mutex::new(config),
         session: tokio::sync::Mutex::new(None),
     });
+    app.manage(ChatCancels::default());
     Ok(())
 }
 
@@ -328,128 +329,97 @@ pub async fn iure_save_new(state: State<'_, IureState>, path: String, case_id: O
 // Asistente (chat de la instancia)
 // ---------------------------------------------------------------------------
 //
-// Cada consulta va en una conversación propia de iureditor: sin `conversation_id`
-// la instancia arma el historial con TODO el chat global del usuario (o con todo
-// el del proyecto, de todos sus miembros), lo que encarece y ensucia la respuesta.
+// Cada consulta va en una conversación propia de iureditor (ver `chat` en el
+// conector: sin `conversation_id` la instancia toma como historial todo el chat del
+// usuario o del proyecto). La respuesta llega en streaming por un `Channel`.
 
-/// Prefijo de las rutas de chat: el del proyecto (búsqueda en sus documentos) o el
-/// global.
-fn chat_base(case_id: &Option<String>) -> String {
+use iurefficient_connect::chat::{self, Scope};
+
+fn scope_of(case_id: &Option<String>) -> Scope<'_> {
     match case_id.as_deref().filter(|c| !c.is_empty()) {
-        Some(c) => format!("/api/chat/cases/{c}"),
-        None => "/api/chat/global".into(),
+        Some(c) => Scope::Case(c),
+        None => Scope::Global,
     }
 }
 
 /// Errores del chat en palabras del usuario (cuota, términos); el resto, tal cual.
 fn chat_err(e: anyhow::Error) -> String {
-    let m = err(e);
-    if m.contains("terms_acceptance_required") || (m.starts_with("403") && m.contains("terms")) {
-        tr!(
-            "Accept the current terms of use in Iurefficient (in the browser) to use the assistant",
-            "Acepta los términos de uso vigentes en Iurefficient (en el navegador) para usar el asistente"
-        )
-    } else if m.contains("quota") || m.contains("cuota") {
-        tr!(
-            "The plan's AI quota on the instance has been reached",
-            "Se alcanzó la cuota de IA del plan en la instancia"
-        )
-    } else {
-        m
+    if let Some(api) = e.downcast_ref::<iurefficient_connect::rest::ApiError>() {
+        if api.is_terms_required() {
+            return tr!(
+                "Accept the current terms of use in Iurefficient (in the browser) to use the assistant",
+                "Acepta los términos de uso vigentes en Iurefficient (en el navegador) para usar el asistente"
+            );
+        }
+        // La cuota agotada llega como 403 con el mensaje (ya legible) de la instancia.
+        if api.status == 403 {
+            return api.message.clone();
+        }
     }
+    err(e)
 }
 
 /// Crea una conversación (global o del proyecto) y devuelve su id.
 #[tauri::command]
 pub async fn iure_chat_new(state: State<'_, IureState>, case_id: Option<String>, title: String) -> Result<String, String> {
     let sess = state.session().await.map_err(err)?;
-    let v = sess
-        .post_json(&format!("{}/conversations", chat_base(&case_id)), &serde_json::json!({ "title": title }))
-        .await
-        .map_err(chat_err)?;
-    v["conversation"]["id"]
-        .as_str()
-        .map(str::to_string)
-        .ok_or_else(|| tr!("The instance did not create the conversation", "La instancia no creó la conversación"))
+    chat::new_conversation(&sess, scope_of(&case_id), &title).await.map_err(chat_err)
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatReference {
-    index: u64,
-    /// document, task, deadline…
-    kind: String,
-    title: String,
-    excerpt: String,
-}
+/// Peticiones de chat en curso, para poder cancelarlas.
+#[derive(Default)]
+pub struct ChatCancels(Mutex<HashMap<u32, tokio::sync::oneshot::Sender<()>>>);
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatReply {
-    content: String,
-    references: Vec<ChatReference>,
-}
-
-/// Envía un mensaje a una conversación y devuelve la respuesta con sus fuentes.
-/// Gasta cuota de IA del plan.
+/// Envía un mensaje a una conversación. Cada fragmento de la respuesta va a `on_token`
+/// según lo escribe el modelo; devuelve la respuesta definitiva con sus fuentes. Gasta
+/// cuota de IA del plan. `request_id` permite cancelarla con `iure_chat_cancel`.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn iure_chat_send(
     state: State<'_, IureState>,
+    cancels: State<'_, ChatCancels>,
+    request_id: u32,
     case_id: Option<String>,
     conversation_id: String,
     message: String,
     system_prompt: Option<String>,
-) -> Result<ChatReply, String> {
+    on_token: tauri::ipc::Channel<String>,
+) -> Result<Option<chat::Answer>, String> {
     let sess = state.session().await.map_err(err)?;
-    let mut body = serde_json::json!({
-        "message": message,
-        "conversation_id": conversation_id,
-        "enable_url_extraction": false,
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    cancels.0.lock().unwrap().insert(request_id, tx);
+    let req = chat::Request {
+        message: &message,
+        system_prompt: system_prompt.as_deref(),
+        conversation_id: Some(&conversation_id),
+        ..Default::default()
+    };
+    let ask = chat::ask_streaming(&sess, scope_of(&case_id), &req, |t| {
+        let _ = on_token.send(t.to_string());
     });
-    if let Some(sp) = system_prompt.filter(|s| !s.trim().is_empty()) {
-        body["system_prompt"] = serde_json::json!(sp);
+    // Cancelar deja de leer la respuesta (la instancia la termina igual).
+    let result = tokio::select! {
+        r = ask => Some(r),
+        _ = rx => None,
+    };
+    cancels.0.lock().unwrap().remove(&request_id);
+    match result {
+        Some(r) => r.map(Some).map_err(chat_err),
+        None => Ok(None),
     }
-    let v = sess
-        .post_json(&format!("{}/chat", chat_base(&case_id)), &body)
-        .await
-        .map_err(chat_err)?;
-    let msg = &v["assistant_message"];
-    let content = msg["content"].as_str().unwrap_or_default().trim().to_string();
-    if content.is_empty() {
-        return Err(tr!("The instance returned no response", "La instancia no devolvió respuesta"));
+}
+
+/// Cancela una petición de `iure_chat_send` en curso (devuelve `null`).
+#[tauri::command]
+pub fn iure_chat_cancel(cancels: State<'_, ChatCancels>, request_id: u32) {
+    if let Some(tx) = cancels.0.lock().unwrap().remove(&request_id) {
+        let _ = tx.send(());
     }
-    let str_of = |r: &serde_json::Value, k: &str| r[k].as_str().unwrap_or_default().to_string();
-    let references = msg["references"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .map(|r| ChatReference {
-                    index: r["index"].as_u64().unwrap_or(0),
-                    kind: str_of(r, "type"),
-                    title: str_of(r, "title"),
-                    excerpt: str_of(r, "excerpt"),
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    Ok(ChatReply { content, references })
 }
 
 /// Borra una conversación de iureditor (al empezar otra o cerrar el asistente).
 #[tauri::command]
 pub async fn iure_chat_delete(state: State<'_, IureState>, case_id: Option<String>, conversation_id: String) -> Result<(), String> {
     let sess = state.session().await.map_err(err)?;
-    let path = format!("{}/conversations/{conversation_id}", chat_base(&case_id));
-    let resp = sess
-        .request(reqwest::Method::DELETE, &path)
-        .await
-        .map_err(err)?
-        .send()
-        .await
-        .map_err(|e| err(e.into()))?;
-    if resp.status().is_success() || resp.status() == reqwest::StatusCode::NOT_FOUND {
-        Ok(())
-    } else {
-        Err(format!("{}", resp.status()))
-    }
+    chat::delete_conversation(&sess, scope_of(&case_id), &conversation_id).await.map_err(chat_err)
 }

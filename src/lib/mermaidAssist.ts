@@ -48,9 +48,12 @@ export interface AssistResult {
 export async function assistDiagram(
   conversation: IureConversation,
   request: string,
-  current: string
+  current: string,
+  /** Líneas de código recibidas hasta ahora (la respuesta llega en streaming). */
+  onProgress?: (lines: number) => void
 ): Promise<AssistResult> {
-  const ask = async (message: string) => (await conversation.send(message, SYSTEM_PROMPT)).content;
+  const ask = async (message: string) =>
+    (await conversation.send(message, SYSTEM_PROMPT, (soFar) => onProgress?.(soFar.split('\n').length))).content;
   let code = extractMermaid(await ask(buildMessage(request, current)));
   let error = code ? await mermaidSyntaxError(code) : 'empty';
   if (error) {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowUp, Check, Copy, CornerDownLeft, FileSearch, FileText, Info, Loader2, Replace, RotateCcw, Sparkles } from 'lucide-react';
 import { t, useLang } from '../lib/i18n';
 import { iure, type IureMirror } from '../lib/iurefficient';
+import { ChatCancelled } from '../lib/iureChat';
 import {
   ANALYSES,
   ASSISTANT_SYSTEM_PROMPT,
@@ -52,6 +53,8 @@ export const AssistantPanel = ({
   const [context, setContext] = useState<Context>('none');
   const [analyzeOpen, setAnalyzeOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Texto de la respuesta según llega (streaming), mientras `busy`.
+  const [streamText, setStreamText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ index: number; text: string } | null>(null);
   // El hilo vive fuera del componente (lib/assistant.ts): cambiar de vista en la
@@ -83,7 +86,7 @@ export const AssistantPanel = ({
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
-  }, [thread.messages.length, busy]);
+  }, [thread.messages.length, busy, streamText]);
 
   // Al enfocar la pregunta se relee la selección: si aparece una, pasa a ser el
   // contexto; si ya no hay, la opción «Selección» deja de valer.
@@ -133,15 +136,20 @@ export const AssistantPanel = ({
     thread.messages.push(asked);
     setInput('');
     setBusy(true);
+    setStreamText('');
     setError(null);
     bump();
     try {
-      const reply = await thread.conversation.send(message, ASSISTANT_SYSTEM_PROMPT);
+      const reply = await thread.conversation.send(message, ASSISTANT_SYSTEM_PROMPT, (soFar) => {
+        if (req === reqRef.current) setStreamText(soFar);
+      });
       thread.messages.push({ role: 'assistant', content: reply.content, references: reply.references });
     } catch (e) {
-      // La pregunta que falló se quita del hilo para poder reintentarla.
+      // La pregunta que falló (o se canceló) se quita del hilo para poder reintentarla.
       thread.messages.splice(thread.messages.indexOf(asked), 1);
-      if (req === reqRef.current) {
+      if (e instanceof ChatCancelled) {
+        if (!shown) setInput(question);
+      } else if (req === reqRef.current) {
         if (!shown) setInput(question);
         setError(e instanceof Error ? e.message : String(e));
       }
@@ -152,9 +160,10 @@ export const AssistantPanel = ({
   };
 
   const cancel = () => {
-    // La respuesta que llegue se agrega igual al hilo (ya gastó cuota), pero
-    // el panel deja de esperarla.
+    // Deja de leer la respuesta. La instancia la termina igual (y gasta la
+    // cuota), pero no llega al panel.
     reqRef.current++;
+    thread.conversation.cancel();
     setBusy(false);
   };
 
@@ -379,12 +388,19 @@ export const AssistantPanel = ({
           )
         )}
         {busy && (
-          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            {t('assistant.thinking')}
-            <button type="button" onClick={cancel} className="ml-auto hover:underline">
-              {t('editor.cancel')}
-            </button>
+          <div className="space-y-1">
+            {streamText && (
+              <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2.5 py-2 text-gray-800 dark:text-gray-100 whitespace-pre-wrap break-words">
+                {streamText}
+              </div>
+            )}
+            <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              {streamText ? t('assistant.writing') : t('assistant.thinking')}
+              <button type="button" onClick={cancel} className="ml-auto hover:underline">
+                {t('editor.cancel')}
+              </button>
+            </div>
           </div>
         )}
       </div>

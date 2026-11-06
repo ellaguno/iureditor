@@ -18,7 +18,7 @@ import {
 } from '../lib/mermaid';
 import { saveSvg, savePng } from '../lib/diagramExport';
 import { assistDiagram } from '../lib/mermaidAssist';
-import { IureConversation } from '../lib/iureChat';
+import { ChatCancelled, IureConversation } from '../lib/iureChat';
 import { t, useLang } from '../lib/i18n';
 
 // Andamiaje inicial por tipo de diagrama (el usuario lo edita después); el
@@ -141,6 +141,8 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
   const [assistBusy, setAssistBusy] = useState(false);
   const [assistError, setAssistError] = useState<string | null>(null);
   const [assistPrev, setAssistPrev] = useState<string | null>(null);
+  // Líneas de la respuesta recibidas (streaming) mientras se genera.
+  const [assistLines, setAssistLines] = useState(0);
   // Cada petición lleva un número: cancelar o cerrar el editor descarta la
   // respuesta que llegue después.
   const assistReqRef = useRef(0);
@@ -280,7 +282,10 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
     setAssistError(null);
     try {
       assistConvRef.current ??= new IureConversation(null, t('mermaid.assistConversation'));
-      const result = await assistDiagram(assistConvRef.current, request, before);
+      setAssistLines(0);
+      const result = await assistDiagram(assistConvRef.current, request, before, (n) => {
+        if (req === assistReqRef.current) setAssistLines(n);
+      });
       if (req !== assistReqRef.current) return;
       if (!result.code) {
         setAssistError(t('mermaid.assistEmpty'));
@@ -292,7 +297,7 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
       setAssistText('');
       if (result.error) setAssistError(t('mermaid.assistInvalid'));
     } catch (err) {
-      if (req !== assistReqRef.current) return;
+      if (req !== assistReqRef.current || err instanceof ChatCancelled) return;
       setAssistError(err instanceof Error ? err.message : String(err));
     } finally {
       if (req === assistReqRef.current) setAssistBusy(false);
@@ -301,6 +306,7 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
 
   const cancelAssist = () => {
     assistReqRef.current++;
+    assistConvRef.current?.cancel();
     setAssistBusy(false);
   };
 
@@ -467,7 +473,11 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
               </div>
               <div className="flex items-start justify-between gap-2 mt-1 text-xs">
                 <span className={assistError ? 'text-amber-700 dark:text-amber-400' : 'text-gray-400 dark:text-gray-500'}>
-                  {assistBusy ? t('mermaid.assistWorking') : (assistError ?? t('mermaid.assistPrivacy'))}
+                  {assistBusy
+                    ? assistLines > 1
+                      ? t('mermaid.assistWriting', { n: assistLines })
+                      : t('mermaid.assistWorking')
+                    : (assistError ?? t('mermaid.assistPrivacy'))}
                 </span>
                 {assistPrev !== null && !assistBusy && (
                   <button

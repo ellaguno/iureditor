@@ -2121,7 +2121,6 @@ dependencies = [
  "objc2-foundation",
  "objc2-web-kit",
  "png 0.17.16",
- "reqwest 0.12.28",
  "resvg",
  "serde",
  "serde_json",
@@ -2145,8 +2144,8 @@ dependencies = [
 
 [[package]]
 name = "iurefficient-connect"
-version = "0.7.1"
-source = "git+https://github.com/ellaguno/iurefficient-connect?tag=v0.7.1#f0242cf6d1de61fe75e09c3e273ecf965cca32d4"
+version = "0.9.0"
+source = "git+https://github.com/ellaguno/iurefficient-connect?tag=v0.9.0#9e735d967e2a07cb1e013a88bbaf41cc350c9756"
 dependencies = [
  "anyhow",
  "bytes",
