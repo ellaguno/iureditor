@@ -227,3 +227,17 @@ export const lightSvgElement = async (code: string): Promise<SVGElement | null> 
   holder.innerHTML = await renderMermaidSvg(code, { theme: 'light' });
   return holder.querySelector('svg');
 };
+
+/** Valida código mermaid sin dibujarlo: `null` si es válido, o el mensaje de
+ *  error del parser. Va por la cola para no cruzarse con un render. */
+export function mermaidSyntaxError(code: string): Promise<string | null> {
+  return enqueue(async () => {
+    const m = await getMermaid();
+    try {
+      await m.parse(stripHtmlInLabels(code));
+      return null;
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
+  });
+}

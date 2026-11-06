@@ -72,6 +72,12 @@ export const Mermaid = Node.create({
   },
 
   addNodeView() {
-    return ReactNodeViewRenderer(MermaidNodeView);
+    return ReactNodeViewRenderer(MermaidNodeView, {
+      // El panel de edición (código, plantillas, asistente) es interfaz propia:
+      // si ProseMirror atiende sus clics, el primero sólo selecciona el nodo
+      // (y el cuadro se desplaza), y el texto tecleado acaba en el documento.
+      stopEvent: ({ event }) =>
+        event.target instanceof Element && !!event.target.closest('.iur-mermaid-edit'),
+    });
   },
 });

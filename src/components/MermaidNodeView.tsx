@@ -7,6 +7,8 @@ import {
   Image as ImageIcon,
   AlertTriangle,
   ChevronDown,
+  Sparkles,
+  Loader2,
 } from 'lucide-react';
 import {
   renderMermaidSvg,
@@ -15,6 +17,7 @@ import {
   lightSvgElement,
 } from '../lib/mermaid';
 import { saveSvg, savePng } from '../lib/diagramExport';
+import { assistDiagram } from '../lib/mermaidAssist';
 import { t, useLang } from '../lib/i18n';
 
 // Andamiaje inicial por tipo de diagrama (el usuario lo edita después); el
@@ -130,6 +133,17 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
   // Última plantilla insertada tal cual: si el borrador sigue igual, elegir
   // otra la sustituye sin preguntar.
   const lastTemplateRef = useRef<string | null>(null);
+  // Asistente de IA (Iurefficient): petición en curso, error y el borrador
+  // previo a la última generación para poder restaurarlo.
+  const [assistOpen, setAssistOpen] = useState(false);
+  const [assistText, setAssistText] = useState('');
+  const [assistBusy, setAssistBusy] = useState(false);
+  const [assistError, setAssistError] = useState<string | null>(null);
+  const [assistPrev, setAssistPrev] = useState<string | null>(null);
+  // Cada petición lleva un número: cancelar o cerrar el editor descarta la
+  // respuesta que llegue después.
+  const assistReqRef = useRef(0);
+  const assistInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -195,9 +209,18 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
       setTouched(true);
       setDraft(code);
       lastTemplateRef.current = null;
+      assistReqRef.current++;
+      setAssistBusy(false);
+      setAssistError(null);
+      setAssistPrev(null);
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
   }, [editing, code]);
+
+  // Al abrir el asistente, el foco va a su campo (tras pintarse).
+  useEffect(() => {
+    if (assistOpen) assistInputRef.current?.focus();
+  }, [assistOpen]);
 
   // Cierra el desplegable de plantillas al hacer clic fuera.
   useEffect(() => {
@@ -235,6 +258,51 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
     lastTemplateRef.current = tplCode;
     setDraft(tplCode);
     setTimeout(() => textareaRef.current?.focus(), 0);
+  };
+
+  const runAssist = async () => {
+    const request = assistText.trim();
+    if (!request || assistBusy) return;
+    const req = ++assistReqRef.current;
+    const before = draft;
+    setAssistBusy(true);
+    setAssistError(null);
+    try {
+      const result = await assistDiagram(request, before);
+      if (req !== assistReqRef.current) return;
+      if (!result.code) {
+        setAssistError(t('mermaid.assistEmpty'));
+        return;
+      }
+      setAssistPrev(before);
+      lastTemplateRef.current = null;
+      setDraft(result.code);
+      setAssistText('');
+      if (result.error) setAssistError(t('mermaid.assistInvalid'));
+    } catch (err) {
+      if (req !== assistReqRef.current) return;
+      setAssistError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (req === assistReqRef.current) setAssistBusy(false);
+    }
+  };
+
+  const cancelAssist = () => {
+    assistReqRef.current++;
+    setAssistBusy(false);
+  };
+
+  const onAssistKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      void runAssist();
+    }
+    if (e.key === 'Escape') {
+      if (assistBusy) cancelAssist();
+      else setAssistOpen(false);
+      textareaRef.current?.focus();
+    }
+    e.stopPropagation();
   };
 
   const onEditorKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -308,9 +376,9 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
       )}
 
       {editing ? (
-        <div className="p-3">
-          {/* Barra de herramientas: plantillas */}
-          <div className="flex items-center justify-between mb-2">
+        <div className="iur-mermaid-edit p-3">
+          {/* Barra de herramientas: plantillas y asistente */}
+          <div className="flex items-center gap-2 mb-2">
             <div className="relative">
               <button
                 type="button"
@@ -338,7 +406,73 @@ export const MermaidNodeView = ({ node, updateAttributes, selected }: NodeViewPr
                 </div>
               )}
             </div>
+            <button
+              type="button"
+              title={t('mermaid.assistTitle')}
+              onClick={() => setAssistOpen((o) => !o)}
+              className={`flex items-center gap-1 px-2 py-1 text-xs rounded border ${
+                assistOpen
+                  ? 'border-primary-400 bg-primary-50 text-primary-700 dark:border-primary-600 dark:bg-primary-900/30 dark:text-primary-300'
+                  : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              {t('mermaid.assist')}
+            </button>
           </div>
+
+          {assistOpen && (
+            <div className="mb-2">
+              <div className="flex gap-2">
+                <input
+                  ref={assistInputRef}
+                  value={assistText}
+                  onChange={(e) => setAssistText(e.target.value)}
+                  onKeyDown={onAssistKeyDown}
+                  placeholder={t('mermaid.assistPlaceholder')}
+                  disabled={assistBusy}
+                  className="flex-1 min-w-0 px-2 py-1 text-sm rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary-500 focus:outline-none disabled:opacity-60"
+                />
+                {assistBusy ? (
+                  <button
+                    type="button"
+                    onClick={cancelAssist}
+                    className="flex items-center gap-1 px-3 py-1 text-sm rounded text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    {t('editor.cancel')}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void runAssist()}
+                    disabled={!assistText.trim()}
+                    className="px-3 py-1 text-sm bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
+                  >
+                    {t('mermaid.assistGenerate')}
+                  </button>
+                )}
+              </div>
+              <div className="flex items-start justify-between gap-2 mt-1 text-xs">
+                <span className={assistError ? 'text-amber-700 dark:text-amber-400' : 'text-gray-400 dark:text-gray-500'}>
+                  {assistBusy ? t('mermaid.assistWorking') : (assistError ?? t('mermaid.assistPrivacy'))}
+                </span>
+                {assistPrev !== null && !assistBusy && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraft(assistPrev);
+                      setAssistPrev(null);
+                      setAssistError(null);
+                    }}
+                    className="shrink-0 text-primary-600 dark:text-primary-400 hover:underline"
+                  >
+                    {t('mermaid.assistUndo')}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Split: código | vista previa */}
           <div className="flex flex-col md:flex-row gap-3">

@@ -323,3 +323,21 @@ pub async fn iure_save_new(state: State<'_, IureState>, path: String, case_id: O
     state.save_config();
     Ok(mirror)
 }
+
+/// Consulta al asistente de IA de la instancia (chat global, sin proyecto) con unas
+/// instrucciones propias. Devuelve el texto de la respuesta. Gasta cuota de IA.
+#[tauri::command]
+pub async fn iure_chat(state: State<'_, IureState>, message: String, system_prompt: Option<String>) -> Result<String, String> {
+    let sess = state.session().await.map_err(err)?;
+    api::global_chat(&sess, &message, system_prompt.as_deref(), &[]).await.map_err(|e| {
+        let m = err(e);
+        if m.contains("terms_acceptance_required") {
+            tr!(
+                "Accept the current terms of use in Iurefficient (in the browser) to use the assistant",
+                "Acepta los términos de uso vigentes en Iurefficient (en el navegador) para usar el asistente"
+            )
+        } else {
+            m
+        }
+    })
+}
