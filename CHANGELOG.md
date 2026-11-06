@@ -5,6 +5,20 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.16.0 — 2026-11-06
+
+### Añadido
+- **Asistente de diagramas.** En el editor de un diagrama, el botón «Asistente»
+  pide a la IA de Iurefficient (con la cuenta conectada) que dibuje un diagrama a
+  partir de una descripción o que cambie el actual («agrega una rama de
+  desechamiento»). El código se revisa antes de mostrarlo y, si no compila, se le
+  pide al asistente que lo corrija; «Restaurar código anterior» deshace la
+  generación. Cada petición gasta cuota de IA del plan.
+
+### Corregido
+- El primer clic en los botones del editor de diagramas a veces sólo
+  seleccionaba el bloque, y lo que se tecleaba después iba al documento.
+
 ## v1.15.1 — 2026-11-06
 
 ### Corregido
