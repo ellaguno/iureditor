@@ -5,6 +5,19 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.15.0 — 2026-11-06
+
+### Añadido
+- **Más plantillas de diagramas.** El menú «Insertar plantilla» del editor de
+  diagramas suma cuadrantes, mapa mental, línea de tiempo, recorrido de usuario,
+  gráfico de Git, gráfica XY (barras y líneas), Sankey, Kanban, diagrama de
+  bloques, requisitos, paquete, radar, mapa de árbol y contexto C4.
+
+### Corregido
+- Al terminar de editar un diagrama mermaid, el cuadro quedaba en blanco hasta
+  desplazarse fuera y volver; ahora el diagrama se ve en cuanto se cierra el
+  editor.
+
 ## v1.14.0 — 2026-11-02
 
 ### Añadido
