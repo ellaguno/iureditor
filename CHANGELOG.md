@@ -5,6 +5,14 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.19.1 — 2026-11-10
+
+### Cambiado
+- **macOS: la app viene firmada y notarizada por Apple.** El `.dmg` y las
+  actualizaciones llevan firma Developer ID y el ticket de
+  notarización, así que macOS la abre sin el aviso de «desarrollador no
+  identificado» ni el paso por Ajustes › Privacidad y seguridad.
+
 ## v1.19.0 — 2026-11-06
 
 ### Añadido
