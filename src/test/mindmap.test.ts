@@ -149,6 +149,22 @@ describe('mapa mental: convertir una lista', () => {
   });
 });
 
+describe('mapa mental: palabras de IureDesk en el metadato (S1.23)', () => {
+  it('se conservan al guardar, aunque cambie la forma', () => {
+    const src = '> [!MINDMAP|cloud map layout-down root-s palette-warm] Centro\n> - x';
+    expect(firstCallout(src).attrs).toMatchObject({ shape: 'cloud', view: 'map', meta: 'layout-down root-s palette-warm' });
+    const saved = buildTurndownService().turndown(generateHTML(docOf(src), extensions));
+    expect(saved).toContain('> [!MINDMAP|cloud map layout-down root-s palette-warm] Centro');
+  });
+
+  it('una palabra desconocida ya no se toma como forma', () => {
+    const attrs = firstCallout('> [!MINDMAP|layout-radial] Centro\n> - x').attrs;
+    expect(attrs).toMatchObject({ shape: null, meta: 'layout-radial' });
+    const saved = buildTurndownService().turndown(generateHTML(docOf('> [!MINDMAP|layout-radial] C\n> - x'), extensions));
+    expect(saved).toContain('> [!MINDMAP|layout-radial] C');
+  });
+});
+
 describe('mapa mental: forma de los nodos', () => {
   const md = '> [!MINDMAP|bang] Centro\n> - Rama (uno)\n>   - Sub';
 

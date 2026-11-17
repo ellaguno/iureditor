@@ -75,6 +75,13 @@ export const Callout = Node.create({
         parseHTML: (el) => el.hasAttribute('data-links'),
         renderHTML: (attrs) => (attrs.links ? { 'data-links': '' } : {}),
       },
+      // Palabras del metadato que esta app no usa (p. ej. `layout-down root-s`
+      // de IureDesk): se conservan al guardar.
+      meta: {
+        default: null,
+        parseHTML: (el) => el.getAttribute('data-meta'),
+        renderHTML: (attrs) => (attrs.meta ? { 'data-meta': attrs.meta } : {}),
+      },
     };
   },
 

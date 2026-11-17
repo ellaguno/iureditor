@@ -608,15 +608,20 @@ export const markdownToHtml = (markdown: string): string => {
         if (marker?.[3]) body.push(marker[3]);
         for (let i = 1; i < quoteBuffer.length; i++) body.push(quoteBuffer[i]);
         // Metadato: forma, vista (`right`/`map`; `below` es la de omisión) y
-        // `links`, en cualquier orden.
+        // `links`, en cualquier orden. Las demás palabras (p. ej. las de
+        // IureDesk: `layout-down`, `root-s`, `palette-warm`) se conservan tal
+        // cual en `data-meta` para no perderlas al guardar.
         const tokens = (meta ?? '').toLowerCase().split(/\s+/).filter(Boolean);
         const VIEWS = ['right', 'map', 'below'];
-        const shapeToken = tokens.find((tk) => tk !== 'links' && !VIEWS.includes(tk));
+        const SHAPES = ['default', 'square', 'rounded', 'circle', 'cloud', 'bang', 'hexagon'];
+        const shapeToken = tokens.find((tk) => SHAPES.includes(tk));
         const viewToken = tokens.find((tk) => tk === 'right' || tk === 'map');
+        const extra = tokens.filter((tk) => tk !== shapeToken && !VIEWS.includes(tk) && tk !== 'links');
         const attrs =
           (shapeToken ? ` data-shape="${escapeHtmlAttr(shapeToken)}"` : '') +
           (viewToken ? ` data-view="${viewToken}"` : '') +
-          (tokens.includes('links') ? ' data-links=""' : '');
+          (tokens.includes('links') ? ' data-links=""' : '') +
+          (extra.length ? ` data-meta="${escapeHtmlAttr(extra.join(' '))}"` : '');
         out.push(`<div data-callout="${type}"${attrs}>${quoteBody(body)}</div>`);
       } else {
         out.push(`<blockquote>${quoteBody(quoteBuffer)}</blockquote>`);
@@ -729,6 +734,8 @@ export const buildTurndownService = (): TurndownService => {
               shape && shape !== 'default' ? shape : '',
               el.getAttribute('data-view') ?? '',
               el.hasAttribute('data-links') ? 'links' : '',
+              // Palabras de otras apps (IureDesk), al final y tal cual.
+              ...(el.getAttribute('data-meta') ?? '').split(/\s+/),
             ]
           : [];
       const metaText = tokens.filter(Boolean).join(' ');
