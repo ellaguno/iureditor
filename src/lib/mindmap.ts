@@ -198,6 +198,8 @@ export const mindmapFromCallout = (callout: MindmapJson, fallbackRoot: string): 
   });
 
   // Acomodo en árbol (registrado en lib/mermaid.ts): el radial por omisión
-  // reacomodaba todo el mapa con cada nodo nuevo.
-  return { code: `${TIDY_TREE}mindmap\n${lines.join('\n')}`, links, nodes };
+  // reacomodaba todo el mapa con cada nodo nuevo. Si el mapa pide el radial
+  // (`layout-radial`, lo escribe IureDesk), se respeta.
+  const radial = String(callout.attrs?.meta ?? '').split(/\s+/).includes('layout-radial');
+  return { code: `${radial ? '' : TIDY_TREE}mindmap\n${lines.join('\n')}`, links, nodes };
 };

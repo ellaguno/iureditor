@@ -157,6 +157,13 @@ describe('mapa mental: palabras de IureDesk en el metadato (S1.23)', () => {
     expect(saved).toContain('> [!MINDMAP|cloud map layout-down root-s palette-warm] Centro');
   });
 
+  it('`layout-radial` dibuja con el acomodo radial de mermaid (sin tidy-tree)', () => {
+    const radial = fromCallout(firstCallout('> [!MINDMAP|layout-radial] Centro\n> - x'), 'n').code;
+    expect(radial.startsWith('mindmap\n')).toBe(true);
+    const tree = fromCallout(firstCallout('> [!MINDMAP|layout-down] Centro\n> - x'), 'n').code;
+    expect(tree.startsWith(TIDY)).toBe(true);
+  });
+
   it('una palabra desconocida ya no se toma como forma', () => {
     const attrs = firstCallout('> [!MINDMAP|layout-radial] Centro\n> - x').attrs;
     expect(attrs).toMatchObject({ shape: null, meta: 'layout-radial' });
