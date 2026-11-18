@@ -3,14 +3,14 @@
 Plan de la suite: `iuredesk/docs/suite-integracion.md` §4.5 (tarea S1.15 de `iuredesk/docs/gaps.md`).
 
 IureEditor 2.0 es una ventana egui sobre el editor de documentos de la suite Iurefficient
-(`iure-doc` + `iure-doc-ui`, hoy en el repositorio de IureDesk): el mismo editor que ya usan las
+(`iure-doc` + `iure-doc-ui`, repositorio [`ellaguno/iure-doc`](https://github.com/ellaguno/iure-doc)): el mismo editor que ya usan las
 notas de IureDesk y las notas de tareas de IureProject. La versión Tauri (`src-tauri/`, `src/`)
 sigue siendo la que se publica hasta que la 2.0 tenga paridad en lo que la gente usa.
 
 ## Dónde está
 
 `egui/` es un proyecto de Cargo propio (no toca el de Tauri). Depende por ruta de
-`../iurefficient-ui` y `../iuredesk/crates/doc-ui`, como IureProject.
+`../iurefficient-ui` (como IureProject) y de `iure-doc-ui` por etiqueta fija.
 
 ```bash
 cd egui && cargo run --release -- archivo.md
