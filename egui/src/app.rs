@@ -303,7 +303,12 @@ impl EditorApp {
                             std::sync::Arc::new(crate::diagrams::Diagrams::new(ui)),
                             std::sync::Arc::new(iure_doc_ui::LocalImages::new(folder)),
                         ]));
-                    let out = iure_doc_ui::show_blocks_with(
+                    // Pegar de la web, Word o Google Docs pega su Markdown (el HTML del portapapeles).
+                    let hooks = iure_doc_ui::Hooks {
+                        diagrams: Some(diagrams),
+                        paste: Some(std::sync::Arc::new(iure_doc_ui::SystemClipboard)),
+                    };
+                    let out = iure_doc_ui::show_blocks_hooks(
                         ui,
                         egui::Id::unique(("iureditor-doc", self.generation)),
                         &mut self.doc.text,
@@ -311,7 +316,7 @@ impl EditorApp {
                             "Write here… (# title, - list, **bold**)",
                             "Escribe aquí… (# título, - lista, **negrita**)",
                         ),
-                        Some(diagrams),
+                        hooks,
                     );
                     out.response.widget_info(|| {
                         egui::WidgetInfo::labeled(egui::Role::MultilineTextInput, true, pick("Document", "Documento"))

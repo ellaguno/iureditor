@@ -28,7 +28,7 @@ cd egui && cargo run --release -- archivo.md
 2. **Hecho (alpha 2)**: el editor de la suite trae deshacer de todo el documento, selección entre
    bloques, tablas editables en su lugar y diagramas dibujados en su lugar: Mermaid y mapas
    mentales con el mismo motor que IureDesk (`iuredesk-html-view`, fijado a un commit), con los
-   colores del tema; un clic muestra el código. También imágenes de la carpeta del documento en su lugar (las de internet no se descargan).
+   colores del tema; un clic muestra el código. También imágenes de la carpeta del documento en su lugar (las de internet no se descargan) y pegar HTML como Markdown (de la web, Word o Google Docs).
 3. Exportar PDF (Typst), DOCX y HTML (S1.14).
 4. Deep links y `--mcp` con los mismos esquemas que la versión Tauri (S1.8); migración de
    preferencias; documentos recientes, buscar y reemplazar, asistente.
