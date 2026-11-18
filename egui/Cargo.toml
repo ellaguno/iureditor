@@ -1,0 +1,52 @@
+# IureEditor 2.0 (S1.15 de la suite): ventana egui sobre el editor de documentos de Iurefficient
+# (`iure-doc-ui`, el mismo de las notas de IureDesk y de IureProject). Convive con la versión Tauri
+# (`src-tauri/`) hasta la paridad; ver `docs/plan-2.0.md`.
+[package]
+name = "iureditor-egui"
+version = "2.0.0-alpha.1"
+edition = "2024"
+rust-version = "1.91"
+license = "Apache-2.0"
+description = "IureEditor 2.0: editor de documentos Markdown en Rust + egui"
+publish = false
+
+[[bin]]
+name = "iureditor2"
+path = "src/main.rs"
+
+# Proyecto propio, fuera del de Tauri.
+[workspace]
+
+[dependencies]
+egui = "0.37"
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "wgpu", "accesskit", "wayland", "x11"] }
+# Kit de interfaz y editor de la suite, por ruta (como en IureProject) hasta que tengan repositorio propio.
+iurefficient-ui = { path = "../../iurefficient-ui" }
+iure-doc-ui = { path = "../../iuredesk/crates/doc-ui" }
+thiserror = "2"
+
+# Diálogos de archivo por el portal XDG (Rust puro, sin GTK).
+[target.'cfg(target_os = "linux")'.dependencies]
+rfd = { version = "0.17", default-features = false, features = ["xdg-portal", "wayland"] }
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+rfd = { version = "0.17", default-features = false }
+
+[dev-dependencies]
+tempfile = "3"
+egui_kittest = { version = "0.37", features = ["wgpu"] }
+
+# IureDesk pide el kit por git; aquí se usa el de la ruta (una sola copia, sin red).
+[patch."https://github.com/ellaguno/iurefficient-ui"]
+iurefficient-ui = { path = "../../iurefficient-ui" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
