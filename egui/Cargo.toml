@@ -23,7 +23,7 @@ eframe = { version = "0.37", default-features = false, features = ["default_font
 # Kit de interfaz de la suite (por ruta, como en IureProject) y editor de documentos (repositorio
 # propio, etiqueta fija).
 iurefficient-ui = { path = "../../iurefficient-ui" }
-iure-doc-ui = { git = "https://github.com/ellaguno/iure-doc", tag = "v0.2.0" }
+iure-doc-ui = { git = "https://github.com/ellaguno/iure-doc", tag = "v0.3.0" }
 thiserror = "2"
 
 # Diálogos de archivo por el portal XDG (Rust puro, sin GTK).

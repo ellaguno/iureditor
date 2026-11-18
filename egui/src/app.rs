@@ -390,6 +390,12 @@ mod shot {
             h.key_press_modifiers(Modifiers::SHIFT, Key::End);
             h.run_steps(3);
         }
+        // `IUREDITOR_SHOT_CELL=1`: una celda de la tabla con el foco (se ve su barra).
+        if std::env::var_os("IUREDITOR_SHOT_CELL").is_some() {
+            use egui_kittest::kittest::Queryable;
+            h.get_by_label("Fila 2, columna 2").focus();
+            h.run_steps(3);
+        }
         let img = h.render().unwrap();
         img.save(out).unwrap();
     }
