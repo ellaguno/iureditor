@@ -7,6 +7,7 @@
 mod app;
 mod diagrams;
 mod doc;
+mod drafts;
 
 use std::process::ExitCode;
 
@@ -36,7 +37,12 @@ fn main() -> ExitCode {
     let result = eframe::run_native(
         "IureEditor",
         options,
-        Box::new(move |_cc| Ok(Box::new(Window(app::EditorApp::new(doc, notice))))),
+        Box::new(move |_cc| {
+            let mut app = app::EditorApp::new(doc, notice);
+            // ¿Quedaron borradores de un cierre inesperado?
+            app.recovery = drafts::drafts_dir().map(|d| drafts::orphans(&d)).unwrap_or_default();
+            Ok(Box::new(Window(app)))
+        }),
     );
     match result {
         Ok(()) => ExitCode::SUCCESS,

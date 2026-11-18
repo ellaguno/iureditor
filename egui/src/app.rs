@@ -38,6 +38,26 @@ pub struct EditorApp {
     themed: bool,
     /// Corrector ortográfico (diccionarios del sistema, español e inglés; uno para la app).
     speller: std::sync::Arc<iure_doc_ui::Speller>,
+    /// Borradores de recuperación (carpeta; `None`: sin carpeta de datos).
+    drafts: Option<PathBuf>,
+    /// Huella del texto y cuándo cambió por última vez (segundos de egui).
+    seen: (u64, f64),
+    /// Huella del último borrador escrito (0: ninguno).
+    drafted: u64,
+    /// Generación de borradores: un borrador que tarda no reaparece tras guardar o descartar.
+    draft_gen: std::sync::Arc<std::sync::Mutex<u64>>,
+    /// Borradores de un cierre inesperado, para ofrecer recuperarlos (el más reciente primero).
+    pub(crate) recovery: Vec<(PathBuf, crate::drafts::Draft)>,
+}
+
+/// Espera tras el último cambio antes de escribir el borrador (como IureEditor Tauri).
+const DRAFT_DELAY: f64 = 2.5;
+
+fn hash_text(t: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    t.hash(&mut h);
+    h.finish() | 1
 }
 
 const SAVE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::S);
@@ -58,6 +78,12 @@ impl EditorApp {
             title: String::new(),
             themed: false,
             speller: iure_doc_ui::Speller::system(iure_doc_ui::spell::personal_path("iureditor")),
+            // En las pruebas no se tocan los borradores del usuario (cada prueba pone su carpeta).
+            drafts: if cfg!(test) { None } else { crate::drafts::drafts_dir() },
+            seen: (0, 0.0),
+            drafted: 0,
+            draft_gen: std::sync::Arc::new(std::sync::Mutex::new(0)),
+            recovery: Vec::new(),
         }
     }
 
@@ -124,8 +150,123 @@ impl EditorApp {
             Then::Open => self.open_dialog(),
             Then::Close => {
                 self.closing = true;
+                self.clear_draft();
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
+        }
+    }
+
+    /// Usa otra carpeta de borradores (pruebas).
+    #[cfg(test)]
+    pub(crate) fn set_drafts_dir(&mut self, dir: PathBuf) {
+        self.drafts = Some(dir);
+    }
+
+    /// Borra el borrador de esta ventana (y anula uno que se esté escribiendo).
+    fn clear_draft(&mut self) {
+        let Some(dir) = &self.drafts else { return };
+        let mut g = self.draft_gen.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        *g = g.wrapping_add(1);
+        crate::drafts::clear(dir);
+        self.drafted = 0;
+    }
+
+    /// Con cambios sin guardar, escribe el borrador 2,5 s después del último cambio (en otro
+    /// hilo); sin cambios, lo borra.
+    fn draft_tick(&mut self, ctx: &egui::Context) {
+        let Some(dir) = self.drafts.clone() else { return };
+        let now = ctx.input(|i| i.time);
+        let h = hash_text(&self.doc.text);
+        if h != self.seen.0 {
+            self.seen = (h, now);
+        }
+        if !self.doc.dirty() {
+            if self.drafted != 0 {
+                self.clear_draft();
+            }
+            return;
+        }
+        if self.drafted == h {
+            return;
+        }
+        let wait = DRAFT_DELAY - (now - self.seen.1);
+        if wait > 0.0 {
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait));
+            return;
+        }
+        self.drafted = h;
+        let gen_lock = std::sync::Arc::clone(&self.draft_gen);
+        let my_gen = *gen_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (path, text) = (self.doc.path.clone(), self.doc.text.clone());
+        std::thread::spawn(move || {
+            let g = gen_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if *g == my_gen {
+                let _ = crate::drafts::write(&dir, path.as_deref(), &text);
+            }
+        });
+    }
+
+    /// «¿Recuperar lo que no se guardó?» tras un cierre inesperado.
+    fn recovery_window(&mut self, ctx: &egui::Context) {
+        let Some((file, draft)) = self.recovery.first().cloned() else { return };
+        let name = draft
+            .path
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map_or_else(|| pick("Untitled", "Sin título").to_string(), |n| n.to_string_lossy().into_owned());
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let mins = now.saturating_sub(draft.saved_at) / 60;
+        let when = match mins {
+            0 => pick("less than a minute ago", "hace menos de un minuto").to_string(),
+            m if m < 120 => format!("{} {m} min", pick("about", "hace")),
+            m => format!("{} {} h", pick("about", "hace"), m / 60),
+        };
+        let more = self.recovery.len() - 1;
+        let mut answer: Option<bool> = None;
+        egui::Window::new(pick("Recover unsaved changes?", "¿Recuperar lo que no se guardó?"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(format!(
+                    "{} «{name}» ({when}).",
+                    pick(
+                        "IureEditor closed unexpectedly with unsaved changes in",
+                        "IureEditor se cerró sin guardar los cambios de"
+                    )
+                ));
+                if more > 0 {
+                    ui.weak(format!("{} {more}", pick("Other drafts:", "Otros borradores:")));
+                }
+                ui.horizontal(|ui| {
+                    if ui.button(pick("Recover", "Recuperar")).clicked() {
+                        answer = Some(true);
+                    }
+                    if ui.button(pick("Discard", "Descartar")).clicked() {
+                        answer = Some(false);
+                    }
+                });
+            });
+        match answer {
+            Some(true) => {
+                // El documento con el texto del borrador encima (queda con cambios sin guardar).
+                let mut doc = match &draft.path {
+                    Some(p) if p.is_file() => {
+                        Doc::open(p).unwrap_or_else(|_| Doc { path: Some(p.clone()), ..Default::default() })
+                    }
+                    Some(p) => Doc { path: Some(p.clone()), ..Default::default() },
+                    None => Doc::default(),
+                };
+                doc.text = draft.text;
+                self.replace(doc);
+                crate::drafts::remove(&[file]);
+                self.recovery.remove(0);
+            }
+            Some(false) => {
+                let files: Vec<PathBuf> = self.recovery.drain(..).map(|(f, _)| f).collect();
+                crate::drafts::remove(&files);
+            }
+            None => {}
         }
     }
 
@@ -247,6 +388,8 @@ impl EditorApp {
             Some(Some(false)) => {
                 self.ask = None;
                 self.doc.saved = self.doc.text.clone();
+                // «No guardar»: sin borrador huérfano.
+                self.clear_draft();
                 self.run(ctx, then);
             }
             Some(None) => self.ask = None,
@@ -283,6 +426,7 @@ impl EditorApp {
             self.act(&ctx, Then::New);
         }
         self.poll_picker(&ctx);
+        self.draft_tick(&ctx);
         self.check_disk(ctx.input(|i| i.time));
         let title = self.doc.title();
         if title != self.title {
@@ -329,6 +473,7 @@ impl EditorApp {
             });
         });
         self.ask_window(&ctx);
+        self.recovery_window(&ctx);
     }
 }
 
@@ -431,6 +576,103 @@ mod diagram_tests {
     }
 }
 
+#[cfg(test)]
+mod draft_tests {
+    use super::*;
+    use egui_kittest::kittest::Queryable;
+
+    fn harness(app: EditorApp) -> egui_kittest::Harness<'static, EditorApp> {
+        egui_kittest::Harness::builder()
+            .with_size(egui::vec2(900.0, 600.0))
+            .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app)
+    }
+
+    fn my_draft(dir: &std::path::Path) -> PathBuf {
+        dir.join(format!("{}.json", std::process::id()))
+    }
+
+    /// Espera a que un archivo exista (o no) — lo escribe otro hilo.
+    fn wait_file(p: &std::path::Path, exists: bool) -> bool {
+        for _ in 0..200 {
+            if p.exists() == exists {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        false
+    }
+
+    #[test]
+    fn unsaved_changes_leave_a_draft_until_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("nota.md");
+        std::fs::write(&p, "Texto\n").unwrap();
+        let mut app = EditorApp::new(Doc::open(&p).unwrap(), None);
+        let drafts = dir.path().join("borradores");
+        app.set_drafts_dir(drafts.clone());
+        let mut h = harness(app);
+        h.run();
+        h.get_by_label("Documento").focus();
+        h.run();
+        h.get_by_label("Documento").type_text(" nuevo");
+        // Antes de 2,5 s, nada; después (cada paso son 0,25 s), el borrador.
+        h.run_steps(4);
+        assert!(!my_draft(&drafts).exists());
+        h.run_steps(8);
+        assert!(wait_file(&my_draft(&drafts), true), "borrador escrito");
+        let d = crate::drafts::orphans(&drafts);
+        assert!(d.iter().any(|(_, x)| x.text.contains("nuevo") && x.path.as_deref() == Some(p.as_path())));
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+        h.run_steps(2);
+        assert!(wait_file(&my_draft(&drafts), false), "al guardar se borra");
+    }
+
+    #[test]
+    fn dont_save_removes_the_draft() {
+        let dir = tempfile::tempdir().unwrap();
+        let drafts = dir.path().join("borradores");
+        let mut app = EditorApp::new(Doc { text: "borrador".into(), ..Default::default() }, None);
+        app.set_drafts_dir(drafts.clone());
+        let mut h = harness(app);
+        h.run_steps(12);
+        assert!(wait_file(&my_draft(&drafts), true));
+        h.get_by_label("Nuevo").click();
+        h.run();
+        h.get_by_label("No guardar").click();
+        h.run_steps(2);
+        assert!(wait_file(&my_draft(&drafts), false));
+    }
+
+    #[test]
+    fn a_draft_from_a_crash_can_be_recovered() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("contrato.md");
+        std::fs::write(&p, "Versión guardada\n").unwrap();
+        let drafts = dir.path().join("borradores");
+        std::fs::create_dir_all(&drafts).unwrap();
+        let orphan = drafts.join("4000000.json");
+        std::fs::write(
+            &orphan,
+            serde_json::json!({"path": p.to_string_lossy(), "text": "Versión sin guardar\n", "saved_at": 1, "pid": 4_000_000u32})
+                .to_string(),
+        )
+        .unwrap();
+        let mut app = EditorApp::new(Doc::default(), None);
+        app.set_drafts_dir(drafts.clone());
+        app.recovery = crate::drafts::orphans(&drafts);
+        let mut h = harness(app);
+        h.run();
+        assert!(h.query_by_label_contains("contrato.md").is_some(), "dice qué documento era");
+        h.get_by_label("Recuperar").click();
+        h.run_steps(2);
+        let doc = &h.state().doc;
+        assert_eq!(doc.text, "Versión sin guardar\n");
+        assert_eq!(doc.saved, "Versión guardada\n", "el archivo no se toca: queda con cambios sin guardar");
+        assert_eq!(doc.path.as_deref(), Some(p.as_path()));
+        assert!(!orphan.exists(), "recuperado, se borra");
+    }
+}
+
 /// Captura de la ventana: `IUREDITOR_SHOT=/tmp/x.png cargo test shot -- --ignored`.
 #[cfg(test)]
 mod shot {
@@ -456,7 +698,20 @@ mod shot {
         let _ = logo.save(dir.join("img/sello.png"));
         let text = text.replacen("\n\n## Pendientes", "\n\n![Sello del despacho](img/sello.png)\n\n## Pendientes", 1);
         let doc = Doc { path: Some(dir.join("propuesta.md")), saved: text.clone(), text, mtime: None };
-        let app = EditorApp::new(doc, None);
+        let mut app = EditorApp::new(doc, None);
+        // `IUREDITOR_SHOT_RECOVERY=1`: la ventana para recuperar un borrador.
+        if std::env::var_os("IUREDITOR_SHOT_RECOVERY").is_some() {
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+            app.recovery = vec![(
+                PathBuf::from("/nada"),
+                crate::drafts::Draft {
+                    path: Some("contrato.md".into()),
+                    text: "x".into(),
+                    saved_at: now - 600,
+                    pid: 1,
+                },
+            )];
+        }
         let mut h = egui_kittest::Harness::builder()
             .with_size(egui::vec2(1000.0, 700.0))
             .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app);

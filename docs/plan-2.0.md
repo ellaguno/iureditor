@@ -29,7 +29,12 @@ cd egui && cargo run --release -- archivo.md
    bloques, tablas editables en su lugar y diagramas dibujados en su lugar: Mermaid y mapas
    mentales con el mismo motor que IureDesk (`iuredesk-html-view`, fijado a un commit), con los
    colores del tema; un clic muestra el código. También imágenes de la carpeta del documento en su lugar (las de internet no se descargan) pegar HTML como Markdown (de la web, Word o Google Docs) y corrector ortográfico (diccionarios Hunspell del sistema, español e inglés; diccionario personal en `~/.local/share/iureditor/diccionario.txt`). Pendiente: diccionarios incluidos para Windows y macOS (no traen Hunspell).
-3. Exportar PDF (Typst), DOCX y HTML (S1.14).
-4. Deep links y `--mcp` con los mismos esquemas que la versión Tauri (S1.8); migración de
+3. **Hecho**: recuperación de borradores como en la versión Tauri: con cambios sin guardar, 2,5 s
+   después del último cambio se escribe un borrador (en otro hilo) en
+   `~/.local/share/iureditor2/borradores/<pid>.json` (o `IUREDITOR_DATA_DIR`); al guardar o al
+   cerrar con «No guardar» se borra; tras un cierre inesperado, al abrir se ofrece recuperarlo.
+   Buscar y reemplazar en el documento (Ctrl+F / Ctrl+H).
+4. Exportar PDF (Typst), DOCX y HTML (S1.14).
+5. Deep links y `--mcp` con los mismos esquemas que la versión Tauri (S1.8); migración de
    preferencias; documentos recientes, buscar y reemplazar, asistente.
-5. Paridad medida contra la versión Tauri; entonces se retira Tauri.
+6. Paridad medida contra la versión Tauri; entonces se retira Tauri.

@@ -2136,6 +2136,7 @@ dependencies = [
  "iuredesk-html-view",
  "iurefficient-ui",
  "rfd",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.21",
 ]
