@@ -5,6 +5,18 @@ se genera automáticamente a partir de la sección correspondiente al tag
 (`.github/workflows/release.yml`), así que para publicar unas notas basta con
 añadir aquí la sección `## vX.Y.Z` antes de empujar el tag.
 
+## v1.19.2 — 2026-11-18
+
+Incluye también lo de la v1.19.1, que no llegó a publicarse.
+
+### Cambiado
+- **Mapas mentales compartidos con IureDesk.** Al cambiar la forma o la
+  distribución de un mapa mental, IureEditor conserva las palabras del metadato
+  que no son suyas (como `root-l` o `palette-warm`, que pone IureDesk), así que
+  editar el mapa en una app ya no borra lo que se eligió en la otra.
+- Un mapa con distribución radial elegida en IureDesk (`layout-radial`) se abre
+  como radial en IureEditor, en lugar de pasar a árbol.
+
 ## v1.19.1 — 2026-11-10
 
 ### Cambiado
