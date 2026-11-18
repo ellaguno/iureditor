@@ -376,6 +376,20 @@ mod shot {
             .with_size(egui::vec2(1000.0, 700.0))
             .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app);
         h.run_steps(4);
+        // `IUREDITOR_SHOT_SPAN=1`: selección que cruza bloques (de «reunión» a «Pendientes»).
+        if std::env::var_os("IUREDITOR_SHOT_SPAN").is_some() {
+            use egui_kittest::kittest::Queryable;
+            h.get_by_label("Documento").focus();
+            h.run_steps(2);
+            h.key_press(Key::ArrowDown);
+            h.run_steps(2);
+            for _ in 0..2 {
+                h.key_press_modifiers(Modifiers::SHIFT, Key::ArrowDown);
+                h.run_steps(2);
+            }
+            h.key_press_modifiers(Modifiers::SHIFT, Key::End);
+            h.run_steps(3);
+        }
         let img = h.render().unwrap();
         img.save(out).unwrap();
     }
