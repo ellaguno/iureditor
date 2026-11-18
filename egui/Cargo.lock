@@ -2078,8 +2078,8 @@ checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
 
 [[package]]
 name = "iure-doc"
-version = "0.6.0"
-source = "git+https://github.com/ellaguno/iure-doc?tag=v0.6.0#059b12d79fbe94a3f5170df499f10bc8c9b498bc"
+version = "0.7.0"
+source = "git+https://github.com/ellaguno/iure-doc?tag=v0.7.0#95c652d0ff43e3f0e0d291fc54511a791c0fdc51"
 dependencies = [
  "html5ever",
  "pulldown-cmark",
@@ -2088,8 +2088,8 @@ dependencies = [
 
 [[package]]
 name = "iure-doc-ui"
-version = "0.6.0"
-source = "git+https://github.com/ellaguno/iure-doc?tag=v0.6.0#059b12d79fbe94a3f5170df499f10bc8c9b498bc"
+version = "0.7.0"
+source = "git+https://github.com/ellaguno/iure-doc?tag=v0.7.0#95c652d0ff43e3f0e0d291fc54511a791c0fdc51"
 dependencies = [
  "arboard",
  "egui",
@@ -2097,6 +2097,7 @@ dependencies = [
  "iure-doc",
  "iurefficient-ui",
  "pulldown-cmark",
+ "spellbook",
 ]
 
 [[package]]
@@ -3821,6 +3822,16 @@ checksum = "eeb7109d23f319619d4cc0de5464613c8b7b1a09db2774a58101459cf6be2f10"
 dependencies = [
  "borsh",
  "serde_core",
+]
+
+[[package]]
+name = "spellbook"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d204abcbdf8e88729306a8d0ca01a79d8a49969fe1f84696909d6dbc4321c1a"
+dependencies = [
+ "foldhash 0.1.5",
+ "hashbrown 0.15.5",
 ]
 
 [[package]]

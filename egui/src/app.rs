@@ -36,6 +36,8 @@ pub struct EditorApp {
     disk_check: f64,
     title: String,
     themed: bool,
+    /// Corrector ortográfico (diccionarios del sistema, español e inglés; uno para la app).
+    speller: std::sync::Arc<iure_doc_ui::Speller>,
 }
 
 const SAVE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::S);
@@ -55,6 +57,7 @@ impl EditorApp {
             disk_check: 0.0,
             title: String::new(),
             themed: false,
+            speller: iure_doc_ui::Speller::system(iure_doc_ui::spell::personal_path("iureditor")),
         }
     }
 
@@ -307,6 +310,7 @@ impl EditorApp {
                     let hooks = iure_doc_ui::Hooks {
                         diagrams: Some(diagrams),
                         paste: Some(std::sync::Arc::new(iure_doc_ui::SystemClipboard)),
+                        spell: Some(self.speller.clone()),
                     };
                     let out = iure_doc_ui::show_blocks_hooks(
                         ui,
@@ -436,7 +440,7 @@ mod shot {
     #[ignore = "captura para revisar la interfaz"]
     fn shot() {
         let Some(out) = std::env::var_os("IUREDITOR_SHOT") else { return };
-        let text = "# Propuesta para Altamira\n\nAcuerdos de la **reunión** del martes con *Ana* y [el despacho](https://x.mx).\n\n## Pendientes\n\n- [ ] Llamar al notario\n- [x] Enviar propuesta\n  - con anexos\n\n> Nota: revisar `contrato.md` antes del jueves.\n\n| Concepto | Monto |\n|---|--:|\n| Honorarios | 12 000 |\n\n```mermaid\ngraph LR; Propuesta --> Firma --> Audiencia\n```\n\n> [!MINDMAP|map] Estrategia\n> - Análisis\n>   - Contrato\n> - Negociación\n";
+        let text = "# Propuesta para Altamira\n\nAcuerdos de la **reunión** del martes con *Ana* y [el despacho](https://x.mx); falta la aceptacion del cliente.\n\n## Pendientes\n\n- [ ] Llamar al notario\n- [x] Enviar propuesta\n  - con anexos\n\n> Nota: revisar `contrato.md` antes del jueves.\n\n| Concepto | Monto |\n|---|--:|\n| Honorarios | 12 000 |\n\n```mermaid\ngraph LR; Propuesta --> Firma --> Audiencia\n```\n\n> [!MINDMAP|map] Estrategia\n> - Análisis\n>   - Contrato\n> - Negociación\n";
         // Una carpeta con una imagen junto al documento (se ve en su lugar).
         let dir = std::env::temp_dir().join(format!("iureditor-shot-{}", std::process::id()));
         let _ = std::fs::create_dir_all(dir.join("img"));
@@ -464,6 +468,13 @@ mod shot {
             if h.query_all_by_label_contains("Diagrama").count() >= 2
                 && h.query_all_by_label_contains("Imagen").count() >= 1
             {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        // El corrector carga los diccionarios en otro hilo.
+        for _ in 0..500 {
+            if h.state().speller.is_ready() {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
