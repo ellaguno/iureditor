@@ -33,7 +33,8 @@ cd egui && cargo run --release -- archivo.md
    después del último cambio se escribe un borrador (en otro hilo) en
    `~/.local/share/iureditor2/borradores/<pid>.json` (o `IUREDITOR_DATA_DIR`); al guardar o al
    cerrar con «No guardar» se borra; tras un cierre inesperado, al abrir se ofrece recuperarlo.
-   Buscar y reemplazar en el documento (Ctrl+F / Ctrl+H).
+   Buscar y reemplazar en el documento (Ctrl+F / Ctrl+H). Resaltado de sintaxis del código. Pegar (Ctrl+V)
+   o soltar imágenes: se guardan en `assets/` junto al documento, como la versión Tauri.
 4. Exportar PDF (Typst), DOCX y HTML (S1.14).
 5. Deep links y `--mcp` con los mismos esquemas que la versión Tauri (S1.8); migración de
    preferencias; documentos recientes, buscar y reemplazar, asistente.

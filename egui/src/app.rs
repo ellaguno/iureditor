@@ -448,13 +448,16 @@ impl EditorApp {
                     let diagrams: std::sync::Arc<dyn iure_doc_ui::DiagramRenderer> =
                         std::sync::Arc::new(iure_doc_ui::Renderers(vec![
                             std::sync::Arc::new(crate::diagrams::Diagrams::new(ui)),
-                            std::sync::Arc::new(iure_doc_ui::LocalImages::new(folder)),
+                            std::sync::Arc::new(iure_doc_ui::LocalImages::new(folder.clone())),
                         ]));
                     // Pegar de la web, Word o Google Docs pega su Markdown (el HTML del portapapeles).
                     let hooks = iure_doc_ui::Hooks {
                         diagrams: Some(diagrams),
                         paste: Some(std::sync::Arc::new(iure_doc_ui::SystemClipboard)),
                         spell: Some(self.speller.clone()),
+                        // Imágenes pegadas o soltadas: en `assets/` junto al documento (como la
+                        // versión Tauri).
+                        images: Some(std::sync::Arc::new(iure_doc_ui::FolderImages::new(folder, "assets"))),
                     };
                     let out = iure_doc_ui::show_blocks_hooks(
                         ui,
@@ -573,6 +576,42 @@ mod diagram_tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         assert!(seen, "la imagen junto al documento se ve en su lugar");
+    }
+}
+
+#[cfg(test)]
+mod image_tests {
+    use super::*;
+
+    #[derive(Debug)]
+    struct Dropped(PathBuf);
+
+    impl egui::DroppedFile for Dropped {
+        fn path(&self) -> &std::path::Path {
+            &self.0
+        }
+        fn bytes(&self) -> Result<Vec<u8>, String> {
+            std::fs::read(&self.0).map_err(|e| e.to_string())
+        }
+    }
+
+    #[test]
+    fn dropped_images_go_to_assets_next_to_the_document() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("nota.md");
+        std::fs::write(&p, "Texto\n").unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let src = outside.path().join("logo.png");
+        image::RgbaImage::from_pixel(4, 4, image::Rgba([10, 20, 30, 255])).save(&src).unwrap();
+        let app = EditorApp::new(Doc::open(&p).unwrap(), None);
+        let mut h = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(900.0, 600.0))
+            .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app);
+        h.run_steps(2);
+        h.input_mut().dropped_files.push(std::sync::Arc::new(Dropped(src)));
+        h.run_steps(4);
+        assert_eq!(h.state().doc.text, "Texto\n\n![logo](assets/logo.png)\n");
+        assert!(dir.path().join("assets/logo.png").is_file());
     }
 }
 
