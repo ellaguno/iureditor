@@ -295,7 +295,10 @@ impl EditorApp {
                 ui.add_space(pad);
                 ui.vertical(|ui| {
                     ui.set_width(w);
-                    let out = iure_doc_ui::show_blocks(
+                    // Diagramas (Mermaid, mapas mentales) dibujados en su lugar.
+                    let diagrams: std::sync::Arc<dyn iure_doc_ui::DiagramRenderer> =
+                        std::sync::Arc::new(crate::diagrams::Diagrams::new(ui));
+                    let out = iure_doc_ui::show_blocks_with(
                         ui,
                         egui::Id::unique(("iureditor-doc", self.generation)),
                         &mut self.doc.text,
@@ -303,6 +306,7 @@ impl EditorApp {
                             "Write here… (# title, - list, **bold**)",
                             "Escribe aquí… (# título, - lista, **negrita**)",
                         ),
+                        Some(diagrams),
                     );
                     out.response.widget_info(|| {
                         egui::WidgetInfo::labeled(egui::Role::MultilineTextInput, true, pick("Document", "Documento"))
@@ -360,6 +364,34 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod diagram_tests {
+    use super::*;
+    use egui_kittest::kittest::Queryable;
+
+    #[test]
+    fn mermaid_blocks_are_drawn_in_place() {
+        let text = "Plan\n\n```mermaid\ngraph LR; A --> B\n```\n";
+        let doc = Doc { saved: text.into(), text: text.into(), ..Default::default() };
+        let app = EditorApp::new(doc, None);
+        let mut h = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(900.0, 600.0))
+            .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app);
+        // El dibujo llega de otro hilo (Blitz).
+        let mut seen = false;
+        for _ in 0..600 {
+            h.step();
+            if h.query_by_label("Diagrama 2").is_some() {
+                seen = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(seen, "el diagrama se ve dibujado");
+        assert_eq!(h.state().doc.text, text, "dibujarlo no cambia el documento");
+    }
+}
+
 /// Captura de la ventana: `IUREDITOR_SHOT=/tmp/x.png cargo test shot -- --ignored`.
 #[cfg(test)]
 mod shot {
@@ -369,13 +401,23 @@ mod shot {
     #[ignore = "captura para revisar la interfaz"]
     fn shot() {
         let Some(out) = std::env::var_os("IUREDITOR_SHOT") else { return };
-        let text = "# Propuesta para Altamira\n\nAcuerdos de la **reunión** del martes con *Ana* y [el despacho](https://x.mx).\n\n## Pendientes\n\n- [ ] Llamar al notario\n- [x] Enviar propuesta\n  - con anexos\n\n> Nota: revisar `contrato.md` antes del jueves.\n\n| Concepto | Monto |\n|---|--:|\n| Honorarios | 12 000 |\n\n```rust\nfn main() {}\n```\n";
+        let text = "# Propuesta para Altamira\n\nAcuerdos de la **reunión** del martes con *Ana* y [el despacho](https://x.mx).\n\n## Pendientes\n\n- [ ] Llamar al notario\n- [x] Enviar propuesta\n  - con anexos\n\n> Nota: revisar `contrato.md` antes del jueves.\n\n| Concepto | Monto |\n|---|--:|\n| Honorarios | 12 000 |\n\n```mermaid\ngraph LR; Propuesta --> Firma --> Audiencia\n```\n\n> [!MINDMAP|map] Estrategia\n> - Análisis\n>   - Contrato\n> - Negociación\n";
         let doc = Doc { path: Some("propuesta.md".into()), saved: text.into(), text: text.into(), mtime: None };
         let app = EditorApp::new(doc, None);
         let mut h = egui_kittest::Harness::builder()
             .with_size(egui::vec2(1000.0, 700.0))
             .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app);
         h.run_steps(4);
+        // Los diagramas llegan de otro hilo: se espera a que estén dibujados.
+        for _ in 0..600 {
+            h.step();
+            use egui_kittest::kittest::Queryable;
+            if h.query_all_by_label_contains("Diagrama").count() >= 2 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        h.run_steps(2);
         // `IUREDITOR_SHOT_SPAN=1`: selección que cruza bloques (de «reunión» a «Pendientes»).
         if std::env::var_os("IUREDITOR_SHOT_SPAN").is_some() {
             use egui_kittest::kittest::Queryable;

@@ -5,6 +5,7 @@
 //! Uso: `iureditor2 [archivo.md]`.
 
 mod app;
+mod diagrams;
 mod doc;
 
 use std::process::ExitCode;

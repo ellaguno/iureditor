@@ -10,7 +10,9 @@ sigue siendo la que se publica hasta que la 2.0 tenga paridad en lo que la gente
 ## Dónde está
 
 `egui/` es un proyecto de Cargo propio (no toca el de Tauri). Depende por ruta de
-`../iurefficient-ui` (como IureProject) y de `iure-doc-ui` por etiqueta fija.
+`../iurefficient-ui` (como IureProject), de `iure-doc-ui` por etiqueta fija y del motor de
+diagramas de IureDesk (`iuredesk-html-view`) por commit fijo. Compilar ese motor (stylo) pide
+`python3` en desarrollo; el programa final es solo Rust.
 
 ```bash
 cd egui && cargo run --release -- archivo.md
@@ -23,8 +25,10 @@ cd egui && cargo run --release -- archivo.md
    (Ctrl+S, escritura atómica) y guardar como (Ctrl+Mayús+S); pregunta antes de perder cambios
    (nuevo, abrir, cerrar); si otro programa cambia el archivo se vuelve a leer (o se avisa si hay
    cambios sin guardar); tema del sistema, español e inglés. Diálogos de archivo en otro hilo.
-2. Vista previa con diagramas (Mermaid y mapas mentales de Rust, `html-view`) y diagramas en su
-   lugar dentro del editor (S1.12).
+2. **Hecho (alpha 2)**: el editor de la suite trae deshacer de todo el documento, selección entre
+   bloques, tablas editables en su lugar y diagramas dibujados en su lugar: Mermaid y mapas
+   mentales con el mismo motor que IureDesk (`iuredesk-html-view`, fijado a un commit), con los
+   colores del tema; un clic muestra el código. Pendiente: imágenes en su lugar.
 3. Exportar PDF (Typst), DOCX y HTML (S1.14).
 4. Deep links y `--mcp` con los mismos esquemas que la versión Tauri (S1.8); migración de
    preferencias; documentos recientes, buscar y reemplazar, asistente.
