@@ -494,6 +494,16 @@ mod shot {
             h.key_press_modifiers(Modifiers::SHIFT, Key::End);
             h.run_steps(3);
         }
+        // `IUREDITOR_SHOT_FIND=1`: buscar «propuesta» (Ctrl+F) con sus coincidencias resaltadas.
+        if std::env::var_os("IUREDITOR_SHOT_FIND").is_some() {
+            use egui_kittest::kittest::Queryable;
+            h.get_by_label("Documento").focus();
+            h.run_steps(2);
+            h.key_press_modifiers(Modifiers::COMMAND, Key::F);
+            h.run_steps(2);
+            h.get_by_label("Buscar").type_text("propuesta");
+            h.run_steps(3);
+        }
         // `IUREDITOR_SHOT_CELL=1`: una celda de la tabla con el foco (se ve su barra).
         if std::env::var_os("IUREDITOR_SHOT_CELL").is_some() {
             use egui_kittest::kittest::Queryable;
