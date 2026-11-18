@@ -295,9 +295,14 @@ impl EditorApp {
                 ui.add_space(pad);
                 ui.vertical(|ui| {
                     ui.set_width(w);
-                    // Diagramas (Mermaid, mapas mentales) dibujados en su lugar.
+                    // Diagramas (Mermaid, mapas mentales) e imágenes de la carpeta del documento,
+                    // dibujados en su lugar.
+                    let folder = self.doc.path.as_ref().and_then(|p| p.parent()).map(std::path::Path::to_path_buf);
                     let diagrams: std::sync::Arc<dyn iure_doc_ui::DiagramRenderer> =
-                        std::sync::Arc::new(crate::diagrams::Diagrams::new(ui));
+                        std::sync::Arc::new(iure_doc_ui::Renderers(vec![
+                            std::sync::Arc::new(crate::diagrams::Diagrams::new(ui)),
+                            std::sync::Arc::new(iure_doc_ui::LocalImages::new(folder)),
+                        ]));
                     let out = iure_doc_ui::show_blocks_with(
                         ui,
                         egui::Id::unique(("iureditor-doc", self.generation)),
@@ -390,6 +395,31 @@ mod diagram_tests {
         assert!(seen, "el diagrama se ve dibujado");
         assert_eq!(h.state().doc.text, text, "dibujarlo no cambia el documento");
     }
+
+    #[test]
+    fn images_next_to_the_document_are_shown_in_place() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("img")).unwrap();
+        image::RgbaImage::from_pixel(8, 8, image::Rgba([0, 90, 180, 255]))
+            .save(dir.path().join("img/punto.png"))
+            .unwrap();
+        let p = dir.path().join("nota.md");
+        std::fs::write(&p, "![Punto azul](img/punto.png)\n").unwrap();
+        let app = EditorApp::new(Doc::open(&p).unwrap(), None);
+        let mut h = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(900.0, 600.0))
+            .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app);
+        let mut seen = false;
+        for _ in 0..300 {
+            h.step();
+            if h.query_by_label("Imagen 1: Punto azul").is_some() {
+                seen = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(seen, "la imagen junto al documento se ve en su lugar");
+    }
 }
 
 /// Captura de la ventana: `IUREDITOR_SHOT=/tmp/x.png cargo test shot -- --ignored`.
@@ -402,7 +432,21 @@ mod shot {
     fn shot() {
         let Some(out) = std::env::var_os("IUREDITOR_SHOT") else { return };
         let text = "# Propuesta para Altamira\n\nAcuerdos de la **reunión** del martes con *Ana* y [el despacho](https://x.mx).\n\n## Pendientes\n\n- [ ] Llamar al notario\n- [x] Enviar propuesta\n  - con anexos\n\n> Nota: revisar `contrato.md` antes del jueves.\n\n| Concepto | Monto |\n|---|--:|\n| Honorarios | 12 000 |\n\n```mermaid\ngraph LR; Propuesta --> Firma --> Audiencia\n```\n\n> [!MINDMAP|map] Estrategia\n> - Análisis\n>   - Contrato\n> - Negociación\n";
-        let doc = Doc { path: Some("propuesta.md".into()), saved: text.into(), text: text.into(), mtime: None };
+        // Una carpeta con una imagen junto al documento (se ve en su lugar).
+        let dir = std::env::temp_dir().join(format!("iureditor-shot-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(dir.join("img"));
+        let logo = image::RgbaImage::from_fn(360, 120, |x, y| {
+            let t = x as f32 / 360.0;
+            image::Rgba([
+                (30.0 + 40.0 * t) as u8,
+                (64.0 + 80.0 * t) as u8,
+                175,
+                if (x / 12 + y / 12) % 7 == 0 { 230 } else { 255 },
+            ])
+        });
+        let _ = logo.save(dir.join("img/sello.png"));
+        let text = text.replacen("\n\n## Pendientes", "\n\n![Sello del despacho](img/sello.png)\n\n## Pendientes", 1);
+        let doc = Doc { path: Some(dir.join("propuesta.md")), saved: text.clone(), text, mtime: None };
         let app = EditorApp::new(doc, None);
         let mut h = egui_kittest::Harness::builder()
             .with_size(egui::vec2(1000.0, 700.0))
@@ -412,7 +456,9 @@ mod shot {
         for _ in 0..600 {
             h.step();
             use egui_kittest::kittest::Queryable;
-            if h.query_all_by_label_contains("Diagrama").count() >= 2 {
+            if h.query_all_by_label_contains("Diagrama").count() >= 2
+                && h.query_all_by_label_contains("Imagen").count() >= 1
+            {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(10));

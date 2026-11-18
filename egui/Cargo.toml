@@ -23,7 +23,7 @@ eframe = { version = "0.37", default-features = false, features = ["default_font
 # Kit de interfaz de la suite (por ruta, como en IureProject) y editor de documentos (repositorio
 # propio, etiqueta fija).
 iurefficient-ui = { path = "../../iurefficient-ui" }
-iure-doc-ui = { git = "https://github.com/ellaguno/iure-doc", tag = "v0.4.1" }
+iure-doc-ui = { git = "https://github.com/ellaguno/iure-doc", tag = "v0.5.1" }
 thiserror = "2"
 # Diagramas dibujados en su lugar con el mismo motor que IureDesk (mermaid-svg, mapas mentales,
 # Blitz; Rust puro). Fijado a un commit de IureDesk (público).
@@ -37,6 +37,7 @@ rfd = { version = "0.17", default-features = false }
 
 [dev-dependencies]
 tempfile = "3"
+image = { version = "0.25", default-features = false, features = ["png"] }
 egui_kittest = { version = "0.37", features = ["wgpu"] }
 
 # `iure-doc-ui` pide el kit por git; aquí se usa el de la ruta (una sola copia).
