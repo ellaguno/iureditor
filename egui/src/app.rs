@@ -1,4 +1,10 @@
-//! La ventana: barra con las acciones del archivo y el editor de documentos de la suite.
+//! La ventana: barra con las acciones del archivo, pestañas y el editor de documentos de la suite.
+//!
+//! Cada documento abierto es una pestaña con su propio editor (cursor y deshacer), su borrador de
+//! recuperación y su vigilancia de cambios en disco. Ctrl+T / Ctrl+N abren una pestaña, Ctrl+W la
+//! cierra (pregunta si hay cambios), Ctrl+Tab / Ctrl+Mayús+Tab (o Ctrl+AvPág / Ctrl+RePág) pasan
+//! de una a otra. Al cerrar la ventana se recorren las pestañas con cambios y se guarda la sesión,
+//! que se restaura al abrir sin archivo (como la versión Tauri).
 
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -11,28 +17,65 @@ use crate::doc::Doc;
 /// Qué se hará cuando se resuelva «¿guardar los cambios?».
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Then {
-    New,
-    Open,
+    /// Cerrar la pestaña activa.
+    CloseTab,
+    /// Cerrar la ventana (pestaña por pestaña).
     Close,
 }
 
 /// Respuesta de un diálogo de archivo (corre en otro hilo: la ventana no se congela).
 enum Picked {
     Open(Option<PathBuf>),
-    SaveAs(Option<PathBuf>, Option<Then>),
+    /// Guardar como: la pestaña (por su identidad) y qué hacer después.
+    SaveAs(Option<PathBuf>, u64, Option<Then>),
+}
+
+/// Una pestaña: su documento y lo que se lleva de él.
+pub(crate) struct Tab {
+    pub(crate) doc: Doc,
+    /// Identidad: el estado del editor (cursor, deshacer) y el borrador son por pestaña.
+    id: u64,
+    /// Huella del texto y cuándo cambió por última vez (segundos de egui).
+    seen: (u64, f64),
+    /// Huella del último borrador escrito (0: ninguno).
+    drafted: u64,
+    /// Generación de borradores: un borrador que tarda no reaparece tras guardar o descartar.
+    draft_gen: std::sync::Arc<std::sync::Mutex<u64>>,
+}
+
+impl Tab {
+    fn new(doc: Doc, id: u64) -> Tab {
+        Tab { doc, id, seen: (0, 0.0), drafted: 0, draft_gen: std::sync::Arc::new(std::sync::Mutex::new(0)) }
+    }
+
+    /// Nombre para la pestaña («• » con cambios sin guardar).
+    fn label(&self) -> String {
+        let name = self
+            .doc
+            .path
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map_or_else(|| pick("Untitled", "Sin título").to_string(), |n| n.to_string_lossy().into_owned());
+        if self.doc.dirty() { format!("• {name}") } else { name }
+    }
+
+    /// Una pestaña nueva, sin archivo, vacía y sin cambios.
+    fn pristine(&self) -> bool {
+        self.doc.path.is_none() && self.doc.text.is_empty() && !self.doc.dirty()
+    }
 }
 
 pub struct EditorApp {
-    doc: Doc,
-    /// Generación del documento: el estado del editor (cursor, deshacer) es por documento.
-    generation: u64,
+    pub(crate) tabs: Vec<Tab>,
+    pub(crate) active: usize,
+    next_id: u64,
     notice: Option<String>,
     picker: Option<mpsc::Receiver<Picked>>,
-    /// «¿Guardar los cambios?» pendiente.
+    /// «¿Guardar los cambios?» pendiente (sobre la pestaña activa).
     ask: Option<Then>,
     /// Cerrar sin volver a preguntar.
     closing: bool,
-    /// Última vez que se miró si otro programa cambió el archivo.
+    /// Última vez que se miró si otro programa cambió los archivos.
     disk_check: f64,
     title: String,
     themed: bool,
@@ -40,18 +83,16 @@ pub struct EditorApp {
     speller: std::sync::Arc<iure_doc_ui::Speller>,
     /// Borradores de recuperación (carpeta; `None`: sin carpeta de datos).
     drafts: Option<PathBuf>,
-    /// Huella del texto y cuándo cambió por última vez (segundos de egui).
-    seen: (u64, f64),
-    /// Huella del último borrador escrito (0: ninguno).
-    drafted: u64,
-    /// Generación de borradores: un borrador que tarda no reaparece tras guardar o descartar.
-    draft_gen: std::sync::Arc<std::sync::Mutex<u64>>,
+    /// Archivo de la sesión (`None` en las pruebas).
+    session: Option<PathBuf>,
     /// Borradores de un cierre inesperado, para ofrecer recuperarlos (el más reciente primero).
     pub(crate) recovery: Vec<(PathBuf, crate::drafts::Draft)>,
 }
 
 /// Espera tras el último cambio antes de escribir el borrador (como IureEditor Tauri).
 const DRAFT_DELAY: f64 = 2.5;
+/// Pestañas abiertas como mucho.
+const MAX_TABS: usize = 64;
 
 fn hash_text(t: &str) -> u64 {
     use std::hash::{Hash, Hasher};
@@ -64,12 +105,28 @@ const SAVE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::S)
 const SAVE_AS: KeyboardShortcut = KeyboardShortcut::new(Modifiers { shift: true, ..Modifiers::COMMAND }, Key::S);
 const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
 const NEW: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::N);
+const NEW_TAB: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::T);
+const CLOSE_TAB: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::W);
 
 impl EditorApp {
+    #[cfg(test)]
     pub fn new(doc: Doc, notice: Option<String>) -> Self {
+        Self::with_docs(vec![doc], 0, notice)
+    }
+
+    /// Con varios documentos abiertos (uno por pestaña) y el activo.
+    pub fn with_docs(docs: Vec<Doc>, active: usize, notice: Option<String>) -> Self {
+        let mut tabs: Vec<Tab> =
+            docs.into_iter().take(MAX_TABS).enumerate().map(|(i, d)| Tab::new(d, i as u64 + 1)).collect();
+        if tabs.is_empty() {
+            tabs.push(Tab::new(Doc::default(), 1));
+        }
+        let next_id = tabs.len() as u64 + 1;
+        let active = active.min(tabs.len().saturating_sub(1));
         EditorApp {
-            doc,
-            generation: 0,
+            tabs,
+            active,
+            next_id,
             notice,
             picker: None,
             ask: None,
@@ -78,23 +135,65 @@ impl EditorApp {
             title: String::new(),
             themed: false,
             speller: iure_doc_ui::Speller::system(iure_doc_ui::spell::personal_path("iureditor")),
-            // En las pruebas no se tocan los borradores del usuario (cada prueba pone su carpeta).
+            // En las pruebas no se tocan los borradores ni la sesión del usuario.
             drafts: if cfg!(test) { None } else { crate::drafts::drafts_dir() },
-            seen: (0, 0.0),
-            drafted: 0,
-            draft_gen: std::sync::Arc::new(std::sync::Mutex::new(0)),
+            session: if cfg!(test) { None } else { crate::drafts::session_file() },
             recovery: Vec::new(),
         }
     }
 
-    fn replace(&mut self, doc: Doc) {
-        self.doc = doc;
-        self.generation = self.generation.wrapping_add(1);
+    /// El documento de la pestaña activa.
+    pub(crate) fn doc(&self) -> &Doc {
+        // Siempre hay al menos una pestaña; por si acaso, un documento vacío.
+        static EMPTY: std::sync::OnceLock<Doc> = std::sync::OnceLock::new();
+        self.tabs.get(self.active).or(self.tabs.first()).map_or_else(|| EMPTY.get_or_init(Doc::default), |t| &t.doc)
+    }
+
+    fn tab_mut(&mut self) -> Option<&mut Tab> {
+        let i = self.active;
+        self.tabs.get_mut(i)
+    }
+
+    fn new_id(&mut self) -> u64 {
+        self.next_id = self.next_id.wrapping_add(1);
+        self.next_id
+    }
+
+    /// Abre `doc` en una pestaña nueva (o en la activa si es nueva y está vacía).
+    fn push_tab(&mut self, doc: Doc) {
+        let id = self.new_id();
+        if self.tabs.get(self.active).is_some_and(Tab::pristine) {
+            if let Some(t) = self.tab_mut() {
+                *t = Tab::new(doc, id);
+            }
+            return;
+        }
+        if self.tabs.len() >= MAX_TABS {
+            self.notice = Some(pick("Too many open tabs.", "Hay demasiadas pestañas abiertas.").to_string());
+            return;
+        }
+        self.tabs.push(Tab::new(doc, id));
+        self.active = self.tabs.len() - 1;
+    }
+
+    /// Abre un archivo: si ya está abierto, pasa a su pestaña.
+    fn open_path(&mut self, path: &std::path::Path) {
+        let canon = path.canonicalize().ok();
+        if let Some(i) = self.tabs.iter().position(|t| {
+            t.doc.path.as_ref().is_some_and(|p| p == path || (canon.is_some() && p.canonicalize().ok() == canon))
+        }) {
+            self.active = i;
+            return;
+        }
+        match Doc::open(path) {
+            Ok(d) => self.push_tab(d),
+            Err(e) => self.notice = Some(e.human(path)),
+        }
     }
 
     fn open_dialog(&mut self) {
         let (tx, rx) = mpsc::channel();
-        let dir = self.doc.path.as_ref().and_then(|p| p.parent().map(PathBuf::from));
+        let dir = self.doc().path.as_ref().and_then(|p| p.parent().map(PathBuf::from));
         std::thread::spawn(move || {
             let mut d = rfd::FileDialog::new().add_filter("Markdown", &["md", "markdown", "txt"]);
             if let Some(dir) = dir {
@@ -108,28 +207,30 @@ impl EditorApp {
     fn save_as_dialog(&mut self, then: Option<Then>) {
         let (tx, rx) = mpsc::channel();
         let name = self
-            .doc
+            .doc()
             .path
             .as_ref()
             .and_then(|p| p.file_name())
             .map_or_else(|| format!("{}.md", pick("document", "documento")), |n| n.to_string_lossy().into_owned());
+        let id = self.tabs.get(self.active).map_or(0, |t| t.id);
         std::thread::spawn(move || {
             let d = rfd::FileDialog::new().add_filter("Markdown", &["md", "markdown", "txt"]).set_file_name(name);
-            let _ = tx.send(Picked::SaveAs(d.save_file(), then));
+            let _ = tx.send(Picked::SaveAs(d.save_file(), id, then));
         });
         self.picker = Some(rx);
     }
 
-    /// Guarda; sin archivo, pregunta dónde. `true` si quedó guardado.
+    /// Guarda la pestaña activa; sin archivo, pregunta dónde. `true` si quedó guardado.
     fn save(&mut self, then: Option<Then>) -> bool {
-        if self.doc.path.is_none() {
+        if self.doc().path.is_none() {
             self.save_as_dialog(then);
             return false;
         }
-        match self.doc.save(None) {
+        let Some(t) = self.tab_mut() else { return false };
+        match t.doc.save(None) {
             Ok(()) => true,
             Err(e) => {
-                let p = self.doc.path.clone().unwrap_or_default();
+                let p = t.doc.path.clone().unwrap_or_default();
                 self.notice = Some(e.human(&p));
                 false
             }
@@ -137,7 +238,7 @@ impl EditorApp {
     }
 
     fn act(&mut self, ctx: &egui::Context, then: Then) {
-        if self.doc.dirty() {
+        if then == Then::CloseTab && self.doc().dirty() {
             self.ask = Some(then);
             return;
         }
@@ -146,11 +247,34 @@ impl EditorApp {
 
     fn run(&mut self, ctx: &egui::Context, then: Then) {
         match then {
-            Then::New => self.replace(Doc::default()),
-            Then::Open => self.open_dialog(),
+            Then::CloseTab => {
+                let i = self.active;
+                self.clear_draft(i);
+                if i < self.tabs.len() {
+                    self.tabs.remove(i);
+                }
+                if self.tabs.is_empty() {
+                    let id = self.new_id();
+                    self.tabs.push(Tab::new(Doc::default(), id));
+                }
+                self.active = i.min(self.tabs.len().saturating_sub(1));
+            }
             Then::Close => {
+                // Pestaña por pestaña: la siguiente con cambios pregunta.
+                if let Some(i) = self.tabs.iter().position(|t| t.doc.dirty()) {
+                    self.active = i;
+                    self.ask = Some(Then::Close);
+                    return;
+                }
                 self.closing = true;
-                self.clear_draft();
+                if let Some(f) = &self.session {
+                    let paths: Vec<PathBuf> = self.tabs.iter().filter_map(|t| t.doc.path.clone()).collect();
+                    let active = self.tabs.iter().take(self.active).filter(|t| t.doc.path.is_some()).count();
+                    crate::drafts::save_session(f, &paths, active);
+                }
+                for i in 0..self.tabs.len() {
+                    self.clear_draft(i);
+                }
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
         }
@@ -162,66 +286,79 @@ impl EditorApp {
         self.drafts = Some(dir);
     }
 
-    /// Borra el borrador de esta ventana (y anula uno que se esté escribiendo).
-    fn clear_draft(&mut self) {
-        let Some(dir) = &self.drafts else { return };
-        let mut g = self.draft_gen.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        *g = g.wrapping_add(1);
-        crate::drafts::clear(dir);
-        self.drafted = 0;
+    /// Usa otro archivo de sesión (pruebas).
+    #[cfg(test)]
+    pub(crate) fn set_session_file(&mut self, f: PathBuf) {
+        self.session = Some(f);
     }
 
-    /// Con cambios sin guardar, escribe el borrador 2,5 s después del último cambio (en otro
-    /// hilo); sin cambios, lo borra.
+    /// Borra el borrador de la pestaña `i` (y anula uno que se esté escribiendo).
+    fn clear_draft(&mut self, i: usize) {
+        let Some(dir) = self.drafts.clone() else { return };
+        let Some(t) = self.tabs.get_mut(i) else { return };
+        let mut g = t.draft_gen.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        *g = g.wrapping_add(1);
+        crate::drafts::clear(&dir, t.id);
+        drop(g);
+        t.drafted = 0;
+    }
+
+    /// En cada pestaña con cambios sin guardar escribe su borrador 2,5 s después del último
+    /// cambio (en otro hilo); sin cambios, lo borra.
     fn draft_tick(&mut self, ctx: &egui::Context) {
         let Some(dir) = self.drafts.clone() else { return };
         let now = ctx.input(|i| i.time);
-        let h = hash_text(&self.doc.text);
-        if h != self.seen.0 {
-            self.seen = (h, now);
-        }
-        if !self.doc.dirty() {
-            if self.drafted != 0 {
-                self.clear_draft();
+        for i in 0..self.tabs.len() {
+            let Some(t) = self.tabs.get_mut(i) else { continue };
+            let h = hash_text(&t.doc.text);
+            if h != t.seen.0 {
+                t.seen = (h, now);
             }
-            return;
-        }
-        if self.drafted == h {
-            return;
-        }
-        let wait = DRAFT_DELAY - (now - self.seen.1);
-        if wait > 0.0 {
-            ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait));
-            return;
-        }
-        self.drafted = h;
-        let gen_lock = std::sync::Arc::clone(&self.draft_gen);
-        let my_gen = *gen_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let (path, text) = (self.doc.path.clone(), self.doc.text.clone());
-        std::thread::spawn(move || {
-            let g = gen_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if *g == my_gen {
-                let _ = crate::drafts::write(&dir, path.as_deref(), &text);
+            if !t.doc.dirty() {
+                if t.drafted != 0 {
+                    self.clear_draft(i);
+                }
+                continue;
             }
-        });
+            if t.drafted == h {
+                continue;
+            }
+            let wait = DRAFT_DELAY - (now - t.seen.1);
+            if wait > 0.0 {
+                ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait));
+                continue;
+            }
+            t.drafted = h;
+            let gen_lock = std::sync::Arc::clone(&t.draft_gen);
+            let my_gen = *gen_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let (dir, tab, path, text) = (dir.clone(), t.id, t.doc.path.clone(), t.doc.text.clone());
+            std::thread::spawn(move || {
+                let g = gen_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if *g == my_gen {
+                    let _ = crate::drafts::write(&dir, tab, path.as_deref(), &text);
+                }
+            });
+        }
     }
 
-    /// «¿Recuperar lo que no se guardó?» tras un cierre inesperado.
+    /// «¿Recuperar lo que no se guardó?» tras un cierre inesperado: cada borrador en su pestaña.
     fn recovery_window(&mut self, ctx: &egui::Context) {
-        let Some((file, draft)) = self.recovery.first().cloned() else { return };
-        let name = draft
-            .path
-            .as_ref()
-            .and_then(|p| p.file_name())
-            .map_or_else(|| pick("Untitled", "Sin título").to_string(), |n| n.to_string_lossy().into_owned());
+        let Some((_, newest)) = self.recovery.first().cloned() else { return };
+        let name_of = |d: &crate::drafts::Draft| {
+            d.path
+                .as_ref()
+                .and_then(|p| p.file_name())
+                .map_or_else(|| pick("Untitled", "Sin título").to_string(), |n| n.to_string_lossy().into_owned())
+        };
+        let names: Vec<String> = self.recovery.iter().take(6).map(|(_, d)| format!("«{}»", name_of(d))).collect();
+        let more = self.recovery.len().saturating_sub(6);
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-        let mins = now.saturating_sub(draft.saved_at) / 60;
+        let mins = now.saturating_sub(newest.saved_at) / 60;
         let when = match mins {
             0 => pick("less than a minute ago", "hace menos de un minuto").to_string(),
             m if m < 120 => format!("{} {m} min", pick("about", "hace")),
             m => format!("{} {} h", pick("about", "hace"), m / 60),
         };
-        let more = self.recovery.len() - 1;
         let mut answer: Option<bool> = None;
         egui::Window::new(pick("Recover unsaved changes?", "¿Recuperar lo que no se guardó?"))
             .collapsible(false)
@@ -229,14 +366,15 @@ impl EditorApp {
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .show(ctx, |ui| {
                 ui.label(format!(
-                    "{} «{name}» ({when}).",
+                    "{} {} ({when}).",
                     pick(
                         "IureEditor closed unexpectedly with unsaved changes in",
                         "IureEditor se cerró sin guardar los cambios de"
-                    )
+                    ),
+                    names.join(", ")
                 ));
                 if more > 0 {
-                    ui.weak(format!("{} {more}", pick("Other drafts:", "Otros borradores:")));
+                    ui.weak(format!("{} {more}", pick("and more:", "y otros:")));
                 }
                 ui.horizontal(|ui| {
                     if ui.button(pick("Recover", "Recuperar")).clicked() {
@@ -249,18 +387,33 @@ impl EditorApp {
             });
         match answer {
             Some(true) => {
-                // El documento con el texto del borrador encima (queda con cambios sin guardar).
-                let mut doc = match &draft.path {
-                    Some(p) if p.is_file() => {
-                        Doc::open(p).unwrap_or_else(|_| Doc { path: Some(p.clone()), ..Default::default() })
+                // Cada documento con el texto del borrador encima (queda con cambios sin guardar).
+                let drafts = std::mem::take(&mut self.recovery);
+                for (file, draft) in drafts.into_iter().rev() {
+                    let mut doc = match &draft.path {
+                        Some(p) if p.is_file() => {
+                            Doc::open(p).unwrap_or_else(|_| Doc { path: Some(p.clone()), ..Default::default() })
+                        }
+                        Some(p) => Doc { path: Some(p.clone()), ..Default::default() },
+                        None => Doc::default(),
+                    };
+                    doc.text = draft.text;
+                    // Si ese documento ya está abierto (sin cambios), el borrador va en su pestaña.
+                    match self
+                        .tabs
+                        .iter()
+                        .position(|t| t.doc.path.is_some() && t.doc.path == doc.path && !t.doc.dirty())
+                    {
+                        Some(i) => {
+                            if let Some(t) = self.tabs.get_mut(i) {
+                                t.doc.text = doc.text;
+                            }
+                            self.active = i;
+                        }
+                        None => self.push_tab(doc),
                     }
-                    Some(p) => Doc { path: Some(p.clone()), ..Default::default() },
-                    None => Doc::default(),
-                };
-                doc.text = draft.text;
-                self.replace(doc);
-                crate::drafts::remove(&[file]);
-                self.recovery.remove(0);
+                    crate::drafts::remove(&[file]);
+                }
             }
             Some(false) => {
                 let files: Vec<PathBuf> = self.recovery.drain(..).map(|(f, _)| f).collect();
@@ -278,46 +431,56 @@ impl EditorApp {
         };
         self.picker = None;
         match p {
-            Picked::Open(Some(path)) => match Doc::open(&path) {
-                Ok(d) => self.replace(d),
-                Err(e) => self.notice = Some(e.human(&path)),
-            },
-            Picked::SaveAs(Some(path), then) => match self.doc.save(Some(&path)) {
-                Ok(()) => {
-                    if let Some(t) = then {
-                        self.run(ctx, t);
+            Picked::Open(Some(path)) => self.open_path(&path),
+            Picked::SaveAs(Some(path), id, then) => {
+                let Some(i) = self.tabs.iter().position(|t| t.id == id) else { return };
+                let Some(t) = self.tabs.get_mut(i) else { return };
+                match t.doc.save(Some(&path)) {
+                    Ok(()) => {
+                        if let Some(then) = then {
+                            self.active = i;
+                            self.run(ctx, then);
+                        }
                     }
+                    Err(e) => self.notice = Some(e.human(&path)),
                 }
-                Err(e) => self.notice = Some(e.human(&path)),
-            },
-            Picked::Open(None) | Picked::SaveAs(None, _) => {}
+            }
+            Picked::Open(None) | Picked::SaveAs(None, _, _) => {}
         }
     }
 
-    /// Si otro programa cambió el archivo: sin cambios propios se vuelve a leer; con cambios, se
+    /// Si otro programa cambió un archivo: sin cambios propios se vuelve a leer; con cambios, se
     /// avisa (no se pisa nada).
     fn check_disk(&mut self, now: f64) {
         if now - self.disk_check < 2.0 {
             return;
         }
         self.disk_check = now;
-        if !self.doc.changed_on_disk() {
-            return;
-        }
-        let Some(path) = self.doc.path.clone() else {
-            return;
-        };
-        if self.doc.dirty() {
-            self.notice = Some(
-                pick(
-                    "Another program changed this file; saving will replace its version.",
-                    "Otro programa cambió este archivo; al guardar se reemplaza su versión.",
-                )
-                .to_string(),
-            );
-            self.doc.mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
-        } else if let Ok(d) = Doc::open(&path) {
-            self.replace(d);
+        for i in 0..self.tabs.len() {
+            let Some(t) = self.tabs.get(i) else { continue };
+            if !t.doc.changed_on_disk() {
+                continue;
+            }
+            let Some(path) = t.doc.path.clone() else { continue };
+            if t.doc.dirty() {
+                let name = path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+                self.notice = Some(format!(
+                    "«{name}»: {}",
+                    pick(
+                        "another program changed this file; saving will replace its version.",
+                        "otro programa cambió este archivo; al guardar se reemplaza su versión.",
+                    )
+                ));
+                if let Some(t) = self.tabs.get_mut(i) {
+                    t.doc.mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+                }
+            } else if let Ok(d) = Doc::open(&path) {
+                let id = self.new_id();
+                if let Some(t) = self.tabs.get_mut(i) {
+                    // Estado de editor nuevo para el texto nuevo.
+                    *t = Tab::new(d, id);
+                }
+            }
         }
     }
 
@@ -325,10 +488,10 @@ impl EditorApp {
         let ctx = ui.ctx().clone();
         ui.horizontal(|ui| {
             if ui.button(pick("New", "Nuevo")).on_hover_text(ctx.format_shortcut(&NEW)).clicked() {
-                self.act(&ctx, Then::New);
+                self.push_tab(Doc::default());
             }
             if ui.button(pick("Open…", "Abrir…")).on_hover_text(ctx.format_shortcut(&OPEN)).clicked() {
-                self.act(&ctx, Then::Open);
+                self.open_dialog();
             }
             if ui.button(pick("Save", "Guardar")).on_hover_text(ctx.format_shortcut(&SAVE)).clicked() {
                 self.save(None);
@@ -337,7 +500,7 @@ impl EditorApp {
                 self.save_as_dialog(None);
             }
             ui.separator();
-            let state = if self.doc.dirty() {
+            let state = if self.doc().dirty() {
                 pick("Unsaved changes", "Cambios sin guardar")
             } else {
                 pick("Saved", "Guardado")
@@ -352,20 +515,61 @@ impl EditorApp {
                 }
             });
         }
+        self.tab_bar(ui);
+    }
+
+    /// Las pestañas: un clic cambia, «×» (o el botón del medio) cierra.
+    fn tab_bar(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let mut select = None;
+        let mut close = None;
+        egui::ScrollArea::horizontal().id_salt("iureditor-tabs").auto_shrink([false, true]).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 2.0;
+                for (i, t) in self.tabs.iter().enumerate() {
+                    let label = t.label();
+                    let r = ui
+                        .selectable_label(i == self.active, &label)
+                        .on_hover_text(t.doc.path.as_ref().map_or_else(|| label.clone(), |p| p.display().to_string()));
+                    if r.clicked() {
+                        select = Some(i);
+                    }
+                    if r.middle_clicked() {
+                        close = Some(i);
+                    }
+                    let x = ui.small_button("×").on_hover_text(ctx.format_shortcut(&CLOSE_TAB));
+                    let name = format!("{} {label}", pick("Close", "Cerrar"));
+                    x.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, name.clone()));
+                    if x.clicked() {
+                        close = Some(i);
+                    }
+                    ui.add_space(6.0);
+                }
+                if ui.small_button("+").on_hover_text(ctx.format_shortcut(&NEW_TAB)).clicked() {
+                    self.push_tab(Doc::default());
+                }
+            });
+        });
+        if let Some(i) = select {
+            self.active = i;
+        }
+        if let Some(i) = close {
+            self.active = i;
+            self.act(&ctx, Then::CloseTab);
+        }
     }
 
     fn ask_window(&mut self, ctx: &egui::Context) {
         let Some(then) = self.ask else { return };
+        let name = self.tabs.get(self.active).map(Tab::label).unwrap_or_default();
+        let name = name.trim_start_matches("• ").to_string();
         let mut answer: Option<Option<bool>> = None;
         egui::Window::new(pick("Save changes?", "¿Guardar los cambios?"))
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .show(ctx, |ui| {
-                ui.label(pick(
-                    "This document has changes that are not saved.",
-                    "Este documento tiene cambios sin guardar.",
-                ));
+                ui.label(format!("«{name}» {}", pick("has changes that are not saved.", "tiene cambios sin guardar.")));
                 ui.horizontal(|ui| {
                     if ui.button(pick("Save", "Guardar")).clicked() {
                         answer = Some(Some(true));
@@ -387,13 +591,42 @@ impl EditorApp {
             }
             Some(Some(false)) => {
                 self.ask = None;
-                self.doc.saved = self.doc.text.clone();
+                if let Some(t) = self.tab_mut() {
+                    t.doc.saved = t.doc.text.clone();
+                }
                 // «No guardar»: sin borrador huérfano.
-                self.clear_draft();
+                let i = self.active;
+                self.clear_draft(i);
                 self.run(ctx, then);
             }
             Some(None) => self.ask = None,
             None => {}
+        }
+    }
+
+    /// Atajos de las pestañas (antes que el editor).
+    fn tab_keys(&mut self, ctx: &egui::Context) {
+        let n = self.tabs.len();
+        let (new, close, next, prev) = ctx.input_mut(|i| {
+            let new = i.consume_shortcut(&NEW_TAB) || i.consume_shortcut(&NEW);
+            let close = i.consume_shortcut(&CLOSE_TAB);
+            let shift_cmd = Modifiers { shift: true, ..Modifiers::COMMAND };
+            let prev = i.consume_key(shift_cmd, Key::Tab) || i.consume_key(Modifiers::COMMAND, Key::PageUp);
+            let next = (!prev && i.consume_key(Modifiers::COMMAND, Key::Tab))
+                || i.consume_key(Modifiers::COMMAND, Key::PageDown);
+            (new, close, next, prev)
+        });
+        if new {
+            self.push_tab(Doc::default());
+        }
+        if close {
+            self.act(ctx, Then::CloseTab);
+        }
+        if next && n > 0 {
+            self.active = (self.active + 1) % n;
+        }
+        if prev && n > 0 {
+            self.active = (self.active + n - 1) % n;
         }
     }
 
@@ -408,10 +641,10 @@ impl EditorApp {
             iurefficient_ui::system::watch_system_theme(&ctx);
         }
         iurefficient_ui::theme::refresh(&ctx);
-        // Cerrar con cambios sin guardar pregunta antes.
-        if ctx.input(|i| i.viewport().close_requested()) && !self.closing && self.doc.dirty() {
+        // Cerrar la ventana: pestaña por pestaña las que tienen cambios; luego, la sesión.
+        if ctx.input(|i| i.viewport().close_requested()) && !self.closing {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            self.ask = Some(Then::Close);
+            self.run(&ctx, Then::Close);
         }
         if ctx.input_mut(|i| i.consume_shortcut(&SAVE_AS)) {
             self.save_as_dialog(None);
@@ -420,15 +653,13 @@ impl EditorApp {
             self.save(None);
         }
         if ctx.input_mut(|i| i.consume_shortcut(&OPEN)) {
-            self.act(&ctx, Then::Open);
+            self.open_dialog();
         }
-        if ctx.input_mut(|i| i.consume_shortcut(&NEW)) {
-            self.act(&ctx, Then::New);
-        }
+        self.tab_keys(&ctx);
         self.poll_picker(&ctx);
         self.draft_tick(&ctx);
         self.check_disk(ctx.input(|i| i.time));
-        let title = self.doc.title();
+        let title = self.doc().title();
         if title != self.title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.title = title;
@@ -442,9 +673,11 @@ impl EditorApp {
                 ui.add_space(pad);
                 ui.vertical(|ui| {
                     ui.set_width(w);
+                    let speller = self.speller.clone();
+                    let Some(t) = self.tabs.get_mut(self.active) else { return };
                     // Diagramas (Mermaid, mapas mentales) e imágenes de la carpeta del documento,
                     // dibujados en su lugar.
-                    let folder = self.doc.path.as_ref().and_then(|p| p.parent()).map(std::path::Path::to_path_buf);
+                    let folder = t.doc.path.as_ref().and_then(|p| p.parent()).map(std::path::Path::to_path_buf);
                     let diagrams: std::sync::Arc<dyn iure_doc_ui::DiagramRenderer> =
                         std::sync::Arc::new(iure_doc_ui::Renderers(vec![
                             std::sync::Arc::new(crate::diagrams::Diagrams::new(ui)),
@@ -454,15 +687,15 @@ impl EditorApp {
                     let hooks = iure_doc_ui::Hooks {
                         diagrams: Some(diagrams),
                         paste: Some(std::sync::Arc::new(iure_doc_ui::SystemClipboard)),
-                        spell: Some(self.speller.clone()),
+                        spell: Some(speller),
                         // Imágenes pegadas o soltadas: en `assets/` junto al documento (como la
                         // versión Tauri).
                         images: Some(std::sync::Arc::new(iure_doc_ui::FolderImages::new(folder, "assets"))),
                     };
                     let out = iure_doc_ui::show_blocks_hooks(
                         ui,
-                        egui::Id::unique(("iureditor-doc", self.generation)),
-                        &mut self.doc.text,
+                        egui::Id::unique(("iureditor-doc", t.id)),
+                        &mut t.doc.text,
                         pick(
                             "Write here… (# title, - list, **bold**)",
                             "Escribe aquí… (# título, - lista, **negrita**)",
@@ -500,29 +733,39 @@ mod tests {
         h.run();
         h.get_by_label("Documento").type_text("¡");
         h.run();
-        assert!(h.state().doc.dirty());
+        assert!(h.state().doc().dirty());
         assert!(h.state().title.starts_with("• "));
         h.key_press_modifiers(Modifiers::COMMAND, Key::S);
         h.run();
-        assert!(!h.state().doc.dirty());
+        assert!(!h.state().doc().dirty());
         // Al enfocar, el cursor queda al final del primer bloque.
         assert_eq!(std::fs::read_to_string(&p).unwrap(), "# Título¡\n\nTexto\n");
     }
 
     #[test]
-    fn new_with_unsaved_changes_asks_first() {
+    fn new_opens_a_tab_and_closing_a_changed_tab_asks() {
         let d = Doc { text: "borrador".into(), ..Default::default() };
         let app = EditorApp::new(d, None);
         let mut h = Harness::builder()
             .with_size(egui::vec2(900.0, 600.0))
             .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app);
         h.run();
+        // «Nuevo»: otra pestaña; el borrador sigue en la suya.
         h.get_by_label("Nuevo").click();
         h.run();
-        assert_eq!(h.state().ask, Some(Then::New));
+        assert_eq!(h.state().tabs.len(), 2);
+        assert!(h.state().doc().text.is_empty());
+        // Volver a la pestaña con cambios y cerrarla: pregunta.
+        h.get_by_label("• Sin título").click();
+        h.run();
+        assert_eq!(h.state().doc().text, "borrador");
+        h.key_press_modifiers(Modifiers::COMMAND, Key::W);
+        h.run();
+        assert_eq!(h.state().ask, Some(Then::CloseTab));
         h.get_by_label("No guardar").click();
         h.run();
-        assert!(h.state().doc.text.is_empty() && h.state().ask.is_none());
+        assert_eq!(h.state().tabs.len(), 1);
+        assert!(h.state().doc().text.is_empty() && h.state().ask.is_none());
     }
 }
 
@@ -550,7 +793,7 @@ mod diagram_tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         assert!(seen, "el diagrama se ve dibujado");
-        assert_eq!(h.state().doc.text, text, "dibujarlo no cambia el documento");
+        assert_eq!(h.state().doc().text, text, "dibujarlo no cambia el documento");
     }
 
     #[test]
@@ -576,6 +819,109 @@ mod diagram_tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         assert!(seen, "la imagen junto al documento se ve en su lugar");
+    }
+}
+
+#[cfg(test)]
+mod tab_tests {
+    use super::*;
+    use egui_kittest::kittest::Queryable;
+
+    fn harness(app: EditorApp) -> egui_kittest::Harness<'static, EditorApp> {
+        egui_kittest::Harness::builder()
+            .with_size(egui::vec2(900.0, 600.0))
+            .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app)
+    }
+
+    fn file(dir: &std::path::Path, name: &str, text: &str) -> PathBuf {
+        let p = dir.join(name);
+        std::fs::write(&p, text).unwrap();
+        p
+    }
+
+    #[test]
+    fn shortcuts_switch_tabs_and_an_open_file_is_not_opened_twice() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (file(dir.path(), "a.md", "A\n"), file(dir.path(), "b.md", "B\n"));
+        let mut app = EditorApp::new(Doc::default(), None);
+        // La pestaña nueva y vacía se reutiliza al abrir.
+        app.open_path(&a);
+        assert_eq!(app.tabs.len(), 1);
+        app.open_path(&b);
+        assert_eq!((app.tabs.len(), app.active), (2, 1));
+        app.open_path(&a);
+        assert_eq!((app.tabs.len(), app.active), (2, 0), "ya abierto: pasa a su pestaña");
+        let mut h = harness(app);
+        h.run();
+        h.key_press_modifiers(Modifiers::COMMAND, Key::Tab);
+        h.run();
+        assert_eq!(h.state().active, 1);
+        h.key_press_modifiers(Modifiers { shift: true, ..Modifiers::COMMAND }, Key::Tab);
+        h.run();
+        assert_eq!(h.state().active, 0);
+        h.key_press_modifiers(Modifiers::COMMAND, Key::T);
+        h.run();
+        assert_eq!((h.state().tabs.len(), h.state().active), (3, 2));
+        assert!(h.query_by_label("b.md").is_some() && h.query_by_label("Sin título").is_some());
+    }
+
+    #[test]
+    fn each_tab_keeps_its_own_text_and_undo() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (file(dir.path(), "a.md", "Uno\n"), file(dir.path(), "b.md", "Dos\n"));
+        let app = EditorApp::with_docs(vec![Doc::open(&a).unwrap(), Doc::open(&b).unwrap()], 0, None);
+        let mut h = harness(app);
+        h.run();
+        h.get_by_label("Documento").focus();
+        h.run();
+        h.get_by_label("Documento").type_text(" más");
+        h.run_steps(2);
+        h.get_by_label("b.md").click();
+        h.run_steps(2);
+        assert_eq!(h.state().doc().text, "Dos\n");
+        h.get_by_label("Documento").focus();
+        h.run();
+        h.get_by_label("Documento").type_text("!");
+        h.run_steps(2);
+        h.get_by_label("• a.md").click();
+        h.run_steps(2);
+        assert_eq!(h.state().doc().text, "Uno más\n");
+        h.get_by_label("Documento").focus();
+        h.run();
+        h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+        h.run_steps(2);
+        assert_eq!(h.state().doc().text, "Uno\n", "deshacer solo en su pestaña");
+        assert_eq!(h.state().tabs.get(1).map(|t| t.doc.text.as_str()), Some("Dos!\n"));
+    }
+
+    #[test]
+    fn closing_the_window_asks_tab_by_tab_and_saves_the_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (file(dir.path(), "a.md", "A\n"), file(dir.path(), "b.md", "B\n"));
+        let mut da = Doc::open(&a).unwrap();
+        da.text.push('x');
+        let mut db = Doc::open(&b).unwrap();
+        db.text.push('y');
+        let mut app = EditorApp::with_docs(vec![da, db, Doc::default()], 2, None);
+        let session = dir.path().join("datos/sesion.json");
+        app.set_session_file(session.clone());
+        let mut h = harness(app);
+        h.run();
+        let ctx = h.ctx.clone();
+        h.state_mut().run(&ctx, Then::Close);
+        h.run();
+        assert!(h.query_by_label_contains("«a.md» tiene cambios").is_some(), "la primera con cambios");
+        h.get_by_label("No guardar").click();
+        h.run();
+        assert!(h.query_by_label_contains("«b.md» tiene cambios").is_some(), "luego la siguiente");
+        // El «Guardar» de la pregunta (el otro es el de la barra).
+        h.get_all_by_label("Guardar").last().unwrap().click();
+        h.run_steps(2);
+        assert!(h.state().closing);
+        assert_eq!(std::fs::read_to_string(&b).unwrap(), "B\ny", "la segunda se guardó");
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "A\n", "la primera, no");
+        // La sesión: los documentos con archivo y la última pestaña que se vio (b.md).
+        assert_eq!(crate::drafts::load_session(&session), (vec![a, b], 1));
     }
 }
 
@@ -610,7 +956,7 @@ mod image_tests {
         h.run_steps(2);
         h.input_mut().dropped_files.push(std::sync::Arc::new(Dropped(src)));
         h.run_steps(4);
-        assert_eq!(h.state().doc.text, "Texto\n\n![logo](assets/logo.png)\n");
+        assert_eq!(h.state().doc().text, "Texto\n\n![logo](assets/logo.png)\n");
         assert!(dir.path().join("assets/logo.png").is_file());
     }
 }
@@ -626,8 +972,9 @@ mod draft_tests {
             .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app)
     }
 
+    /// El borrador de la primera pestaña de esta ventana.
     fn my_draft(dir: &std::path::Path) -> PathBuf {
-        dir.join(format!("{}.json", std::process::id()))
+        dir.join(format!("{}-1.json", std::process::id()))
     }
 
     /// Espera a que un archivo exista (o no) — lo escribe otro hilo.
@@ -675,7 +1022,7 @@ mod draft_tests {
         let mut h = harness(app);
         h.run_steps(12);
         assert!(wait_file(&my_draft(&drafts), true));
-        h.get_by_label("Nuevo").click();
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::W);
         h.run();
         h.get_by_label("No guardar").click();
         h.run_steps(2);
@@ -704,7 +1051,7 @@ mod draft_tests {
         assert!(h.query_by_label_contains("contrato.md").is_some(), "dice qué documento era");
         h.get_by_label("Recuperar").click();
         h.run_steps(2);
-        let doc = &h.state().doc;
+        let doc = h.state().doc();
         assert_eq!(doc.text, "Versión sin guardar\n");
         assert_eq!(doc.saved, "Versión guardada\n", "el archivo no se toca: queda con cambios sin guardar");
         assert_eq!(doc.path.as_deref(), Some(p.as_path()));
@@ -738,6 +1085,14 @@ mod shot {
         let text = text.replacen("\n\n## Pendientes", "\n\n![Sello del despacho](img/sello.png)\n\n## Pendientes", 1);
         let doc = Doc { path: Some(dir.join("propuesta.md")), saved: text.clone(), text, mtime: None };
         let mut app = EditorApp::new(doc, None);
+        // `IUREDITOR_SHOT_TABS=1`: dos pestañas más (una con cambios), la primera activa.
+        if std::env::var_os("IUREDITOR_SHOT_TABS").is_some() {
+            let mut c = Doc { path: Some("contrato-arrendamiento.md".into()), ..Default::default() };
+            c.text = "# Contrato\n".into();
+            app.push_tab(c);
+            app.push_tab(Doc { path: Some("minuta-12-10.md".into()), ..Default::default() });
+            app.active = 0;
+        }
         // `IUREDITOR_SHOT_RECOVERY=1`: la ventana para recuperar un borrador.
         if std::env::var_os("IUREDITOR_SHOT_RECOVERY").is_some() {
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());

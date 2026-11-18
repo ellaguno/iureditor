@@ -35,6 +35,11 @@ cd egui && cargo run --release -- archivo.md
    cerrar con «No guardar» se borra; tras un cierre inesperado, al abrir se ofrece recuperarlo.
    Buscar y reemplazar en el documento (Ctrl+F / Ctrl+H). Resaltado de sintaxis del código. Pegar (Ctrl+V)
    o soltar imágenes: se guardan en `assets/` junto al documento, como la versión Tauri.
+   Pestañas: cada documento con su propio editor (cursor, deshacer), borrador y vigilancia de
+   cambios; Ctrl+T / Ctrl+N, Ctrl+W, Ctrl+Tab / Ctrl+Mayús+Tab, Ctrl+AvPág / Ctrl+RePág; abrir un
+   documento ya abierto pasa a su pestaña; al cerrar la ventana se pregunta pestaña por pestaña y
+   se guarda la sesión, que se restaura al abrir sin archivo; varios archivos en la línea de
+   órdenes abren varias pestañas.
 4. Exportar PDF (Typst), DOCX y HTML (S1.14).
 5. Deep links y `--mcp` con los mismos esquemas que la versión Tauri (S1.8); migración de
    preferencias; documentos recientes, buscar y reemplazar, asistente.

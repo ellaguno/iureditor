@@ -13,20 +13,28 @@ use std::process::ExitCode;
 
 fn main() -> ExitCode {
     iurefficient_ui::lang::set_lang(iurefficient_ui::lang::detect());
-    let (doc, notice) = match std::env::args_os().nth(1) {
-        Some(arg) => {
-            let path = std::path::PathBuf::from(arg);
-            match doc::Doc::open(&path) {
-                Ok(d) => (d, None),
-                // Un archivo nuevo: se crea al guardar.
-                Err(doc::DocError::Io(_)) if !path.exists() => {
-                    (doc::Doc { path: Some(path), ..Default::default() }, None)
-                }
-                Err(e) => (doc::Doc::default(), Some(e.human(&path))),
+    // Los archivos de la línea de órdenes, uno por pestaña; sin ninguno, la sesión anterior.
+    let mut docs = Vec::new();
+    let mut notice = None;
+    for arg in std::env::args_os().skip(1).take(64) {
+        let path = std::path::PathBuf::from(arg);
+        match doc::Doc::open(&path) {
+            Ok(d) => docs.push(d),
+            // Un archivo nuevo: se crea al guardar.
+            Err(doc::DocError::Io(_)) if !path.exists() => {
+                docs.push(doc::Doc { path: Some(path), ..Default::default() });
             }
+            Err(e) => notice = Some(e.human(&path)),
         }
-        None => (doc::Doc::default(), None),
-    };
+    }
+    let mut active = docs.len().saturating_sub(1);
+    if docs.is_empty()
+        && let Some(f) = drafts::session_file()
+    {
+        let (paths, a) = drafts::load_session(&f);
+        docs = paths.iter().filter_map(|p| doc::Doc::open(p).ok()).collect();
+        active = a;
+    }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("IureEditor")
@@ -38,7 +46,7 @@ fn main() -> ExitCode {
         "IureEditor",
         options,
         Box::new(move |_cc| {
-            let mut app = app::EditorApp::new(doc, notice);
+            let mut app = app::EditorApp::with_docs(docs, active, notice);
             // ¿Quedaron borradores de un cierre inesperado?
             app.recovery = drafts::drafts_dir().map(|d| drafts::orphans(&d)).unwrap_or_default();
             Ok(Box::new(Window(app)))
