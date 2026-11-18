@@ -1,0 +1,4 @@
+Contrato con tabla de honorarios, flujo de aprobación en Mermaid y esquema
+Memorándum con fórmulas LaTeX y notas al pie
+Exportar a PDF, Word (DOCX) y HTML
+Tema oscuro
