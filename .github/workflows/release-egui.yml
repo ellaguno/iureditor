@@ -35,6 +35,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # El kit de interfaz de la suite es una dependencia por ruta (`../iurefficient-ui`, como en
+      # IureProject): se baja al lado del repositorio (público).
+      - name: Kit de interfaz junto al repositorio
+        run: git clone --depth 1 https://github.com/ellaguno/iurefficient-ui ../iurefficient-ui
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.os == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
