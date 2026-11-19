@@ -6,6 +6,7 @@
 //! o `iureditor2 --mcp` (servidor MCP por stdio: exportar, convertir, plantillas).
 
 mod app;
+mod chrome;
 mod diagrams;
 mod doc;
 mod drafts;
@@ -65,7 +66,10 @@ fn main() -> ExitCode {
         viewport: egui::ViewportBuilder::default()
             .with_title("IureEditor")
             .with_app_id("iureditor2")
-            .with_inner_size([1000.0, 760.0]),
+            .with_inner_size([1000.0, 760.0])
+            // Barra de título propia (pestañas, menú ☰, botones de la ventana), como la 1.x; con
+            // IUREDITOR_SYSTEM_TITLEBAR=1, la del sistema.
+            .with_decorations(system_titlebar()),
         ..Default::default()
     };
     let result = eframe::run_native(
@@ -74,6 +78,9 @@ fn main() -> ExitCode {
         Box::new(move |cc| {
             let mut app = app::EditorApp::with_docs(docs, active, notice);
             app.pending = pending;
+            if !system_titlebar() {
+                app.chrome = Some(iurefficient_ui::window::WindowChrome::detect());
+            }
             // Escucha a las siguientes `iureditor2` (abrir, dictar).
             if let Some(dir) = &runtime {
                 let (tx, rx) = std::sync::mpsc::channel();
@@ -136,6 +143,11 @@ fn export_cli(input: Option<&std::ffi::OsString>, output: Option<&std::ffi::OsSt
             ExitCode::FAILURE
         }
     }
+}
+
+/// ¿La barra de título del sistema en vez de la propia?
+fn system_titlebar() -> bool {
+    std::env::var_os("IUREDITOR_SYSTEM_TITLEBAR").is_some_and(|v| v == "1")
 }
 
 struct Window(app::EditorApp);

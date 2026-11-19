@@ -68,6 +68,17 @@ las marcas, columna centrada y tipografía de documento), fórmulas, avisos, col
 Orden propuesto: 1) WYSIWYG en `iure-doc` (mejora también IureDesk e IureProject), 2) marco de la
 ventana, 3) panel lateral, 4) lo demás.
 
+**Avance:** 1) **Hecho** (iure-doc v0.15.0): viñetas, casillas que se marcan con un clic, barra de las
+citas, regla, código en una caja con su lenguaje y cercas plegadas, columna de documento centrada.
+2) **Hecho**: barra de título propia (ventana sin la del sistema; `IUREDITOR_SYSTEM_TITLEBAR=1`
+la devuelve) con el menú ☰ (Archivo, Edición, Ayuda, con sus atajos), las pestañas y los botones
+de la ventana con el estilo y el orden del escritorio (`iurefficient_ui::window`, compartido con
+IureDesk); barra de formato (deshacer y rehacer, títulos 1–3, negrita, cursiva, tachado, código,
+listas con viñetas, numeradas y de tareas, cita, bloque de código, regla, enlace, tabla, diagrama;
+sobre la selección con `iure-doc` v0.16.0); barra de estado (línea, palabras, caracteres, guardado).
+**Siguiente:** 3) panel lateral (Esquema, Archivos, Buscar), tipografía de documento más amplia
+(títulos, interlineado), zoom.
+
 **Alfas** (cuando se cumpla lo anterior; convive con la 1.x): etiqueta `egui-vX.Y.Z-alpha.N` → `release-egui.yml`
 compila Linux (`.tar.gz` con `instalar.sh`), Windows (`.zip`) y macOS universal (`.app` en
 `.zip`) con `egui/scripts/package.sh` y deja una Release **borrador y preliminar** (no «Latest»:

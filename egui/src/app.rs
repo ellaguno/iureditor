@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 
 use egui::{Key, KeyboardShortcut, Modifiers};
+use iurefficient_ui::Icon;
 use iurefficient_ui::lang::pick;
 
 use crate::doc::Doc;
@@ -75,6 +76,8 @@ pub struct EditorApp {
     /// Aviso de que algo salió bien (exportado…).
     info: Option<String>,
     picker: Option<mpsc::Receiver<Picked>>,
+    /// Sin la barra del sistema: estilo y orden de los botones de la ventana.
+    pub(crate) chrome: Option<iurefficient_ui::window::WindowChrome>,
     /// Exportación en curso (dibuja diagramas en otro hilo): el archivo o el error.
     exporting: Option<mpsc::Receiver<Result<PathBuf, String>>>,
     /// Argumentos que manda un segundo `iureditor2` (rutas y enlaces `iureditor://`).
@@ -119,6 +122,7 @@ const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O)
 const NEW: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::N);
 const NEW_TAB: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::T);
 const CLOSE_TAB: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::W);
+const QUIT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Q);
 
 impl EditorApp {
     #[cfg(test)]
@@ -143,6 +147,7 @@ impl EditorApp {
             info: None,
             picker: None,
             exporting: None,
+            chrome: None,
             incoming: None,
             _listener: None,
             pending: Vec::new(),
@@ -632,96 +637,157 @@ impl EditorApp {
         }
     }
 
-    fn bar(&mut self, ui: &mut egui::Ui) {
-        let ctx = ui.ctx().clone();
-        ui.horizontal(|ui| {
-            if ui.button(pick("New", "Nuevo")).on_hover_text(ctx.format_shortcut(&NEW)).clicked() {
-                self.push_tab(Doc::default());
-            }
-            if ui.button(pick("Open…", "Abrir…")).on_hover_text(ctx.format_shortcut(&OPEN)).clicked() {
-                self.open_dialog();
-            }
-            if ui.button(pick("Save", "Guardar")).on_hover_text(ctx.format_shortcut(&SAVE)).clicked() {
-                self.save(None);
-            }
-            if ui.button(pick("Save as…", "Guardar como…")).on_hover_text(ctx.format_shortcut(&SAVE_AS)).clicked() {
-                self.save_as_dialog(None);
-            }
-            ui.add_enabled_ui(self.exporting.is_none(), |ui| {
-                ui.menu_button(pick("Export", "Exportar"), |ui| {
-                    if ui.button(pick("Web page (HTML)…", "Página web (HTML)…")).clicked() {
-                        self.export_dialog(crate::export::Format::Html);
-                        ui.close();
-                    }
-                    if ui.button(pick("Word (DOCX)…", "Word (DOCX)…")).clicked() {
-                        self.export_dialog(crate::export::Format::Docx);
-                        ui.close();
-                    }
-                    if ui.button("PDF…").clicked() {
-                        self.export_dialog(crate::export::Format::Pdf);
-                        ui.close();
+    /// Avisos (exportado, errores) en una franja bajo la barra de formato.
+    fn notices(&mut self, ui: &mut egui::Ui) {
+        if self.info.is_none() && self.notice.is_none() {
+            return;
+        }
+        let c = iurefficient_ui::theme::colors(ui);
+        let frame = egui::Frame::new().fill(c.surface_alt).inner_margin(egui::Margin::symmetric(12, 4));
+        egui::Panel::top("iureditor-notices").frame(frame).resizable(false).show(ui, |ui| {
+            if let Some(n) = self.info.clone() {
+                ui.horizontal(|ui| {
+                    ui.label(n);
+                    if self.exporting.is_none() && ui.small_button(pick("Close", "Cerrar")).clicked() {
+                        self.info = None;
                     }
                 });
-            });
-            ui.separator();
-            let state = if self.doc().dirty() {
-                pick("Unsaved changes", "Cambios sin guardar")
-            } else {
-                pick("Saved", "Guardado")
-            };
-            ui.weak(state);
+            }
+            if let Some(n) = self.notice.clone() {
+                ui.horizontal(|ui| {
+                    ui.colored_label(c.danger, n);
+                    if ui.small_button(pick("Close", "Cerrar")).clicked() {
+                        self.notice = None;
+                    }
+                });
+            }
         });
-        if let Some(n) = self.info.clone() {
-            ui.horizontal(|ui| {
-                ui.label(n);
-                if self.exporting.is_none() && ui.small_button(pick("Close", "Cerrar")).clicked() {
-                    self.info = None;
-                }
-            });
-        }
-        if let Some(n) = self.notice.clone() {
-            ui.horizontal(|ui| {
-                ui.colored_label(iurefficient_ui::theme::colors(ui).danger, n);
-                if ui.small_button(pick("Close", "Cerrar")).clicked() {
-                    self.notice = None;
-                }
-            });
-        }
-        self.tab_bar(ui);
     }
 
-    /// Las pestañas: un clic cambia, «×» (o el botón del medio) cierra.
-    fn tab_bar(&mut self, ui: &mut egui::Ui) {
+    /// Lo elegido en el menú ☰.
+    fn menu_act(&mut self, ctx: &egui::Context, a: crate::chrome::MenuAct) {
+        use crate::chrome::MenuAct;
+        match a {
+            MenuAct::New => self.push_tab(Doc::default()),
+            MenuAct::Open => self.open_dialog(),
+            MenuAct::Save => {
+                self.save(None);
+            }
+            MenuAct::SaveAs => self.save_as_dialog(None),
+            MenuAct::Export(f) => {
+                if self.exporting.is_none() {
+                    self.export_dialog(f);
+                }
+            }
+            MenuAct::CloseTab => self.act(ctx, Then::CloseTab),
+            MenuAct::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+            MenuAct::Undo => self.apply_to_active(ctx, iure_doc_ui::ExternalEdit::Undo),
+            MenuAct::Redo => self.apply_to_active(ctx, iure_doc_ui::ExternalEdit::Redo),
+            MenuAct::About => {
+                self.info = Some(format!(
+                    "IureEditor {} — {}",
+                    env!("CARGO_PKG_VERSION"),
+                    pick(
+                        "Markdown document editor of the Iurefficient suite.",
+                        "Editor de documentos Markdown de la suite Iurefficient."
+                    )
+                ));
+            }
+        }
+    }
+
+    /// Una acción de la barra de formato (o del menú) en el editor de la pestaña activa.
+    pub(crate) fn apply_to_active(&mut self, ctx: &egui::Context, e: iure_doc_ui::ExternalEdit) {
+        let Some(t) = self.tabs.get_mut(self.active) else { return };
+        iure_doc_ui::apply_external(ctx, egui::Id::unique(("iureditor-doc", t.id)), &mut t.doc.text, e);
+    }
+
+    /// Línea del cursor, palabras y caracteres del documento activo (barra de estado).
+    pub(crate) fn counts(&self, ctx: &egui::Context) -> (usize, usize, usize) {
+        let Some(t) = self.tabs.get(self.active) else { return (1, 0, 0) };
+        let text = &t.doc.text;
+        let line = iure_doc_ui::caret_offset(ctx, egui::Id::unique(("iureditor-doc", t.id)), text)
+            .map_or(1, |c| text.chars().take(c).filter(|ch| *ch == '\n').count() + 1);
+        (line, text.split_whitespace().count(), text.chars().count())
+    }
+
+    /// Las pestañas en la barra de título: un clic cambia, «×» (o el botón del medio) cierra.
+    pub(crate) fn tab_strip(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
+        let c = iurefficient_ui::theme::colors(ui);
         let mut select = None;
         let mut close = None;
+        let mut new_tab = false;
         egui::ScrollArea::horizontal().id_salt("iureditor-tabs").auto_shrink([false, true]).show(ui, |ui| {
-            ui.horizontal(|ui| {
+            ui.horizontal_centered(|ui| {
                 ui.spacing_mut().item_spacing.x = 2.0;
                 for (i, t) in self.tabs.iter().enumerate() {
                     let label = t.label();
-                    let r = ui
-                        .selectable_label(i == self.active, &label)
-                        .on_hover_text(t.doc.path.as_ref().map_or_else(|| label.clone(), |p| p.display().to_string()));
+                    let active = i == self.active;
+                    // Una pestaña: su nombre (recortado) y «×»; la activa con el fondo del documento.
+                    let font = if active {
+                        iurefficient_ui::theme::semibold_font(&ctx, 13.5)
+                    } else {
+                        egui::FontId::proportional(13.5)
+                    };
+                    let g = iurefficient_ui::widgets::text::elided(
+                        ui,
+                        &label,
+                        font,
+                        if active { c.text } else { c.text_muted },
+                        190.0,
+                    );
+                    let w = g.size().x + 44.0;
+                    let (rect, r) = ui.allocate_exact_size(egui::vec2(w, 30.0), egui::Sense::click());
+                    if active {
+                        ui.painter().rect_filled(rect, 7.0, c.surface);
+                    } else if r.hovered() {
+                        ui.painter().rect_filled(rect, 7.0, c.hover);
+                    }
+                    ui.painter().galley(egui::pos2(rect.left() + 12.0, rect.center().y - g.size().y / 2.0), g, c.text);
+                    r.widget_info(|| egui::WidgetInfo::selected(egui::Role::Tab, true, active, label.clone()));
+                    let r =
+                        r.on_hover_text(t.doc.path.as_ref().map_or_else(|| label.clone(), |p| p.display().to_string()));
                     if r.clicked() {
                         select = Some(i);
                     }
                     if r.middle_clicked() {
                         close = Some(i);
                     }
-                    let x = ui.small_button("×").on_hover_text(ctx.format_shortcut(&CLOSE_TAB));
+                    // «×»: siempre en la activa; en las demás, al pasar el ratón.
+                    let xr = egui::Rect::from_center_size(
+                        egui::pos2(rect.right() - 16.0, rect.center().y),
+                        egui::vec2(20.0, 20.0),
+                    );
+                    let x = ui.interact(xr, ui.scope_id().with(("close-tab", t.id)), egui::Sense::click());
+                    if active || r.hovered() || x.hovered() {
+                        if x.hovered() {
+                            ui.painter().rect_filled(xr, 4.0, c.hover);
+                        }
+                        iurefficient_ui::icons::paint(
+                            ui.painter(),
+                            xr.shrink(5.0),
+                            Icon::Close,
+                            c.text_muted,
+                            c.text_muted,
+                        );
+                    }
                     let name = format!("{} {label}", pick("Close", "Cerrar"));
                     x.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, name.clone()));
-                    if x.clicked() {
+                    if x.on_hover_text(ctx.format_shortcut(&CLOSE_TAB)).clicked() {
                         close = Some(i);
                     }
-                    ui.add_space(6.0);
                 }
-                if ui.small_button("+").on_hover_text(ctx.format_shortcut(&NEW_TAB)).clicked() {
-                    self.push_tab(Doc::default());
+                ui.add_space(4.0);
+                let plus = iurefficient_ui::icons::icon_button(ui, Icon::Plus, pick("New tab", "Pestaña nueva"), true);
+                if plus.clicked() {
+                    new_tab = true;
                 }
             });
         });
+        if new_tab {
+            self.push_tab(Doc::default());
+        }
         if let Some(i) = select {
             self.active = i;
         }
@@ -827,6 +893,9 @@ impl EditorApp {
         if ctx.input_mut(|i| i.consume_shortcut(&OPEN)) {
             self.open_dialog();
         }
+        if ctx.input_mut(|i| i.consume_shortcut(&QUIT)) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         self.tab_keys(&ctx);
         self.poll_picker(&ctx);
         self.poll_export();
@@ -838,50 +907,53 @@ impl EditorApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.title = title;
         }
-        egui::Panel::top("iureditor-bar").show(ui, |ui| self.bar(ui));
-        egui::CentralPanel::default().show(ui, |ui| {
-            // Ancho cómodo de lectura, centrado.
-            let w = ui.available_width().min(860.0);
-            let pad = ((ui.available_width() - w) / 2.0).max(0.0);
-            ui.horizontal_top(|ui| {
-                ui.add_space(pad);
-                ui.vertical(|ui| {
-                    ui.set_width(w);
-                    let speller = self.speller.clone();
-                    let Some(t) = self.tabs.get_mut(self.active) else { return };
-                    // Diagramas (Mermaid, mapas mentales) e imágenes de la carpeta del documento,
-                    // dibujados en su lugar.
-                    let folder = t.doc.path.as_ref().and_then(|p| p.parent()).map(std::path::Path::to_path_buf);
-                    let diagrams: std::sync::Arc<dyn iure_doc_ui::DiagramRenderer> =
-                        std::sync::Arc::new(iure_doc_ui::Renderers(vec![
-                            std::sync::Arc::new(crate::diagrams::Diagrams::new(ui)),
-                            std::sync::Arc::new(iure_doc_ui::LocalImages::new(folder.clone())),
-                        ]));
-                    // Pegar de la web, Word o Google Docs pega su Markdown (el HTML del portapapeles).
-                    let hooks = iure_doc_ui::Hooks {
-                        diagrams: Some(diagrams),
-                        paste: Some(std::sync::Arc::new(iure_doc_ui::SystemClipboard)),
-                        spell: Some(speller),
-                        // Imágenes pegadas o soltadas: en `assets/` junto al documento (como la
-                        // versión Tauri).
-                        images: Some(std::sync::Arc::new(iure_doc_ui::FolderImages::new(folder, "assets"))),
-                    };
-                    let out = iure_doc_ui::show_blocks_hooks(
-                        ui,
-                        egui::Id::unique(("iureditor-doc", t.id)),
-                        &mut t.doc.text,
-                        pick(
-                            "Write here… (# title, - list, **bold**)",
-                            "Escribe aquí… (# título, - lista, **negrita**)",
-                        ),
-                        hooks,
-                    );
-                    out.response.widget_info(|| {
-                        egui::WidgetInfo::labeled(egui::Role::MultilineTextInput, true, pick("Document", "Documento"))
-                    });
+        // El marco: barra de título (☰, pestañas, botones de la ventana), barra de formato,
+        // avisos y barra de estado.
+        let chrome = self.chrome.clone();
+        if let Some(a) = crate::chrome::title_bar(self, ui, chrome.as_ref()) {
+            self.menu_act(&ctx, a);
+        }
+        crate::chrome::format_bar(self, ui);
+        self.notices(ui);
+        crate::chrome::status_bar(self, ui);
+        let bg = iurefficient_ui::theme::colors(ui).surface;
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(bg).inner_margin(egui::Margin::symmetric(0, 12)))
+            .show(ui, |ui| {
+                let speller = self.speller.clone();
+                let Some(t) = self.tabs.get_mut(self.active) else { return };
+                // Diagramas (Mermaid, mapas mentales) e imágenes de la carpeta del documento,
+                // dibujados en su lugar.
+                let folder = t.doc.path.as_ref().and_then(|p| p.parent()).map(std::path::Path::to_path_buf);
+                let diagrams: std::sync::Arc<dyn iure_doc_ui::DiagramRenderer> =
+                    std::sync::Arc::new(iure_doc_ui::Renderers(vec![
+                        std::sync::Arc::new(crate::diagrams::Diagrams::new(ui)),
+                        std::sync::Arc::new(iure_doc_ui::LocalImages::new(folder.clone())),
+                    ]));
+                // Pegar de la web, Word o Google Docs pega su Markdown (el HTML del portapapeles).
+                let hooks = iure_doc_ui::Hooks {
+                    diagrams: Some(diagrams),
+                    paste: Some(std::sync::Arc::new(iure_doc_ui::SystemClipboard)),
+                    spell: Some(speller),
+                    // Imágenes pegadas o soltadas: en `assets/` junto al documento (como la versión
+                    // Tauri).
+                    images: Some(std::sync::Arc::new(iure_doc_ui::FolderImages::new(folder, "assets"))),
+                };
+                // La columna de documento la pone el editor.
+                let out = iure_doc_ui::show_blocks_hooks(
+                    ui,
+                    egui::Id::unique(("iureditor-doc", t.id)),
+                    &mut t.doc.text,
+                    pick("Write here… (# title, - list, **bold**)", "Escribe aquí… (# título, - lista, **negrita**)"),
+                    hooks,
+                );
+                out.response.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::Role::MultilineTextInput, true, pick("Document", "Documento"))
                 });
             });
-        });
+        if let Some(ch) = &chrome {
+            iurefficient_ui::window::frame(ui, ch, egui::Id::unique("iureditor-window"));
+        }
         self.ask_window(&ctx);
         self.recovery_window(&ctx);
     }
@@ -924,8 +996,8 @@ mod tests {
             .with_size(egui::vec2(900.0, 600.0))
             .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app);
         h.run();
-        // «Nuevo»: otra pestaña; el borrador sigue en la suya.
-        h.get_by_label("Nuevo").click();
+        // «+» (pestaña nueva): otra pestaña; el borrador sigue en la suya.
+        h.get_by_label("Pestaña nueva").click();
         h.run();
         assert_eq!(h.state().tabs.len(), 2);
         assert!(h.state().doc().text.is_empty());
@@ -1142,6 +1214,43 @@ mod image_tests {
 }
 
 #[cfg(test)]
+mod chrome_tests {
+    use super::*;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+
+    /// La barra de formato y el menú ☰ (marco como la 1.x).
+    #[test]
+    fn format_bar_and_menu_act_on_the_document() {
+        iurefficient_ui::lang::set_lang(iurefficient_ui::lang::Lang::Es);
+        let app = EditorApp::new(Doc { text: "Hola mundo\n".into(), ..Default::default() }, None);
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 600.0))
+            .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app);
+        h.run();
+        // Sin cursor todavía: el título va a la última línea (la única).
+        h.get_by_label("Título 1").click();
+        h.run_steps(2);
+        assert_eq!(h.state().doc().text, "# Hola mundo\n");
+        h.get_by_label("Lista de tareas").click();
+        h.run_steps(2);
+        assert!(h.state().doc().text.starts_with("- [ ] "), "{:?}", h.state().doc().text);
+        h.get_by_label("Deshacer (Ctrl+Z)").click();
+        h.run_steps(2);
+        assert_eq!(h.state().doc().text, "# Hola mundo\n");
+        // La barra de estado.
+        assert!(h.query_by_label_contains("palabras").is_some());
+        assert!(h.query_by_label("Cambios sin guardar").is_some());
+        // El menú ☰: Archivo › Nuevo abre una pestaña.
+        h.get_by_label("Menú").click();
+        h.run();
+        h.get_by_label("Nuevo").click();
+        h.run();
+        assert_eq!(h.state().tabs.len(), 2);
+    }
+}
+
+#[cfg(test)]
 mod draft_tests {
     use super::*;
     use egui_kittest::kittest::Queryable;
@@ -1303,6 +1412,8 @@ mod shot {
         let text = text.replacen("\n\n## Pendientes", "\n\n![Sello del despacho](img/sello.png)\n\n## Pendientes", 1);
         let doc = Doc { path: Some(dir.join("propuesta.md")), saved: text.clone(), text, mtime: None };
         let mut app = EditorApp::new(doc, None);
+        // La barra de título propia (con los botones de la ventana de GNOME).
+        app.chrome = iurefficient_ui::window::WindowChrome::named("adwaita");
         // `IUREDITOR_SHOT_TABS=1`: dos pestañas más (una con cambios), la primera activa.
         if std::env::var_os("IUREDITOR_SHOT_TABS").is_some() {
             let mut c = Doc { path: Some("contrato-arrendamiento.md".into()), ..Default::default() };
@@ -1327,6 +1438,12 @@ mod shot {
         let mut h = egui_kittest::Harness::builder()
             .with_size(egui::vec2(1000.0, 700.0))
             .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app);
+        // `IUREDITOR_SHOT_LIGHT=1`: tema claro (como las capturas de la 1.x).
+        if std::env::var_os("IUREDITOR_SHOT_LIGHT").is_some() {
+            h.state_mut().themed = true;
+            iurefficient_ui::fonts::install_choice(&h.ctx, &iurefficient_ui::fonts::FontChoice::Bundled);
+            iurefficient_ui::theme::apply(&h.ctx, iurefficient_ui::theme::ThemeMode::Light, Default::default());
+        }
         h.run_steps(4);
         // Los diagramas llegan de otro hilo: se espera a que estén dibujados.
         for _ in 0..600 {
