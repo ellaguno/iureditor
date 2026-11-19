@@ -10,6 +10,8 @@ mod diagrams;
 mod doc;
 mod drafts;
 mod export;
+mod instance;
+mod links;
 mod mcp;
 mod templates;
 
@@ -24,11 +26,24 @@ fn main() -> ExitCode {
     if args.first().is_some_and(|a| a == "--export") {
         return export_cli(args.get(1), args.get(2));
     }
-    // Los archivos de la línea de órdenes, uno por pestaña; sin ninguno, la sesión anterior.
+    let args: Vec<String> = args.into_iter().take(64).map(|a| a.to_string_lossy().into_owned()).collect();
+    // ¿Ya hay una ventana? Se le pasan los argumentos (y se trae al frente) y se termina.
+    let runtime = instance::runtime_dir();
+    if let Some(dir) = &runtime
+        && instance::forward(dir, &args)
+    {
+        return ExitCode::SUCCESS;
+    }
+    // Los archivos de la línea de órdenes, uno por pestaña; sin ninguno, la sesión anterior. Los
+    // enlaces que escriben (`insert`, `edit`) se aplican ya con la ventana abierta.
     let mut docs = Vec::new();
     let mut notice = None;
-    for arg in args.into_iter().take(64) {
-        let path = std::path::PathBuf::from(arg);
+    let mut pending = Vec::new();
+    for arg in args {
+        let Some(links::Link::Open(path)) = links::parse(&arg) else {
+            pending.push(arg);
+            continue;
+        };
         match doc::Doc::open(&path) {
             Ok(d) => docs.push(d),
             // Un archivo nuevo: se crea al guardar.
@@ -56,8 +71,22 @@ fn main() -> ExitCode {
     let result = eframe::run_native(
         "IureEditor",
         options,
-        Box::new(move |_cc| {
+        Box::new(move |cc| {
             let mut app = app::EditorApp::with_docs(docs, active, notice);
+            app.pending = pending;
+            // Escucha a las siguientes `iureditor2` (abrir, dictar).
+            if let Some(dir) = &runtime {
+                let (tx, rx) = std::sync::mpsc::channel();
+                let ctx = cc.egui_ctx.clone();
+                match instance::listen(dir, move |a| {
+                    let _ = tx.send(a);
+                    ctx.request_repaint();
+                }) {
+                    // Vive lo que dure la ventana (al cerrarla se borra el punto de acceso).
+                    Ok(l) => app.set_incoming(rx, l),
+                    Err(e) => eprintln!("IureEditor: {e}"),
+                }
+            }
             // ¿Quedaron borradores de un cierre inesperado?
             app.recovery = drafts::drafts_dir().map(|d| drafts::orphans(&d)).unwrap_or_default();
             Ok(Box::new(Window(app)))

@@ -50,6 +50,11 @@ cd egui && cargo run --release -- archivo.md
    `iurefficient-connect`): `exportar_documento` y `convertir_markdown` (PDF, Word, HTML),
    `html_a_markdown`, `listar_plantillas` y `crear_desde_plantilla` (las plantillas de la versión
    Tauri, en su misma carpeta; `{{fecha}}`, `{{date}}` y campos propios; nunca reemplaza un
-   archivo). **Pendiente**: deep links con los mismos esquemas que la versión Tauri; migración de
+   archivo). **Hecho (enlaces)**: `iureditor://open`, `insert` y `edit` (los de la versión Tauri:
+   IureVoz dicta en el cursor sin quitarle el foco a nadie, con deshacer) y una sola ventana: un
+   segundo `iureditor2` le pasa sus argumentos a la abierta por un socket local con token (TCP
+   local en Windows) y termina. **Pendiente**: `iureditor://iurefficient/doc` (documentos de la
+   instancia), registrar el esquema al instalar (archivo `.desktop`, registro de Windows,
+   `Info.plist`); migración de
    preferencias; documentos recientes, buscar y reemplazar, asistente.
 6. Paridad medida contra la versión Tauri; entonces se retira Tauri.

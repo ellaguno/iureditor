@@ -77,6 +77,12 @@ pub struct EditorApp {
     picker: Option<mpsc::Receiver<Picked>>,
     /// Exportación en curso (dibuja diagramas en otro hilo): el archivo o el error.
     exporting: Option<mpsc::Receiver<Result<PathBuf, String>>>,
+    /// Argumentos que manda un segundo `iureditor2` (rutas y enlaces `iureditor://`).
+    incoming: Option<mpsc::Receiver<Vec<String>>>,
+    /// La escucha de esas instancias (se detiene al cerrar).
+    _listener: Option<crate::instance::Listener>,
+    /// Enlaces de la línea de órdenes que se aplican en el primer cuadro (`insert`, `edit`).
+    pub(crate) pending: Vec<String>,
     /// «¿Guardar los cambios?» pendiente (sobre la pestaña activa).
     ask: Option<Then>,
     /// Cerrar sin volver a preguntar.
@@ -137,6 +143,9 @@ impl EditorApp {
             info: None,
             picker: None,
             exporting: None,
+            incoming: None,
+            _listener: None,
+            pending: Vec::new(),
             ask: None,
             closing: false,
             disk_check: 0.0,
@@ -226,6 +235,77 @@ impl EditorApp {
             let _ = tx.send(Picked::SaveAs(d.save_file(), id, then));
         });
         self.picker = Some(rx);
+    }
+
+    /// Recibe los argumentos de un segundo `iureditor2`.
+    pub(crate) fn set_incoming(&mut self, rx: mpsc::Receiver<Vec<String>>, listener: crate::instance::Listener) {
+        self.incoming = Some(rx);
+        self._listener = Some(listener);
+    }
+
+    /// Rutas y enlaces `iureditor://` (de la línea de órdenes o de otra instancia). Abrir trae la
+    /// ventana al frente; escribir por voz (`insert`, `edit`) no le quita el foco a nadie.
+    pub(crate) fn handle_args(&mut self, ctx: &egui::Context, args: Vec<String>) {
+        let mut focus = args.is_empty();
+        for arg in args.iter().take(64) {
+            match crate::links::parse(arg) {
+                Some(crate::links::Link::Open(p)) => {
+                    focus = true;
+                    if p.exists() {
+                        self.open_path(&p);
+                    } else {
+                        // Un archivo nuevo: se crea al guardar.
+                        self.push_tab(Doc { path: Some(p), ..Default::default() });
+                    }
+                }
+                Some(crate::links::Link::Insert { text, path }) => {
+                    self.external(ctx, path.as_deref(), iure_doc_ui::ExternalEdit::Insert(text));
+                }
+                Some(crate::links::Link::Edit { action, path }) => self.external(ctx, path.as_deref(), action),
+                None => {
+                    self.notice = Some(format!(
+                        "{} «{arg}».",
+                        pick("This link is not understood:", "No se entiende este enlace:")
+                    ));
+                }
+            }
+        }
+        if focus {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
+    }
+
+    /// Una edición desde fuera en el documento de `path` (lo abre si hace falta) o en el activo.
+    fn external(&mut self, ctx: &egui::Context, path: Option<&std::path::Path>, edit: iure_doc_ui::ExternalEdit) {
+        if let Some(p) = path {
+            if !p.is_file() {
+                self.notice = Some(format!(
+                    "{} «{}».",
+                    pick("The document does not exist:", "No existe el documento:"),
+                    p.display()
+                ));
+                return;
+            }
+            self.open_path(p);
+        }
+        let Some(t) = self.tabs.get_mut(self.active) else { return };
+        iure_doc_ui::apply_external(ctx, egui::Id::unique(("iureditor-doc", t.id)), &mut t.doc.text, edit);
+    }
+
+    fn poll_incoming(&mut self, ctx: &egui::Context) {
+        if !self.pending.is_empty() {
+            let p = std::mem::take(&mut self.pending);
+            self.handle_args(ctx, p);
+        }
+        let mut got = Vec::new();
+        if let Some(rx) = &self.incoming {
+            while let Ok(a) = rx.try_recv() {
+                got.push(a);
+            }
+        }
+        for a in got.into_iter().take(16) {
+            self.handle_args(ctx, a);
+        }
     }
 
     fn export_dialog(&mut self, format: crate::export::Format) {
@@ -750,6 +830,7 @@ impl EditorApp {
         self.tab_keys(&ctx);
         self.poll_picker(&ctx);
         self.poll_export();
+        self.poll_incoming(&ctx);
         self.draft_tick(&ctx);
         self.check_disk(ctx.input(|i| i.time));
         let title = self.doc().title();
@@ -1149,6 +1230,44 @@ mod draft_tests {
         assert_eq!(doc.saved, "Versión guardada\n", "el archivo no se toca: queda con cambios sin guardar");
         assert_eq!(doc.path.as_deref(), Some(p.as_path()));
         assert!(!orphan.exists(), "recuperado, se borra");
+    }
+}
+
+#[cfg(test)]
+mod links_tests {
+    use super::*;
+
+    #[test]
+    fn links_open_and_dictate_into_documents() {
+        iurefficient_ui::lang::set_lang(iurefficient_ui::lang::Lang::Es);
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.md");
+        std::fs::write(&a, "Hola").unwrap();
+        let ctx = egui::Context::default();
+        let mut app = EditorApp::new(Doc::default(), None);
+        // Abrir por enlace: la pestaña vacía se reemplaza.
+        let link = format!("iureditor://open?path={}", a.display());
+        app.handle_args(&ctx, vec![link]);
+        assert_eq!(app.tabs.len(), 1);
+        assert_eq!(app.doc().path.as_deref(), Some(a.as_path()));
+        // Dictado: al final (sin cursor), con deshacer por voz.
+        app.handle_args(&ctx, vec!["iureditor://insert?text=%20mundo".into()]);
+        assert_eq!(app.doc().text, "Hola mundo");
+        assert!(app.doc().dirty(), "queda por guardar: el enlace nunca guarda");
+        app.handle_args(&ctx, vec!["iureditor://edit?action=undo".into()]);
+        assert_eq!(app.doc().text, "Hola");
+        // Con `path` de otro documento: se abre y se escribe en él.
+        let b = dir.path().join("b.md");
+        std::fs::write(&b, "B").unwrap();
+        app.handle_args(&ctx, vec![format!("iureditor://insert?text=!&path={}", b.display())]);
+        assert_eq!(app.tabs.len(), 2);
+        assert_eq!(app.doc().text, "B!");
+        // Lo que no se entiende se dice, no se ejecuta.
+        app.handle_args(&ctx, vec!["iureditor://borrar?path=%2Ftmp".into()]);
+        assert!(app.notice.as_deref().is_some_and(|n| n.contains("No se entiende")));
+        app.notice = None;
+        app.handle_args(&ctx, vec!["iureditor://insert?text=x&path=%2Fno%2Fexiste.md".into()]);
+        assert!(app.notice.as_deref().is_some_and(|n| n.contains("No existe")));
     }
 }
 
