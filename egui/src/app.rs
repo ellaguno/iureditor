@@ -1129,7 +1129,13 @@ mod image_tests {
             .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app);
         h.run_steps(2);
         h.input_mut().dropped_files.push(std::sync::Arc::new(Dropped(src)));
-        h.run_steps(4);
+        // La imagen entra cuando un bloque toma el foco: unos cuadros, más con la máquina ocupada.
+        for _ in 0..60 {
+            h.run_steps(1);
+            if h.state().doc().text.contains("![logo]") {
+                break;
+            }
+        }
         assert_eq!(h.state().doc().text, "Texto\n\n![logo](assets/logo.png)\n");
         assert!(dir.path().join("assets/logo.png").is_file());
     }

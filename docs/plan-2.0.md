@@ -58,3 +58,8 @@ cd egui && cargo run --release -- archivo.md
    `Info.plist`); migración de
    preferencias; documentos recientes, buscar y reemplazar, asistente.
 6. Paridad medida contra la versión Tauri; entonces se retira Tauri.
+
+**Alfas publicadas** (convive con la 1.x): etiqueta `egui-vX.Y.Z-alpha.N` → `release-egui.yml`
+compila Linux (`.tar.gz` con `instalar.sh`), Windows (`.zip`) y macOS universal (`.app` en
+`.zip`) con `egui/scripts/package.sh` y deja una Release **borrador y preliminar** (no «Latest»:
+el actualizador de la 1.x no la ve). Notas en `egui/notas/<etiqueta>.md`.
