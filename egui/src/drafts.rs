@@ -116,6 +116,29 @@ pub fn load_session(file: &Path) -> (Vec<PathBuf>, usize) {
     (paths, active)
 }
 
+/// Archivo de las preferencias (el zoom del documento).
+pub fn prefs_file() -> Option<PathBuf> {
+    data_dir().map(|d| d.join("preferencias.json"))
+}
+
+/// Guarda el zoom del documento.
+pub fn save_zoom(file: &Path, zoom: f32) {
+    if let Some(dir) = file.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(file, serde_json::json!({ "zoom": zoom }).to_string());
+}
+
+/// El zoom guardado (100 % si no hay o es raro).
+pub fn load_zoom(file: &Path) -> f32 {
+    let z = std::fs::read_to_string(file)
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| v.get("zoom").and_then(serde_json::Value::as_f64))
+        .map_or(1.0, |z| z as f32);
+    if z.is_finite() { z.clamp(iure_doc_ui::ZOOM_MIN, iure_doc_ui::ZOOM_MAX) } else { 1.0 }
+}
+
 fn read_one(p: &Path) -> Option<Draft> {
     if std::fs::metadata(p).ok()?.len() > MAX_BYTES {
         return None;
@@ -184,6 +207,19 @@ mod tests {
         assert!(!file_of(&d, 7).exists());
         remove(&o.iter().map(|(p, _)| p.clone()).collect::<Vec<_>>());
         assert!(!d.join("4000000.json").exists());
+    }
+
+    #[test]
+    fn the_zoom_is_kept_and_bounded() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("datos/preferencias.json");
+        assert_eq!(load_zoom(&f), 1.0, "sin archivo, 100 %");
+        save_zoom(&f, 1.25);
+        assert_eq!(load_zoom(&f), 1.25);
+        std::fs::write(&f, r#"{"zoom": 40}"#).unwrap();
+        assert_eq!(load_zoom(&f), iure_doc_ui::ZOOM_MAX, "acotado");
+        std::fs::write(&f, "no es json").unwrap();
+        assert_eq!(load_zoom(&f), 1.0);
     }
 
     #[test]

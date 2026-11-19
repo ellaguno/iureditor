@@ -104,10 +104,16 @@ pub struct EditorApp {
     session: Option<PathBuf>,
     /// Borradores de un cierre inesperado, para ofrecer recuperarlos (el más reciente primero).
     pub(crate) recovery: Vec<(PathBuf, crate::drafts::Draft)>,
+    /// Zoom del documento (1.0 = 100 %), el mismo para todas las pestañas.
+    pub(crate) zoom: f32,
+    /// Preferencias guardadas (el zoom; `None` en las pruebas).
+    prefs: Option<PathBuf>,
 }
 
 /// Espera tras el último cambio antes de escribir el borrador (como IureEditor Tauri).
 const DRAFT_DELAY: f64 = 2.5;
+/// La letra del documento respecto a la de la interfaz (≈16 px con la densidad normal, como la 1.x).
+const DOC_SCALE: f32 = 1.15;
 /// Pestañas abiertas como mucho.
 const MAX_TABS: usize = 64;
 
@@ -125,6 +131,12 @@ const NEW: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::N);
 const NEW_TAB: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::T);
 const CLOSE_TAB: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::W);
 const QUIT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Q);
+pub(crate) const ZOOM_IN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Plus);
+const ZOOM_IN_EQ: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Equals);
+const ZOOM_IN_SHIFT: KeyboardShortcut =
+    KeyboardShortcut::new(Modifiers { shift: true, ..Modifiers::COMMAND }, Key::Equals);
+pub(crate) const ZOOM_OUT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Minus);
+pub(crate) const ZOOM_RESET: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Num0);
 const FIND_ALL: KeyboardShortcut = KeyboardShortcut::new(Modifiers { shift: true, ..Modifiers::COMMAND }, Key::F);
 
 impl EditorApp {
@@ -165,6 +177,47 @@ impl EditorApp {
             drafts: if cfg!(test) { None } else { crate::drafts::drafts_dir() },
             session: if cfg!(test) { None } else { crate::drafts::session_file() },
             recovery: Vec::new(),
+            zoom: 1.0,
+            prefs: None,
+        }
+    }
+
+    /// Lee y guarda las preferencias (el zoom) en este archivo.
+    pub(crate) fn with_prefs(mut self, f: PathBuf) -> Self {
+        self.zoom = crate::drafts::load_zoom(&f);
+        self.prefs = Some(f);
+        self
+    }
+
+    /// Cambia el zoom del documento (acotado) y lo guarda.
+    pub(crate) fn set_zoom(&mut self, z: f32) {
+        let z = if z.is_finite() { z.clamp(iure_doc_ui::ZOOM_MIN, iure_doc_ui::ZOOM_MAX) } else { 1.0 };
+        if (z - self.zoom).abs() < 0.001 {
+            return;
+        }
+        self.zoom = z;
+        if let Some(f) = &self.prefs {
+            crate::drafts::save_zoom(f, z);
+        }
+    }
+
+    /// Ctrl + / Ctrl − / Ctrl 0 y Ctrl con la rueda (o el pellizco).
+    fn zoom_keys(&mut self, ctx: &egui::Context) {
+        let (up, down, reset, delta) = ctx.input_mut(|i| {
+            let up =
+                i.consume_shortcut(&ZOOM_IN) || i.consume_shortcut(&ZOOM_IN_EQ) || i.consume_shortcut(&ZOOM_IN_SHIFT);
+            let down = i.consume_shortcut(&ZOOM_OUT);
+            let reset = i.consume_shortcut(&ZOOM_RESET);
+            (up, down, reset, i.zoom_delta())
+        });
+        if reset {
+            self.set_zoom(1.0);
+        } else if up {
+            self.set_zoom(iure_doc_ui::zoom_step(self.zoom, true));
+        } else if down {
+            self.set_zoom(iure_doc_ui::zoom_step(self.zoom, false));
+        } else if (delta - 1.0).abs() > 0.001 {
+            self.set_zoom(self.zoom * delta);
         }
     }
 
@@ -688,6 +741,18 @@ impl EditorApp {
             MenuAct::Undo => self.apply_to_active(ctx, iure_doc_ui::ExternalEdit::Undo),
             MenuAct::Redo => self.apply_to_active(ctx, iure_doc_ui::ExternalEdit::Redo),
             MenuAct::ToggleSidebar => self.side.open = !self.side.open,
+            MenuAct::FindInFiles => {
+                self.side.open = true;
+                self.side.tab = crate::sidebar::SideTab::Search;
+                self.side.focus_search = true;
+            }
+            MenuAct::Outline => {
+                self.side.open = true;
+                self.side.tab = crate::sidebar::SideTab::Outline;
+            }
+            MenuAct::ZoomIn => self.set_zoom(iure_doc_ui::zoom_step(self.zoom, true)),
+            MenuAct::ZoomOut => self.set_zoom(iure_doc_ui::zoom_step(self.zoom, false)),
+            MenuAct::ZoomReset => self.set_zoom(1.0),
             MenuAct::About => {
                 self.info = Some(format!(
                     "IureEditor {} — {}",
@@ -915,6 +980,8 @@ impl EditorApp {
             iurefficient_ui::fonts::install_choice(&ctx, &iurefficient_ui::fonts::FontChoice::Bundled);
             iurefficient_ui::theme::apply(&ctx, iurefficient_ui::theme::ThemeMode::System, Default::default());
             iurefficient_ui::system::watch_system_theme(&ctx);
+            // Ctrl + / Ctrl − agrandan el documento, no toda la interfaz.
+            ctx.options_mut(|o| o.zoom_with_keyboard = false);
         }
         iurefficient_ui::theme::refresh(&ctx);
         // Cerrar la ventana: pestaña por pestaña las que tienen cambios; luego, la sesión.
@@ -932,13 +999,12 @@ impl EditorApp {
             self.open_dialog();
         }
         if ctx.input_mut(|i| i.consume_shortcut(&FIND_ALL)) {
-            self.side.open = true;
-            self.side.tab = crate::sidebar::SideTab::Search;
-            self.side.focus_search = true;
+            self.menu_act(&ctx, crate::chrome::MenuAct::FindInFiles);
         }
         if ctx.input_mut(|i| i.consume_shortcut(&QUIT)) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
+        self.zoom_keys(&ctx);
         self.tab_keys(&ctx);
         self.poll_picker(&ctx);
         self.poll_export();
@@ -956,7 +1022,9 @@ impl EditorApp {
         if let Some(a) = crate::chrome::title_bar(self, ui, chrome.as_ref()) {
             self.menu_act(&ctx, a);
         }
-        crate::chrome::status_bar(self, ui);
+        if let Some(a) = crate::chrome::status_bar(self, ui) {
+            self.menu_act(&ctx, a);
+        }
         self.side.poll();
         if self.side.open {
             let (path, text, caret) = match self.tabs.get(self.active) {
@@ -995,6 +1063,8 @@ impl EditorApp {
                     // Imágenes pegadas o soltadas: en `assets/` junto al documento (como la versión
                     // Tauri).
                     images: Some(std::sync::Arc::new(iure_doc_ui::FolderImages::new(folder, "assets"))),
+                    // Letra de documento (algo mayor que la de la interfaz), por el zoom elegido.
+                    zoom: Some(self.zoom * DOC_SCALE),
                 };
                 // La columna de documento la pone el editor.
                 let out = iure_doc_ui::show_blocks_hooks(
@@ -1275,6 +1345,30 @@ mod chrome_tests {
     use super::*;
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
+
+    /// Zoom: Ctrl + / Ctrl − / Ctrl 0 y la barra de estado (− 100 % +), solo para el documento.
+    #[test]
+    fn zoom_keys_and_status_bar_change_the_document_size() {
+        iurefficient_ui::lang::set_lang(iurefficient_ui::lang::Lang::Es);
+        let app = EditorApp::new(Doc { text: "Hola\n".into(), ..Default::default() }, None);
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 600.0))
+            .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app);
+        h.run();
+        h.key_press_modifiers(Modifiers::COMMAND, Key::Equals);
+        h.run();
+        assert!((h.state().zoom - 1.1).abs() < 1e-4, "{}", h.state().zoom);
+        assert!((h.ctx.zoom_factor() - 1.0).abs() < 1e-4, "la interfaz no cambia");
+        h.get_by_label("110 %").click();
+        h.run();
+        assert!((h.state().zoom - 1.0).abs() < 1e-4);
+        h.get_by_label("−").click();
+        h.run();
+        assert!((h.state().zoom - 0.9).abs() < 1e-4);
+        h.key_press_modifiers(Modifiers::COMMAND, Key::Num0);
+        h.run();
+        assert!((h.state().zoom - 1.0).abs() < 1e-4);
+    }
 
     /// La barra de formato y el menú ☰ (marco como la 1.x).
     #[test]

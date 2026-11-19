@@ -80,8 +80,13 @@ sobre la selección con `iure-doc` v0.16.0); barra de estado (línea, palabras, 
 (títulos del documento con el actual resaltado; un clic lleva el cursor, `iure-doc` v0.17.0
 `focus_offset`), **Archivos** (los Markdown de la carpeta del documento o de «Abrir carpeta…»,
 acotado), **Buscar** (Ctrl+Mayús+F; texto en esos archivos en otro hilo; un clic abre el archivo
-en ese lugar). **Siguiente:** tipografía de documento más amplia (títulos, interlineado), zoom,
-«Buscar» y «Ver» en el menú ☰, Iurefficient en el panel.
+en ese lugar).
+4) **Hecho**: tipografía de documento (`iure-doc` v0.18.0: títulos mayores, interlineado 1,5, aire
+antes de los títulos; letra del documento ≈16 px, un 15 % sobre la de la interfaz); zoom del
+documento (Ctrl + / Ctrl − / Ctrl 0, Ctrl con la rueda, «− 100 % +» en la barra de estado,
+recordado en `preferencias.json`; la interfaz no cambia); menú ☰ › **Ver** (panel lateral, esquema,
+buscar en los archivos, acercar/alejar/tamaño real). **Siguiente:** Iurefficient en el panel,
+fórmulas, avisos, color y resaltado.
 
 **Alfas** (cuando se cumpla lo anterior; convive con la 1.x): etiqueta `egui-vX.Y.Z-alpha.N` → `release-egui.yml`
 compila Linux (`.tar.gz` con `instalar.sh`), Windows (`.zip`) y macOS universal (`.app` en

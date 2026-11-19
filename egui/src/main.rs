@@ -78,6 +78,9 @@ fn main() -> ExitCode {
         options,
         Box::new(move |cc| {
             let mut app = app::EditorApp::with_docs(docs, active, notice);
+            if let Some(f) = drafts::prefs_file() {
+                app = app.with_prefs(f);
+            }
             app.pending = pending;
             if !system_titlebar() {
                 app.chrome = Some(iurefficient_ui::window::WindowChrome::detect());

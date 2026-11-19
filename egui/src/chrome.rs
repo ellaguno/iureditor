@@ -22,6 +22,13 @@ pub(crate) enum MenuAct {
     About,
     /// Mostrar u ocultar el panel lateral.
     ToggleSidebar,
+    /// Buscar en los archivos de la carpeta (panel lateral).
+    FindInFiles,
+    /// El esquema del documento (panel lateral).
+    Outline,
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
 }
 
 const NEW: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::N);
@@ -32,6 +39,7 @@ const CLOSE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::W
 const QUIT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Q);
 const UNDO: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Z);
 const REDO: KeyboardShortcut = KeyboardShortcut::new(Modifiers { shift: true, ..Modifiers::COMMAND }, Key::Z);
+const FIND_ALL: KeyboardShortcut = KeyboardShortcut::new(Modifiers { shift: true, ..Modifiers::COMMAND }, Key::F);
 
 /// Un renglón del menú con su atajo a la derecha.
 fn item(ui: &mut Ui, label: &str, shortcut: Option<&KeyboardShortcut>) -> bool {
@@ -88,6 +96,20 @@ fn menu(ui: &mut Ui) -> Option<MenuAct> {
         if item(ui, pick("Redo", "Rehacer"), Some(&REDO)) {
             act = Some(MenuAct::Redo);
         }
+    });
+    egui::CollapsingHeader::new(pick("View", "Ver")).default_open(false).show(ui, |ui| {
+        let mut pick_act = |ui: &mut Ui, label: &str, k: Option<&KeyboardShortcut>, a: MenuAct| {
+            if item(ui, label, k) {
+                act = Some(a);
+            }
+        };
+        pick_act(ui, pick("Side panel", "Panel lateral"), None, MenuAct::ToggleSidebar);
+        pick_act(ui, pick("Outline", "Esquema"), None, MenuAct::Outline);
+        pick_act(ui, pick("Find in files…", "Buscar en los archivos…"), Some(&FIND_ALL), MenuAct::FindInFiles);
+        ui.separator();
+        pick_act(ui, pick("Zoom in", "Acercar"), Some(&crate::app::ZOOM_IN), MenuAct::ZoomIn);
+        pick_act(ui, pick("Zoom out", "Alejar"), Some(&crate::app::ZOOM_OUT), MenuAct::ZoomOut);
+        pick_act(ui, pick("Actual size", "Tamaño real"), Some(&crate::app::ZOOM_RESET), MenuAct::ZoomReset);
     });
     egui::CollapsingHeader::new(pick("Help", "Ayuda")).default_open(false).show(ui, |ui| {
         if item(ui, pick("About IureEditor", "Acerca de IureEditor"), None) {
@@ -336,8 +358,10 @@ pub(crate) fn format_bar(app: &mut EditorApp, ui: &mut Ui) {
     }
 }
 
-/// La barra de estado: línea, palabras, caracteres y si está guardado.
-pub(crate) fn status_bar(app: &EditorApp, ui: &mut Ui) {
+/// La barra de estado: línea, palabras, caracteres, si está guardado y el zoom (− 100 % +; clic
+/// en el porcentaje vuelve al 100 %).
+pub(crate) fn status_bar(app: &EditorApp, ui: &mut Ui) -> Option<MenuAct> {
+    let mut act = None;
     let c = theme::colors(ui);
     let frame = egui::Frame::new().fill(c.surface_alt).inner_margin(egui::Margin::symmetric(12, 4));
     egui::Panel::bottom("iureditor-status").frame(frame).resizable(false).show(ui, |ui| {
@@ -350,6 +374,21 @@ pub(crate) fn status_bar(app: &EditorApp, ui: &mut Ui) {
             ui.label(small(format!("{words} {}", pick("words", "palabras"))));
             ui.label(small(format!("{chars} {}", pick("characters", "caracteres"))));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                let zoom_btn = |ui: &mut Ui, t: &str, tip: &str| {
+                    ui.add(egui::Button::new(small(t.to_string())).frame(false).small()).on_hover_text(tip).clicked()
+                };
+                if zoom_btn(ui, "+", pick("Zoom in", "Acercar")) {
+                    act = Some(MenuAct::ZoomIn);
+                }
+                let pct = format!("{} %", (app.zoom * 100.0).round() as i32);
+                if zoom_btn(ui, &pct, pick("Actual size", "Tamaño real")) {
+                    act = Some(MenuAct::ZoomReset);
+                }
+                if zoom_btn(ui, "−", pick("Zoom out", "Alejar")) {
+                    act = Some(MenuAct::ZoomOut);
+                }
+                ui.add_space(14.0);
                 let state = if app.doc().dirty() {
                     pick("Unsaved changes", "Cambios sin guardar")
                 } else {
@@ -359,4 +398,5 @@ pub(crate) fn status_bar(app: &EditorApp, ui: &mut Ui) {
             });
         });
     });
+    act
 }
