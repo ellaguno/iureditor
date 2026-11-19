@@ -76,8 +76,12 @@ de la ventana con el estilo y el orden del escritorio (`iurefficient_ui::window`
 IureDesk); barra de formato (deshacer y rehacer, títulos 1–3, negrita, cursiva, tachado, código,
 listas con viñetas, numeradas y de tareas, cita, bloque de código, regla, enlace, tabla, diagrama;
 sobre la selección con `iure-doc` v0.16.0); barra de estado (línea, palabras, caracteres, guardado).
-**Siguiente:** 3) panel lateral (Esquema, Archivos, Buscar), tipografía de documento más amplia
-(títulos, interlineado), zoom.
+3) **Hecho**: panel lateral (botón en la barra de título; abierto en el esquema): **Esquema**
+(títulos del documento con el actual resaltado; un clic lleva el cursor, `iure-doc` v0.17.0
+`focus_offset`), **Archivos** (los Markdown de la carpeta del documento o de «Abrir carpeta…»,
+acotado), **Buscar** (Ctrl+Mayús+F; texto en esos archivos en otro hilo; un clic abre el archivo
+en ese lugar). **Siguiente:** tipografía de documento más amplia (títulos, interlineado), zoom,
+«Buscar» y «Ver» en el menú ☰, Iurefficient en el panel.
 
 **Alfas** (cuando se cumpla lo anterior; convive con la 1.x): etiqueta `egui-vX.Y.Z-alpha.N` → `release-egui.yml`
 compila Linux (`.tar.gz` con `instalar.sh`), Windows (`.zip`) y macOS universal (`.app` en

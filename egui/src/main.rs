@@ -14,6 +14,7 @@ mod export;
 mod instance;
 mod links;
 mod mcp;
+mod sidebar;
 mod templates;
 
 use std::process::ExitCode;

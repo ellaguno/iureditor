@@ -20,6 +20,8 @@ pub(crate) enum MenuAct {
     Undo,
     Redo,
     About,
+    /// Mostrar u ocultar el panel lateral.
+    ToggleSidebar,
 }
 
 const NEW: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::N);
@@ -114,6 +116,13 @@ pub(crate) fn title_bar(app: &mut EditorApp, ui: &mut Ui, chrome: Option<&Window
             if let Some(ch) = chrome {
                 ui.add_space(ch.left_inset(&ctx));
                 window::window_buttons(ui, ch, false, h);
+            }
+            if fmt_button(
+                ui,
+                Fmt::Draw(Glyph::Sidebar),
+                pick("Show / hide the side panel", "Mostrar / ocultar el panel lateral"),
+            ) {
+                act = Some(MenuAct::ToggleSidebar);
             }
             let m = icons::icon_button(ui, Icon::Menu, pick("Menu", "Menú"), true);
             egui::Popup::menu(&m).show(|ui| {
@@ -213,6 +222,8 @@ enum Glyph {
     Table,
     Diagram,
     Rule,
+    /// Panel lateral (un recuadro con su columna izquierda).
+    Sidebar,
 }
 
 /// Dibuja un icono de la barra de formato que no está en el kit.
@@ -241,6 +252,10 @@ fn draw_glyph(p: &egui::Painter, r: egui::Rect, g: Glyph, ink: egui::Color32) {
         }
         Glyph::Rule => {
             p.line_segment([at(0.1, 0.5), at(0.9, 0.5)], egui::Stroke::new(1.8, ink));
+        }
+        Glyph::Sidebar => {
+            p.rect_stroke(egui::Rect::from_min_max(at(0.08, 0.15), at(0.92, 0.85)), 2.0, s, egui::StrokeKind::Middle);
+            p.line_segment([at(0.38, 0.15), at(0.38, 0.85)], s);
         }
     }
 }

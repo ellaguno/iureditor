@@ -76,6 +76,8 @@ pub struct EditorApp {
     /// Aviso de que algo salió bien (exportado…).
     info: Option<String>,
     picker: Option<mpsc::Receiver<Picked>>,
+    /// Panel lateral: Archivos, Buscar, Esquema.
+    pub(crate) side: crate::sidebar::Sidebar,
     /// Sin la barra del sistema: estilo y orden de los botones de la ventana.
     pub(crate) chrome: Option<iurefficient_ui::window::WindowChrome>,
     /// Exportación en curso (dibuja diagramas en otro hilo): el archivo o el error.
@@ -123,6 +125,7 @@ const NEW: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::N);
 const NEW_TAB: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::T);
 const CLOSE_TAB: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::W);
 const QUIT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Q);
+const FIND_ALL: KeyboardShortcut = KeyboardShortcut::new(Modifiers { shift: true, ..Modifiers::COMMAND }, Key::F);
 
 impl EditorApp {
     #[cfg(test)]
@@ -148,6 +151,7 @@ impl EditorApp {
             picker: None,
             exporting: None,
             chrome: None,
+            side: crate::sidebar::Sidebar::new_open(),
             incoming: None,
             _listener: None,
             pending: Vec::new(),
@@ -683,6 +687,7 @@ impl EditorApp {
             MenuAct::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
             MenuAct::Undo => self.apply_to_active(ctx, iure_doc_ui::ExternalEdit::Undo),
             MenuAct::Redo => self.apply_to_active(ctx, iure_doc_ui::ExternalEdit::Redo),
+            MenuAct::ToggleSidebar => self.side.open = !self.side.open,
             MenuAct::About => {
                 self.info = Some(format!(
                     "IureEditor {} — {}",
@@ -693,6 +698,39 @@ impl EditorApp {
                     )
                 ));
             }
+        }
+    }
+
+    /// Lo que pide el panel lateral.
+    fn side_act(&mut self, ctx: &egui::Context, a: crate::sidebar::SideAct) {
+        use crate::sidebar::SideAct;
+        match a {
+            SideAct::Open(p, at) => {
+                self.open_path(&p);
+                if let Some(at) = at {
+                    self.goto(ctx, at);
+                }
+            }
+            SideAct::Goto(at) => self.goto(ctx, at),
+            SideAct::PickFolder => {
+                let (tx, rx) = mpsc::channel();
+                let start = self.side.folder(self.doc().path.as_deref());
+                std::thread::spawn(move || {
+                    let mut d = rfd::FileDialog::new();
+                    if let Some(s) = start {
+                        d = d.set_directory(s);
+                    }
+                    let _ = tx.send(d.pick_folder());
+                });
+                self.side.picking = Some(rx);
+            }
+        }
+    }
+
+    /// Lleva el cursor de la pestaña activa al carácter `at`.
+    fn goto(&mut self, ctx: &egui::Context, at: usize) {
+        if let Some(t) = self.tabs.get(self.active) {
+            iure_doc_ui::focus_offset(ctx, egui::Id::unique(("iureditor-doc", t.id)), &t.doc.text, at);
         }
     }
 
@@ -893,6 +931,11 @@ impl EditorApp {
         if ctx.input_mut(|i| i.consume_shortcut(&OPEN)) {
             self.open_dialog();
         }
+        if ctx.input_mut(|i| i.consume_shortcut(&FIND_ALL)) {
+            self.side.open = true;
+            self.side.tab = crate::sidebar::SideTab::Search;
+            self.side.focus_search = true;
+        }
         if ctx.input_mut(|i| i.consume_shortcut(&QUIT)) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
@@ -913,12 +956,26 @@ impl EditorApp {
         if let Some(a) = crate::chrome::title_bar(self, ui, chrome.as_ref()) {
             self.menu_act(&ctx, a);
         }
+        crate::chrome::status_bar(self, ui);
+        self.side.poll();
+        if self.side.open {
+            let (path, text, caret) = match self.tabs.get(self.active) {
+                Some(t) => (
+                    t.doc.path.clone(),
+                    t.doc.text.clone(),
+                    iure_doc_ui::caret_offset(&ctx, egui::Id::unique(("iureditor-doc", t.id)), &t.doc.text),
+                ),
+                None => (None, String::new(), None),
+            };
+            if let Some(a) = self.side.show(ui, path.as_deref(), &text, caret) {
+                self.side_act(&ctx, a);
+            }
+        }
         crate::chrome::format_bar(self, ui);
         self.notices(ui);
-        crate::chrome::status_bar(self, ui);
         let bg = iurefficient_ui::theme::colors(ui).surface;
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(bg).inner_margin(egui::Margin::symmetric(0, 12)))
+            .frame(egui::Frame::new().fill(bg).inner_margin(egui::Margin::symmetric(28, 12)))
             .show(ui, |ui| {
                 let speller = self.speller.clone();
                 let Some(t) = self.tabs.get_mut(self.active) else { return };
@@ -1241,12 +1298,25 @@ mod chrome_tests {
         // La barra de estado.
         assert!(h.query_by_label_contains("palabras").is_some());
         assert!(h.query_by_label("Cambios sin guardar").is_some());
+        // El esquema del panel lateral: un clic lleva el cursor al título.
+        h.get_by_label("Pestaña nueva").click();
+        h.run();
+        let t = "# Uno\n\ntexto\n\n## Dos\n\nmás\n".to_string();
+        if let Some(tab) = h.state_mut().tab_mut() {
+            tab.doc.text = t.clone();
+        }
+        h.run_steps(2);
+        h.get_by_label("Dos").click();
+        h.run_steps(3);
+        let id = h.state().tabs.get(h.state().active).map(|t| t.id).unwrap_or(0);
+        let at = iure_doc_ui::caret_offset(&h.ctx, egui::Id::unique(("iureditor-doc", id)), &t);
+        assert_eq!(at, Some("# Uno\n\ntexto\n\n".chars().count()), "el cursor en «Dos»");
         // El menú ☰: Archivo › Nuevo abre una pestaña.
         h.get_by_label("Menú").click();
         h.run();
         h.get_by_label("Nuevo").click();
         h.run();
-        assert_eq!(h.state().tabs.len(), 2);
+        assert_eq!(h.state().tabs.len(), 3);
     }
 }
 
