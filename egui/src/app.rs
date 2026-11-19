@@ -577,6 +577,10 @@ impl EditorApp {
                         self.export_dialog(crate::export::Format::Docx);
                         ui.close();
                     }
+                    if ui.button("PDF…").clicked() {
+                        self.export_dialog(crate::export::Format::Pdf);
+                        ui.close();
+                    }
                 });
             });
             ui.separator();

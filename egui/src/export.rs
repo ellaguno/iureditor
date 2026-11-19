@@ -1,4 +1,4 @@
-//! Exportar el documento (S1.14): página web autocontenida (HTML) y Word (DOCX) con
+//! Exportar el documento (S1.14): página web autocontenida (HTML), Word (DOCX) y PDF (Typst) con
 //! `iure-doc-export`. Las imágenes salen de la carpeta del documento (la misma política que el
 //! editor) y los diagramas se dibujan con el mismo motor que en pantalla, en colores de papel.
 
@@ -15,6 +15,7 @@ use iurefficient_ui::lang::pick;
 pub enum Format {
     Html,
     Docx,
+    Pdf,
 }
 
 impl Format {
@@ -22,6 +23,7 @@ impl Format {
         match self {
             Format::Html => "html",
             Format::Docx => "docx",
+            Format::Pdf => "pdf",
         }
     }
 
@@ -30,6 +32,7 @@ impl Format {
         match self {
             Format::Html => pick("Web page", "Página web"),
             Format::Docx => "Word",
+            Format::Pdf => "PDF",
         }
     }
 }
@@ -74,6 +77,7 @@ pub fn export(text: &str, base: Option<PathBuf>, format: Format, out: &Path) -> 
     let bytes = match format {
         Format::Html => iure_doc_export::html::html(&doc, &res, &opts).into_bytes(),
         Format::Docx => iure_doc_export::docx::docx(&doc, &res, &opts).map_err(|e| pick(&e.en, &e.es).to_string())?,
+        Format::Pdf => iure_doc_export::pdf::pdf(&doc, &res, &opts).map_err(|e| pick(&e.en, &e.es).to_string())?,
     };
     write_atomic(out, &bytes).map_err(|e| {
         format!(
@@ -114,6 +118,9 @@ mod tests {
         export(md, Some(dir.path().to_path_buf()), Format::Docx, &docx).unwrap();
         let mut z = zip::ZipArchive::new(std::fs::File::open(&docx).unwrap()).unwrap();
         assert!(z.by_name("word/media/image3.png").is_ok(), "tres imágenes en el Word");
+        let pdf = dir.path().join("informe.pdf");
+        export(md, Some(dir.path().to_path_buf()), Format::Pdf, &pdf).unwrap();
+        assert!(std::fs::read(&pdf).unwrap().starts_with(b"%PDF-"));
         // Nada de temporales.
         let left: Vec<_> = std::fs::read_dir(dir.path())
             .unwrap()

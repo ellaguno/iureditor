@@ -2,7 +2,7 @@
 //! Markdown con el editor de documentos de la suite (`DocEditor` por bloques, el mismo de las notas
 //! de IureDesk y de IureProject). Convive con IureEditor Tauri hasta la paridad.
 //!
-//! Uso: `iureditor2 [archivo.md…]`; sin ventana, `iureditor2 --export entrada.md salida.(html|docx)`.
+//! Uso: `iureditor2 [archivo.md…]`; sin ventana, `iureditor2 --export entrada.md salida.(html|docx|pdf)`.
 
 mod app;
 mod diagrams;
@@ -70,17 +70,18 @@ fn main() -> ExitCode {
 fn export_cli(input: Option<&std::ffi::OsString>, output: Option<&std::ffi::OsString>) -> ExitCode {
     use iurefficient_ui::lang::pick;
     let (Some(input), Some(output)) = (input, output) else {
-        eprintln!("{} iureditor2 --export entrada.md salida.(html|docx)", pick("usage:", "uso:"));
+        eprintln!("{} iureditor2 --export entrada.md salida.(html|docx|pdf)", pick("usage:", "uso:"));
         return ExitCode::FAILURE;
     };
     let (input, output) = (std::path::PathBuf::from(input), std::path::PathBuf::from(output));
     let format = match output.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
         Some("html" | "htm") => export::Format::Html,
         Some("docx") => export::Format::Docx,
+        Some("pdf") => export::Format::Pdf,
         _ => {
             eprintln!(
                 "{}",
-                pick("The output must end in .html or .docx.", "La salida debe terminar en .html o .docx.")
+                pick("The output must end in .html, .docx or .pdf.", "La salida debe terminar en .html, .docx o .pdf.")
             );
             return ExitCode::FAILURE;
         }
