@@ -30,8 +30,14 @@ iure-doc-export = { git = "https://github.com/ellaguno/iure-doc", tag = "v0.13.0
 # Diagramas exportados como PNG.
 image = { version = "0.25", default-features = false, features = ["png"] }
 thiserror = "2"
-# Borradores de recuperación (JSON).
+# Borradores de recuperación y MCP (JSON).
 serde_json = "1"
+# `--mcp` por stdio con el protocolo de la suite (S1.8).
+iurefficient-connect = { git = "https://github.com/ellaguno/iurefficient-connect", tag = "v0.9.1", default-features = false }
+anyhow = "1"
+# Plantillas: carpeta de datos (la de la versión Tauri) y la fecha local.
+dirs = "6"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Diagramas dibujados en su lugar con el mismo motor que IureDesk (mermaid-svg, mapas mentales,
 # Blitz; Rust puro). Fijado a un commit de IureDesk (público).
 iuredesk-html-view = { git = "https://github.com/ellaguno/iuredesk", rev = "c113e32bec2b40de024cb5036e2083bd52b7cae7" }

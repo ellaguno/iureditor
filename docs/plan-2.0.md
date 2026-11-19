@@ -46,6 +46,10 @@ cd egui && cargo run --release -- archivo.md
    letras: igual en cualquier sistema, sin diálogo de impresión), con `iure-doc-export`; en otro
    hilo, con escritura atómica. Sin ventana: `iureditor2 --export nota.md nota.pdf` (o `.docx`,
    `.html`).
-5. Deep links y `--mcp` con los mismos esquemas que la versión Tauri (S1.8); migración de
+5. **Hecho (`--mcp`, S1.8)**: `iureditor2 --mcp` (MCP por stdio, protocolo de
+   `iurefficient-connect`): `exportar_documento` y `convertir_markdown` (PDF, Word, HTML),
+   `html_a_markdown`, `listar_plantillas` y `crear_desde_plantilla` (las plantillas de la versión
+   Tauri, en su misma carpeta; `{{fecha}}`, `{{date}}` y campos propios; nunca reemplaza un
+   archivo). **Pendiente**: deep links con los mismos esquemas que la versión Tauri; migración de
    preferencias; documentos recientes, buscar y reemplazar, asistente.
 6. Paridad medida contra la versión Tauri; entonces se retira Tauri.

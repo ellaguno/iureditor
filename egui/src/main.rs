@@ -2,19 +2,25 @@
 //! Markdown con el editor de documentos de la suite (`DocEditor` por bloques, el mismo de las notas
 //! de IureDesk y de IureProject). Convive con IureEditor Tauri hasta la paridad.
 //!
-//! Uso: `iureditor2 [archivo.md…]`; sin ventana, `iureditor2 --export entrada.md salida.(html|docx|pdf)`.
+//! Uso: `iureditor2 [archivo.md…]`; sin ventana, `iureditor2 --export entrada.md salida.(html|docx|pdf)`
+//! o `iureditor2 --mcp` (servidor MCP por stdio: exportar, convertir, plantillas).
 
 mod app;
 mod diagrams;
 mod doc;
 mod drafts;
 mod export;
+mod mcp;
+mod templates;
 
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
     iurefficient_ui::lang::set_lang(iurefficient_ui::lang::detect());
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    if args.first().is_some_and(|a| a == "--mcp") {
+        return ExitCode::from(u8::try_from(mcp::run_stdio()).unwrap_or(1));
+    }
     if args.first().is_some_and(|a| a == "--export") {
         return export_cli(args.get(1), args.get(2));
     }
