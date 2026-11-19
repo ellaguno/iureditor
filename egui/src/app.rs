@@ -28,6 +28,8 @@ enum Picked {
     Open(Option<PathBuf>),
     /// Guardar como: la pestaña (por su identidad) y qué hacer después.
     SaveAs(Option<PathBuf>, u64, Option<Then>),
+    /// Exportar: destino, formato y pestaña.
+    Export(Option<PathBuf>, crate::export::Format, u64),
 }
 
 /// Una pestaña: su documento y lo que se lleva de él.
@@ -70,7 +72,11 @@ pub struct EditorApp {
     pub(crate) active: usize,
     next_id: u64,
     notice: Option<String>,
+    /// Aviso de que algo salió bien (exportado…).
+    info: Option<String>,
     picker: Option<mpsc::Receiver<Picked>>,
+    /// Exportación en curso (dibuja diagramas en otro hilo): el archivo o el error.
+    exporting: Option<mpsc::Receiver<Result<PathBuf, String>>>,
     /// «¿Guardar los cambios?» pendiente (sobre la pestaña activa).
     ask: Option<Then>,
     /// Cerrar sin volver a preguntar.
@@ -128,7 +134,9 @@ impl EditorApp {
             active,
             next_id,
             notice,
+            info: None,
             picker: None,
+            exporting: None,
             ask: None,
             closing: false,
             disk_check: 0.0,
@@ -218,6 +226,65 @@ impl EditorApp {
             let _ = tx.send(Picked::SaveAs(d.save_file(), id, then));
         });
         self.picker = Some(rx);
+    }
+
+    fn export_dialog(&mut self, format: crate::export::Format) {
+        let (tx, rx) = mpsc::channel();
+        let path = self.doc().path.clone();
+        let stem = path
+            .as_ref()
+            .and_then(|p| p.file_stem())
+            .map_or_else(|| pick("document", "documento").to_string(), |n| n.to_string_lossy().into_owned());
+        let dir = path.as_ref().and_then(|p| p.parent().map(PathBuf::from));
+        let id = self.tabs.get(self.active).map_or(0, |t| t.id);
+        std::thread::spawn(move || {
+            let mut d = rfd::FileDialog::new()
+                .add_filter(format.filter(), &[format.ext()])
+                .set_file_name(format!("{stem}.{}", format.ext()));
+            if let Some(dir) = dir {
+                d = d.set_directory(dir);
+            }
+            let _ = tx.send(Picked::Export(d.save_file(), format, id));
+        });
+        self.picker = Some(rx);
+    }
+
+    /// Exporta la pestaña `id` a `out` en otro hilo (los diagramas tardan en dibujarse).
+    fn start_export(&mut self, ctx: &egui::Context, out: PathBuf, format: crate::export::Format, id: u64) {
+        let Some(t) = self.tabs.iter().find(|t| t.id == id) else { return };
+        let text = t.doc.text.clone();
+        let base = t.doc.path.as_ref().and_then(|p| p.parent().map(PathBuf::from));
+        let (tx, rx) = mpsc::channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let r = crate::export::export(&text, base, format, &out).map(|()| out);
+            let _ = tx.send(r);
+            ctx.request_repaint();
+        });
+        self.info = Some(pick("Exporting…", "Exportando…").to_string());
+        self.exporting = Some(rx);
+    }
+
+    fn poll_export(&mut self) {
+        let Some(rx) = &self.exporting else { return };
+        let r = match rx.try_recv() {
+            Ok(r) => r,
+            Err(mpsc::TryRecvError::Empty) => return,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                Err(pick("The export was interrupted.", "La exportación se interrumpió.").to_string())
+            }
+        };
+        self.exporting = None;
+        match r {
+            Ok(p) => {
+                let name = p.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+                self.info = Some(format!("{} «{name}».", pick("Exported to", "Exportado a")));
+            }
+            Err(e) => {
+                self.info = None;
+                self.notice = Some(e);
+            }
+        }
     }
 
     /// Guarda la pestaña activa; sin archivo, pregunta dónde. `true` si quedó guardado.
@@ -445,7 +512,8 @@ impl EditorApp {
                     Err(e) => self.notice = Some(e.human(&path)),
                 }
             }
-            Picked::Open(None) | Picked::SaveAs(None, _, _) => {}
+            Picked::Export(Some(path), format, id) => self.start_export(ctx, path, format, id),
+            Picked::Open(None) | Picked::SaveAs(None, _, _) | Picked::Export(None, _, _) => {}
         }
     }
 
@@ -499,6 +567,18 @@ impl EditorApp {
             if ui.button(pick("Save as…", "Guardar como…")).on_hover_text(ctx.format_shortcut(&SAVE_AS)).clicked() {
                 self.save_as_dialog(None);
             }
+            ui.add_enabled_ui(self.exporting.is_none(), |ui| {
+                ui.menu_button(pick("Export", "Exportar"), |ui| {
+                    if ui.button(pick("Web page (HTML)…", "Página web (HTML)…")).clicked() {
+                        self.export_dialog(crate::export::Format::Html);
+                        ui.close();
+                    }
+                    if ui.button(pick("Word (DOCX)…", "Word (DOCX)…")).clicked() {
+                        self.export_dialog(crate::export::Format::Docx);
+                        ui.close();
+                    }
+                });
+            });
             ui.separator();
             let state = if self.doc().dirty() {
                 pick("Unsaved changes", "Cambios sin guardar")
@@ -507,6 +587,14 @@ impl EditorApp {
             };
             ui.weak(state);
         });
+        if let Some(n) = self.info.clone() {
+            ui.horizontal(|ui| {
+                ui.label(n);
+                if self.exporting.is_none() && ui.small_button(pick("Close", "Cerrar")).clicked() {
+                    self.info = None;
+                }
+            });
+        }
         if let Some(n) = self.notice.clone() {
             ui.horizontal(|ui| {
                 ui.colored_label(iurefficient_ui::theme::colors(ui).danger, n);
@@ -657,6 +745,7 @@ impl EditorApp {
         }
         self.tab_keys(&ctx);
         self.poll_picker(&ctx);
+        self.poll_export();
         self.draft_tick(&ctx);
         self.check_disk(ctx.input(|i| i.time));
         let title = self.doc().title();

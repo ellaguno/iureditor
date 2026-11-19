@@ -23,7 +23,12 @@ eframe = { version = "0.37", default-features = false, features = ["default_font
 # Kit de interfaz de la suite (por ruta, como en IureProject) y editor de documentos (repositorio
 # propio, etiqueta fija).
 iurefficient-ui = { path = "../../iurefficient-ui" }
-iure-doc-ui = { git = "https://github.com/ellaguno/iure-doc", tag = "v0.11.0" }
+iure-doc-ui = { git = "https://github.com/ellaguno/iure-doc", tag = "v0.12.0" }
+iure-doc = { git = "https://github.com/ellaguno/iure-doc", tag = "v0.12.0" }
+# Exportar a HTML y Word (S1.14).
+iure-doc-export = { git = "https://github.com/ellaguno/iure-doc", tag = "v0.12.0" }
+# Diagramas exportados como PNG.
+image = { version = "0.25", default-features = false, features = ["png"] }
 thiserror = "2"
 # Borradores de recuperación (JSON).
 serde_json = "1"
@@ -39,7 +44,7 @@ rfd = { version = "0.17", default-features = false }
 
 [dev-dependencies]
 tempfile = "3"
-image = { version = "0.25", default-features = false, features = ["png"] }
+zip = { version = "8", default-features = false, features = ["deflate-flate2"] }
 egui_kittest = { version = "0.37", features = ["wgpu"] }
 
 # `iure-doc-ui` pide el kit por git; aquí se usa el de la ruta (una sola copia).

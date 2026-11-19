@@ -40,7 +40,11 @@ cd egui && cargo run --release -- archivo.md
    documento ya abierto pasa a su pestaña; al cerrar la ventana se pregunta pestaña por pestaña y
    se guarda la sesión, que se restaura al abrir sin archivo; varios archivos en la línea de
    órdenes abren varias pestañas.
-4. Exportar PDF (Typst), DOCX y HTML (S1.14).
+4. Exportar (S1.14). **Hecho**: «Exportar» → página web (HTML autocontenido: estilos, imágenes y
+   diagramas dentro) y Word (DOCX con estilos de título de Word, listas numeradas, tablas,
+   imágenes y diagramas dibujados con el mismo motor), con `iure-doc-export`; en otro hilo, con
+   escritura atómica. Sin ventana: `iureditor2 --export nota.md nota.docx` (o `.html`).
+   **Pendiente**: PDF (Typst).
 5. Deep links y `--mcp` con los mismos esquemas que la versión Tauri (S1.8); migración de
    preferencias; documentos recientes, buscar y reemplazar, asistente.
 6. Paridad medida contra la versión Tauri; entonces se retira Tauri.

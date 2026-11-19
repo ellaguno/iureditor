@@ -2,21 +2,26 @@
 //! Markdown con el editor de documentos de la suite (`DocEditor` por bloques, el mismo de las notas
 //! de IureDesk y de IureProject). Convive con IureEditor Tauri hasta la paridad.
 //!
-//! Uso: `iureditor2 [archivo.md]`.
+//! Uso: `iureditor2 [archivo.md…]`; sin ventana, `iureditor2 --export entrada.md salida.(html|docx)`.
 
 mod app;
 mod diagrams;
 mod doc;
 mod drafts;
+mod export;
 
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
     iurefficient_ui::lang::set_lang(iurefficient_ui::lang::detect());
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    if args.first().is_some_and(|a| a == "--export") {
+        return export_cli(args.get(1), args.get(2));
+    }
     // Los archivos de la línea de órdenes, uno por pestaña; sin ninguno, la sesión anterior.
     let mut docs = Vec::new();
     let mut notice = None;
-    for arg in std::env::args_os().skip(1).take(64) {
+    for arg in args.into_iter().take(64) {
         let path = std::path::PathBuf::from(arg);
         match doc::Doc::open(&path) {
             Ok(d) => docs.push(d),
@@ -56,6 +61,42 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("IureEditor: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// `--export entrada.md salida.html|docx`: exporta sin abrir la ventana.
+fn export_cli(input: Option<&std::ffi::OsString>, output: Option<&std::ffi::OsString>) -> ExitCode {
+    use iurefficient_ui::lang::pick;
+    let (Some(input), Some(output)) = (input, output) else {
+        eprintln!("{} iureditor2 --export entrada.md salida.(html|docx)", pick("usage:", "uso:"));
+        return ExitCode::FAILURE;
+    };
+    let (input, output) = (std::path::PathBuf::from(input), std::path::PathBuf::from(output));
+    let format = match output.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
+        Some("html" | "htm") => export::Format::Html,
+        Some("docx") => export::Format::Docx,
+        _ => {
+            eprintln!(
+                "{}",
+                pick("The output must end in .html or .docx.", "La salida debe terminar en .html o .docx.")
+            );
+            return ExitCode::FAILURE;
+        }
+    };
+    let doc = match doc::Doc::open(&input) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("{}", e.human(&input));
+            return ExitCode::FAILURE;
+        }
+    };
+    let base = input.canonicalize().ok().and_then(|p| p.parent().map(std::path::Path::to_path_buf));
+    match export::export(&doc.text, base, format, &output) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("{e}");
             ExitCode::FAILURE
         }
     }
