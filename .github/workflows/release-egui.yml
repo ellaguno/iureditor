@@ -26,8 +26,10 @@ jobs:
             runner: ubuntu-22.04
           - os: windows
             runner: windows-latest
+          # Intel: a las arm64 de macos-latest a menudo no les toca máquina (como en IureProject);
+          # compila las dos arquitecturas igual y el .app es universal.
           - os: macos
-            runner: macos-latest
+            runner: macos-15-intel
     runs-on: ${{ matrix.runner }}
     defaults:
       run:
@@ -90,9 +92,10 @@ jobs:
           name: iureditor2-${{ matrix.os }}
           path: egui/dist/*
 
+  # El borrador sale aunque falle un sistema: con los paquetes que sí se hicieron.
   release:
     needs: build
-    if: github.ref_type == 'tag'
+    if: ${{ !cancelled() && github.ref_type == 'tag' }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v5
