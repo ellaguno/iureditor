@@ -59,7 +59,16 @@ cd egui && cargo run --release -- archivo.md
    preferencias; documentos recientes, buscar y reemplazar, asistente.
 6. Paridad medida contra la versión Tauri; entonces se retira Tauri.
 
-**Alfas publicadas** (convive con la 1.x): etiqueta `egui-vX.Y.Z-alpha.N` → `release-egui.yml`
+**Decisión del dueño (2026-11-19):** no se publica ninguna versión de la 2.0 —ni alfa— hasta que
+esté **al menos como la 1.19.2 visualmente** (la alfa 3 quedó como borrador sin publicar: «le falta
+visualmente todo»). Falta, contra la 1.19.2: pestañas en la barra de título y menú ☰, barra de
+formato, panel lateral (Archivos, Buscar, Esquema, Iurefficient), barra de estado (línea, palabras,
+caracteres, zoom), WYSIWYG de verdad en el editor (casillas, viñetas, citas y código dibujados sin
+las marcas, columna centrada y tipografía de documento), fórmulas, avisos, color y resaltado.
+Orden propuesto: 1) WYSIWYG en `iure-doc` (mejora también IureDesk e IureProject), 2) marco de la
+ventana, 3) panel lateral, 4) lo demás.
+
+**Alfas** (cuando se cumpla lo anterior; convive con la 1.x): etiqueta `egui-vX.Y.Z-alpha.N` → `release-egui.yml`
 compila Linux (`.tar.gz` con `instalar.sh`), Windows (`.zip`) y macOS universal (`.app` en
 `.zip`) con `egui/scripts/package.sh` y deja una Release **borrador y preliminar** (no «Latest»:
 el actualizador de la 1.x no la ve). Notas en `egui/notas/<etiqueta>.md`.
