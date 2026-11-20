@@ -12,6 +12,7 @@ mod doc;
 mod drafts;
 mod export;
 mod instance;
+mod iure;
 mod links;
 mod mcp;
 mod sidebar;

@@ -163,7 +163,14 @@ impl EditorApp {
             picker: None,
             exporting: None,
             chrome: None,
-            side: crate::sidebar::Sidebar::new_open(),
+            side: {
+                let mut side = crate::sidebar::Sidebar::new_open();
+                // En las pruebas no se toca la cuenta ni los espejos del usuario.
+                if !cfg!(test) {
+                    side.iure = crate::iure::IurePanel::new(crate::drafts::data_dir());
+                }
+                side
+            },
             incoming: None,
             _listener: None,
             pending: Vec::new(),
@@ -437,12 +444,22 @@ impl EditorApp {
         }
         let Some(t) = self.tab_mut() else { return false };
         match t.doc.save(None) {
-            Ok(()) => true,
+            Ok(()) => {
+                self.after_save();
+                true
+            }
             Err(e) => {
                 let p = t.doc.path.clone().unwrap_or_default();
                 self.notice = Some(e.human(&p));
                 false
             }
+        }
+    }
+
+    /// Tras guardar la pestaña activa: si es un documento de Iurefficient, sube la versión.
+    fn after_save(&mut self) {
+        if let Some(p) = self.doc().path.clone() {
+            self.side.iure.after_save(&p);
         }
     }
 
@@ -646,6 +663,9 @@ impl EditorApp {
                 let Some(t) = self.tabs.get_mut(i) else { return };
                 match t.doc.save(Some(&path)) {
                     Ok(()) => {
+                        if self.active == i {
+                            self.after_save();
+                        }
                         if let Some(then) = then {
                             self.active = i;
                             self.run(ctx, then);
@@ -777,6 +797,14 @@ impl EditorApp {
                 }
             }
             SideAct::Goto(at) => self.goto(ctx, at),
+            SideAct::Renamed(from, to) => {
+                for t in &mut self.tabs {
+                    if t.doc.path.as_deref() == Some(from.as_path()) {
+                        t.doc.path = Some(to.clone());
+                    }
+                }
+            }
+            SideAct::Iure(a) => self.iure_act(a),
             SideAct::PickFolder => {
                 let (tx, rx) = mpsc::channel();
                 let start = self.side.folder(self.doc().path.as_deref());
@@ -788,6 +816,42 @@ impl EditorApp {
                     let _ = tx.send(d.pick_folder());
                 });
                 self.side.picking = Some(rx);
+            }
+        }
+    }
+
+    /// Lo que pide la pestaña Iurefficient.
+    fn iure_act(&mut self, a: crate::iure::IureAct) {
+        use crate::iure::IureAct;
+        match a {
+            IureAct::Open(p) => self.open_path(&p),
+            IureAct::SaveAndUpload => {
+                let Some(p) = self.doc().path.clone() else { return };
+                if self.doc().dirty() {
+                    // Guardar ya sube (si está activo «subir al guardar»); si no, se sube aquí.
+                    let auto = self.side.iure.autosync();
+                    if self.save(None) && !auto {
+                        self.side.iure.upload(&p);
+                    }
+                } else {
+                    self.side.iure.upload(&p);
+                }
+            }
+            IureAct::SaveNew { case_id, case_title } => {
+                let Some(p) = self.doc().path.clone() else {
+                    self.notice = Some(
+                        pick(
+                            "Save the document on your computer first (Ctrl+S).",
+                            "Guarda primero el documento en tu equipo (Ctrl+S).",
+                        )
+                        .to_string(),
+                    );
+                    return;
+                };
+                if self.doc().dirty() && !self.save(None) {
+                    return;
+                }
+                self.side.iure.save_new(&p, case_id, case_title);
             }
         }
     }
@@ -998,6 +1062,17 @@ impl EditorApp {
         if ctx.input_mut(|i| i.consume_shortcut(&OPEN)) {
             self.open_dialog();
         }
+        let shift = Modifiers { shift: true, ..Modifiers::COMMAND };
+        for (key, tab) in [
+            (Key::E, crate::sidebar::SideTab::Files),
+            (Key::O, crate::sidebar::SideTab::Outline),
+            (Key::I, crate::sidebar::SideTab::Iurefficient),
+        ] {
+            if ctx.input_mut(|i| i.consume_key(shift, key)) {
+                self.side.open = true;
+                self.side.tab = tab;
+            }
+        }
         if ctx.input_mut(|i| i.consume_shortcut(&FIND_ALL)) {
             self.menu_act(&ctx, crate::chrome::MenuAct::FindInFiles);
         }
@@ -1026,6 +1101,9 @@ impl EditorApp {
             self.menu_act(&ctx, a);
         }
         self.side.poll();
+        if let Some(a) = self.side.iure.poll() {
+            self.iure_act(a);
+        }
         if self.side.open {
             let (path, text, caret) = match self.tabs.get(self.active) {
                 Some(t) => (
@@ -1585,6 +1663,38 @@ mod shot {
             app.push_tab(c);
             app.push_tab(Doc { path: Some("minuta-12-10.md".into()), ..Default::default() });
             app.active = 0;
+        }
+        // `IUREDITOR_SHOT_SIDE=files|iure|login`: esa pestaña del panel lateral.
+        match std::env::var("IUREDITOR_SHOT_SIDE").as_deref() {
+            Ok("files") => app.side.tab = crate::sidebar::SideTab::Files,
+            Ok("login") => {
+                app.side.tab = crate::sidebar::SideTab::Iurefficient;
+                app.side.iure.status = Some(crate::iure::Status::LoggedOut);
+                app.side.iure.domain = "despacho.iurefficient.com".into();
+            }
+            Ok("iure") => {
+                app.side.tab = crate::sidebar::SideTab::Iurefficient;
+                app.side.iure.status = Some(crate::iure::Status::Ready {
+                    name: "Ana Pérez".into(),
+                    email: "ana@despacho.mx".into(),
+                    host: "despacho.iurefficient.com".into(),
+                    case_label: "caso".into(),
+                });
+                let k = |n: &str, t: &str, c: &str| iurefficient_connect::api::CaseSummary {
+                    id: n.into(),
+                    case_number: n.into(),
+                    title: t.into(),
+                    status: "open".into(),
+                    client_name: Some(c.into()),
+                    client_id: None,
+                };
+                app.side.iure.cases = vec![
+                    k("2026-014", "Arrendamiento Altamira", "Inmobiliaria Altamira"),
+                    k("2026-021", "Despido injustificado", "Juan Gómez"),
+                    k("2026-033", "Constitución de sociedad", "Café del Puerto"),
+                ];
+            }
+            _ => {}
         }
         // `IUREDITOR_SHOT_RECOVERY=1`: la ventana para recuperar un borrador.
         if std::env::var_os("IUREDITOR_SHOT_RECOVERY").is_some() {

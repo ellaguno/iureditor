@@ -35,6 +35,10 @@ serde_json = "1"
 # `--mcp` por stdio con el protocolo de la suite (S1.8).
 iurefficient-connect = { git = "https://github.com/ellaguno/iurefficient-connect", tag = "v0.9.1", default-features = false }
 anyhow = "1"
+# Pestaña Iurefficient: la red de `iurefficient-connect` en un hilo con tokio; espejos en JSON.
+tokio = { version = "1", default-features = false, features = ["rt", "time"] }
+serde = { version = "1", features = ["derive"] }
+keyring = { version = "3", default-features = false }
 # Plantillas: carpeta de datos (la de la versión Tauri) y la fecha local.
 dirs = "6"
 # Enlaces `iureditor://` y una sola ventana (token del socket local).
@@ -45,8 +49,21 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Blitz; Rust puro). Fijado a un commit de IureDesk (público).
 iuredesk-html-view = { git = "https://github.com/ellaguno/iuredesk", rev = "c113e32bec2b40de024cb5036e2083bd52b7cae7" }
 
+# Llavero (la sesión compartida de la suite, como IureDesk): Secret Service por D-Bus con zbus y
+# cifrado RustCrypto (Rust puro, sin libdbus); administrador de credenciales en Windows; llavero en
+# macOS.
+[target.'cfg(target_os = "windows")'.dependencies.keyring]
+version = "3"
+default-features = false
+features = ["windows-native"]
+[target.'cfg(target_os = "macos")'.dependencies.keyring]
+version = "3"
+default-features = false
+features = ["apple-native"]
+
 # Diálogos de archivo por el portal XDG (Rust puro, sin GTK).
 [target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["async-secret-service", "async-io", "crypto-rust"] }
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal", "wayland"] }
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 rfd = { version = "0.17", default-features = false }

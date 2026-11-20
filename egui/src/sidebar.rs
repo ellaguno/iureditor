@@ -1,6 +1,7 @@
 //! Panel lateral, como IureEditor 1.x: **Archivos** (los Markdown de la carpeta del documento o de
-//! la que se abra), **Buscar** (texto en esos archivos) y **Esquema** (los títulos del documento,
-//! con el actual resaltado). Un clic abre el archivo o lleva el cursor al lugar.
+//! la que se abra; con la lupa, **Buscar** texto en esos archivos), **Esquema** (los títulos del
+//! documento, con el actual resaltado) e **Iurefficient** (`crate::iure`). Un clic abre el archivo
+//! o lleva el cursor al lugar.
 //!
 //! Lo que se lee del disco va acotado (profundidad, número y tamaño de archivos) y la búsqueda
 //! corre en otro hilo.
@@ -9,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, channel};
 
 use egui::{RichText, Sense, Ui, vec2};
+use iurefficient_ui::icons::{self, Icon};
 use iurefficient_ui::{pick, theme};
 
 /// Archivos que se listan como mucho.
@@ -26,6 +28,7 @@ pub(crate) enum SideTab {
     Search,
     #[default]
     Outline,
+    Iurefficient,
 }
 
 /// Un resultado de búsqueda: archivo, línea (desde 1), carácter donde empieza y el renglón.
@@ -46,6 +49,10 @@ pub(crate) enum SideAct {
     Goto(usize),
     /// Elegir una carpeta.
     PickFolder,
+    /// Se renombró un archivo (si está abierto, la pestaña sigue al nombre nuevo).
+    Renamed(PathBuf, PathBuf),
+    /// Lo que pide la pestaña Iurefficient.
+    Iure(crate::iure::IureAct),
 }
 
 #[derive(Default)]
@@ -62,6 +69,71 @@ pub(crate) struct Sidebar {
     pub picking: Option<Receiver<Option<PathBuf>>>,
     /// Pedir el foco del campo de búsqueda (Ctrl+Mayús+F).
     pub focus_search: bool,
+    /// La pestaña Iurefficient (conexión, proyectos, espejos).
+    pub iure: crate::iure::IurePanel,
+    /// Nombre que se está escribiendo (archivo o carpeta nuevos, renombrar).
+    pub naming: Option<Naming>,
+    name_error: Option<String>,
+}
+
+/// El campo de nombre del panel de archivos.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Naming {
+    File(String),
+    Folder(String),
+    /// Archivo y nombre nuevo (sin la extensión).
+    Rename(PathBuf, String),
+}
+
+/// Por qué no se pudo crear o renombrar.
+fn name_problem(name: &str) -> Option<&'static str> {
+    let n = name.trim();
+    if n.is_empty() || n == "." || n == ".." || n.contains(['/', '\\']) || n.chars().any(char::is_control) {
+        Some(pick("Invalid name.", "Nombre no válido."))
+    } else {
+        None
+    }
+}
+
+/// Crea un archivo (`.md` si no lleva extensión) o una carpeta en `dir`. Devuelve la ruta.
+pub(crate) fn create(dir: &Path, name: &str, folder: bool) -> Result<PathBuf, String> {
+    if let Some(p) = name_problem(name) {
+        return Err(p.to_string());
+    }
+    let n = name.trim();
+    let mut path = dir.join(n);
+    if !folder && path.extension().is_none() {
+        path.set_extension("md");
+    }
+    if path.exists() {
+        return Err(pick("A file with that name already exists.", "Ya existe un archivo con ese nombre.").to_string());
+    }
+    let r = if folder {
+        std::fs::create_dir(&path)
+    } else {
+        std::fs::OpenOptions::new().write(true).create_new(true).open(&path).map(|_| ())
+    };
+    r.map(|()| path).map_err(|e| e.to_string())
+}
+
+/// Renombra un archivo conservando su extensión si el nombre nuevo no trae una.
+pub(crate) fn rename(from: &Path, name: &str) -> Result<PathBuf, String> {
+    if let Some(p) = name_problem(name) {
+        return Err(p.to_string());
+    }
+    let mut to = from.with_file_name(name.trim());
+    if to.extension().is_none()
+        && let Some(ext) = from.extension()
+    {
+        to.set_extension(ext);
+    }
+    if to == from {
+        return Ok(to);
+    }
+    if to.exists() {
+        return Err(pick("A file with that name already exists.", "Ya existe un archivo con ese nombre.").to_string());
+    }
+    std::fs::rename(from, &to).map(|()| to).map_err(|e| e.to_string())
 }
 
 /// Títulos de un Markdown: (nivel, texto, carácter donde empieza la línea). Sin los de dentro de
@@ -197,6 +269,97 @@ fn row(ui: &mut Ui, text: &str, indent: f32, selected: bool, muted: bool) -> egu
 }
 
 impl Sidebar {
+    /// La cabecera de Archivos: nombre de la carpeta y sus acciones (como la 1.x).
+    fn files_header(&mut self, ui: &mut Ui, root: &Path) -> Option<SideAct> {
+        let c = theme::colors(ui);
+        let mut act = None;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if icons::icon_button(ui, Icon::Open, pick("Change folder", "Cambiar carpeta"), true).clicked() {
+                    act = Some(SideAct::PickFolder);
+                }
+                if icons::icon_button(ui, Icon::Sync, pick("Reload", "Recargar"), true).clicked() {
+                    self.files = None;
+                }
+                let up = root.parent().map(Path::to_path_buf);
+                if icons::icon_button(ui, Icon::MoveUp, pick("Go up a directory", "Subir un directorio"), up.is_some())
+                    .clicked()
+                {
+                    self.root = up;
+                    self.files = None;
+                }
+                if icons::icon_button(ui, Icon::Folder, pick("New folder", "Nueva carpeta"), true).clicked() {
+                    self.naming = Some(Naming::Folder(String::new()));
+                    self.name_error = None;
+                }
+                if icons::icon_button(ui, Icon::New, pick("New file", "Nuevo archivo"), true).clicked() {
+                    self.naming = Some(Naming::File(String::new()));
+                    self.name_error = None;
+                }
+                if icons::icon_button(
+                    ui,
+                    Icon::Search,
+                    pick("Search in files (Ctrl+Shift+F)", "Buscar en archivos (Ctrl+Shift+F)"),
+                    true,
+                )
+                .clicked()
+                {
+                    self.tab = SideTab::Search;
+                    self.focus_search = true;
+                }
+            });
+        });
+        let name = root.file_name().map_or_else(|| root.display().to_string(), |n| n.to_string_lossy().into_owned());
+        ui.add(egui::Label::new(RichText::new(name.to_uppercase()).small().color(c.text_muted)).truncate())
+            .on_hover_text(root.display().to_string());
+        act
+    }
+
+    /// El campo para el nombre nuevo: Intro crea o renombra; Esc cancela. Con error se queda abierto.
+    fn name_field(&mut self, ui: &mut Ui, root: &Path) -> Option<SideAct> {
+        let mut naming = self.naming.take()?;
+        let (hint, buf) = match &mut naming {
+            Naming::File(b) => (pick("name.md", "nombre.md"), b),
+            Naming::Folder(b) => (pick("name", "nombre"), b),
+            Naming::Rename(_, b) => (pick("new name", "nombre nuevo"), b),
+        };
+        let r = ui.add(egui::TextEdit::singleline(buf).hint_text(hint).desired_width(f32::INFINITY));
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, hint));
+        if !r.has_focus() && !r.lost_focus() {
+            r.request_focus();
+        }
+        let (enter, esc) = ui.input(|i| (i.key_pressed(egui::Key::Enter), i.key_pressed(egui::Key::Escape)));
+        if let Some(e) = &self.name_error {
+            ui.label(RichText::new(e).small().color(ui.visuals().error_fg_color));
+        }
+        if esc {
+            self.name_error = None;
+            return None;
+        }
+        if !(r.lost_focus() && enter) {
+            self.naming = Some(naming);
+            return None;
+        }
+        let done = match &naming {
+            Naming::File(n) => create(root, n, false).map(|p| Some(SideAct::Open(p, None))),
+            Naming::Folder(n) => create(root, n, true).map(|_| None),
+            Naming::Rename(from, n) => rename(from, n).map(|to| Some(SideAct::Renamed(from.clone(), to))),
+        };
+        self.files = None;
+        match done {
+            Ok(a) => {
+                self.name_error = None;
+                a
+            }
+            Err(e) => {
+                self.name_error = Some(e);
+                self.naming = Some(naming);
+                None
+            }
+        }
+    }
+
     /// Abierto, en el esquema.
     pub(crate) fn new_open() -> Self {
         Sidebar { open: true, ..Default::default() }
@@ -260,10 +423,11 @@ impl Sidebar {
                 ui.horizontal(|ui| {
                     for (t, label) in [
                         (SideTab::Files, pick("Files", "Archivos")),
-                        (SideTab::Search, pick("Search", "Buscar")),
                         (SideTab::Outline, pick("Outline", "Esquema")),
+                        (SideTab::Iurefficient, "Iurefficient"),
                     ] {
-                        let on = self.tab == t;
+                        // «Buscar» vive dentro de Archivos (la lupa), como en la 1.x.
+                        let on = self.tab == t || (t == SideTab::Files && self.tab == SideTab::Search);
                         let r = ui
                             .selectable_label(on, RichText::new(label).color(if on { c.accent } else { c.text_muted }));
                         if r.clicked() {
@@ -274,6 +438,11 @@ impl Sidebar {
                 ui.separator();
                 let folder = self.folder(doc);
                 match self.tab {
+                    SideTab::Iurefficient => {
+                        if let Some(a) = self.iure.show(ui, doc) {
+                            act = Some(SideAct::Iure(a));
+                        }
+                    }
                     SideTab::Outline => {
                         let heads = outline(text);
                         if heads.is_empty() {
@@ -298,17 +467,17 @@ impl Sidebar {
                         });
                     }
                     SideTab::Files => {
-                        if ui.button(pick("Open folder…", "Abrir carpeta…")).clicked() {
-                            act = Some(SideAct::PickFolder);
-                        }
                         let Some(root) = folder else {
-                            ui.label(
-                                RichText::new(pick(
-                                    "Save the document or open a folder.",
-                                    "Guarda el documento o abre una carpeta.",
-                                ))
-                                .color(c.text_muted),
-                            );
+                            ui.vertical_centered(|ui| {
+                                ui.add_space(12.0);
+                                ui.label(
+                                    RichText::new(pick("No workspace folder", "Sin carpeta de trabajo"))
+                                        .color(c.text_muted),
+                                );
+                                if ui.button(pick("Open folder…", "Abrir carpeta…")).clicked() {
+                                    act = Some(SideAct::PickFolder);
+                                }
+                            });
                             return;
                         };
                         let now = ctx.input(|i| i.time);
@@ -317,14 +486,12 @@ impl Sidebar {
                         if stale {
                             self.files = Some((root.clone(), list_docs(&root), now));
                         }
-                        ui.label(
-                            RichText::new(
-                                root.file_name()
-                                    .map_or_else(|| root.display().to_string(), |n| n.to_string_lossy().into_owned()),
-                            )
-                            .strong()
-                            .color(c.text),
-                        );
+                        if let Some(a) = self.files_header(ui, &root) {
+                            act = Some(a);
+                        }
+                        if let Some(a) = self.name_field(ui, &root) {
+                            act = Some(a);
+                        }
                         egui::ScrollArea::vertical().id_salt("side-files").show(ui, |ui| {
                             let files = self.files.as_ref().map(|(_, f, _)| f.clone()).unwrap_or_default();
                             if files.is_empty() {
@@ -342,9 +509,32 @@ impl Sidebar {
                                 let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                                 let shown = if depth > 0.0 { rel.display().to_string() } else { name };
                                 let selected = doc.is_some_and(|d| d == p);
-                                if row(ui, &shown, 0.0, selected, false).clicked() {
+                                let r = row(ui, &shown, 0.0, selected, false);
+                                if r.clicked() {
                                     act = Some(SideAct::Open(p.clone(), None));
                                 }
+                                r.context_menu(|ui| {
+                                    if ui.button(pick("Rename…", "Renombrar…")).clicked() {
+                                        let stem =
+                                            p.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                                        self.naming = Some(Naming::Rename(p.clone(), stem));
+                                        self.name_error = None;
+                                        ui.close();
+                                    }
+                                    ui.separator();
+                                    if ui.button(pick("New file", "Nuevo archivo")).clicked() {
+                                        self.naming = Some(Naming::File(String::new()));
+                                        ui.close();
+                                    }
+                                    if ui.button(pick("New folder", "Nueva carpeta")).clicked() {
+                                        self.naming = Some(Naming::Folder(String::new()));
+                                        ui.close();
+                                    }
+                                    if ui.button(pick("Reload", "Recargar")).clicked() {
+                                        self.files = None;
+                                        ui.close();
+                                    }
+                                });
                             }
                         });
                     }
@@ -359,6 +549,16 @@ impl Sidebar {
                             );
                             return;
                         };
+                        ui.horizontal(|ui| {
+                            if icons::icon_button(ui, Icon::Back, pick("Back to files", "Volver a los archivos"), true)
+                                .clicked()
+                            {
+                                self.tab = SideTab::Files;
+                            }
+                            ui.label(
+                                RichText::new(pick("Search in files", "Buscar en archivos")).strong().color(c.text),
+                            );
+                        });
                         let field = ui.add(
                             egui::TextEdit::singleline(&mut self.query)
                                 .hint_text(pick("Search in the folder…", "Buscar en la carpeta…"))
@@ -419,6 +619,23 @@ mod tests {
         assert_eq!(o.first().map(|x| x.0), Some(1));
         // El carácter donde empieza la línea de «Dos».
         assert_eq!(o.get(1).map(|x| x.2), Some("# Uno\n\ntexto\n\n".chars().count()));
+    }
+
+    #[test]
+    fn new_files_get_md_and_names_are_checked() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = create(dir.path(), "Notas", false).unwrap();
+        assert_eq!(f, dir.path().join("Notas.md"));
+        assert!(create(dir.path(), "Notas.md", false).is_err(), "ya existe");
+        assert!(create(dir.path(), "a/b", false).is_err());
+        assert!(create(dir.path(), "  ", true).is_err());
+        assert!(create(dir.path(), "..", true).is_err());
+        assert!(create(dir.path(), "Actas", true).unwrap().is_dir());
+        let r = rename(&f, "Acuerdos").unwrap();
+        assert_eq!(r, dir.path().join("Acuerdos.md"), "conserva la extensión");
+        assert!(r.is_file() && !f.exists());
+        std::fs::write(dir.path().join("otro.md"), "").unwrap();
+        assert!(rename(&r, "otro").is_err(), "no pisa otro archivo");
     }
 
     #[test]

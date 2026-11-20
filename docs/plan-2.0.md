@@ -85,8 +85,16 @@ en ese lugar).
 antes de los títulos; letra del documento ≈16 px, un 15 % sobre la de la interfaz); zoom del
 documento (Ctrl + / Ctrl − / Ctrl 0, Ctrl con la rueda, «− 100 % +» en la barra de estado,
 recordado en `preferencias.json`; la interfaz no cambia); menú ☰ › **Ver** (panel lateral, esquema,
-buscar en los archivos, acercar/alejar/tamaño real). **Siguiente:** Iurefficient en el panel,
-fórmulas, avisos, color y resaltado.
+buscar en los archivos, acercar/alejar/tamaño real).
+5) **Hecho**: pestaña **Iurefficient** (`egui/src/iure.rs`, como la 1.x): conectar (dominio, correo,
+contraseña y código TOTP) o retomar la sesión compartida de la suite (llavero `iurefficient`,
+`cuenta-activa.json`); buscar proyectos, abrir sus documentos de texto como espejos locales
+(`<datos>/iurefficient/<caso>/<doc>/`), «Subir versión ahora», «Subir versión al guardar (Ctrl+S)» y
+«Guardar en Iurefficient…» (General o el proyecto elegido). Panel de **Archivos** con las acciones
+de la 1.x: buscar (la lupa; ya no es pestaña), nuevo archivo, nueva carpeta, subir un directorio,
+recargar, cambiar carpeta; clic derecho: renombrar, nuevo, recargar. Atajos Ctrl+Mayús+E / O / I.
+**Siguiente:** `[[` (enlaces entre notas), menú `/`, selector de plantillas de diagrama, barra de
+buscar/reemplazar como la 1.x; luego apps de la suite en la pestaña, fórmulas, avisos, color.
 
 **Alfas** (cuando se cumpla lo anterior; convive con la 1.x): etiqueta `egui-vX.Y.Z-alpha.N` → `release-egui.yml`
 compila Linux (`.tar.gz` con `instalar.sh`), Windows (`.zip`) y macOS universal (`.app` en
