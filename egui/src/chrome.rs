@@ -29,6 +29,7 @@ pub(crate) enum MenuAct {
     ZoomIn,
     ZoomOut,
     ZoomReset,
+    Theme(iurefficient_ui::theme::ThemeMode),
 }
 
 const NEW: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::N);
@@ -66,7 +67,24 @@ fn item(ui: &mut Ui, label: &str, shortcut: Option<&KeyboardShortcut>) -> bool {
 }
 
 /// El menú ☰: Archivo, Edición y Ayuda, en secciones que se despliegan.
-fn menu(ui: &mut Ui) -> Option<MenuAct> {
+/// Un renglón del menú que se marca (el tema elegido).
+fn item_checked(ui: &mut Ui, label: &str, checked: bool) -> bool {
+    let c = theme::colors(ui);
+    let w = ui.available_width().max(230.0);
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, 26.0), Sense::click());
+    if resp.hovered() {
+        ui.painter().rect_filled(rect, 4.0, c.hover);
+    }
+    if checked {
+        ui.painter().circle_filled(rect.left_center() + vec2(12.0, 0.0), 3.5, c.accent);
+    }
+    let font = theme::body_font(ui.ctx());
+    ui.painter().text(rect.left_center() + vec2(24.0, 0.0), egui::Align2::LEFT_CENTER, label, font, c.text);
+    iurefficient_ui::a11y::row(&resp, label, checked);
+    resp.clicked()
+}
+
+fn menu(ui: &mut Ui, current: iurefficient_ui::theme::ThemeMode) -> Option<MenuAct> {
     use crate::export::Format;
     let mut act = None;
     ui.set_min_width(250.0);
@@ -110,6 +128,17 @@ fn menu(ui: &mut Ui) -> Option<MenuAct> {
         pick_act(ui, pick("Zoom in", "Acercar"), Some(&crate::app::ZOOM_IN), MenuAct::ZoomIn);
         pick_act(ui, pick("Zoom out", "Alejar"), Some(&crate::app::ZOOM_OUT), MenuAct::ZoomOut);
         pick_act(ui, pick("Actual size", "Tamaño real"), Some(&crate::app::ZOOM_RESET), MenuAct::ZoomReset);
+        ui.separator();
+        use iurefficient_ui::theme::ThemeMode;
+        for (mode, label) in [
+            (ThemeMode::System, pick("Theme: system", "Tema: del sistema")),
+            (ThemeMode::Light, pick("Theme: light", "Tema: claro")),
+            (ThemeMode::Dark, pick("Theme: dark", "Tema: oscuro")),
+        ] {
+            if item_checked(ui, label, current == mode) {
+                act = Some(MenuAct::Theme(mode));
+            }
+        }
     });
     egui::CollapsingHeader::new(pick("Help", "Ayuda")).default_open(false).show(ui, |ui| {
         if item(ui, pick("About IureEditor", "Acerca de IureEditor"), None) {
@@ -147,8 +176,10 @@ pub(crate) fn title_bar(app: &mut EditorApp, ui: &mut Ui, chrome: Option<&Window
                 act = Some(MenuAct::ToggleSidebar);
             }
             let m = icons::icon_button(ui, Icon::Menu, pick("Menu", "Menú"), true);
-            egui::Popup::menu(&m).show(|ui| {
-                if let Some(a) = menu(ui) {
+            let current = app.theme;
+            // Desplegar Archivo, Edición, Ver o Ayuda no cierra el menú; elegir algo, sí.
+            egui::Popup::menu(&m).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+                if let Some(a) = menu(ui, current) {
                     act = Some(a);
                     ui.close();
                 }

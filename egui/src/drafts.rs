@@ -121,12 +121,50 @@ pub fn prefs_file() -> Option<PathBuf> {
     data_dir().map(|d| d.join("preferencias.json"))
 }
 
-/// Guarda el zoom del documento.
-pub fn save_zoom(file: &Path, zoom: f32) {
+/// Cambia una preferencia y deja las demás.
+fn save_pref(file: &Path, key: &str, value: serde_json::Value) {
     if let Some(dir) = file.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let _ = std::fs::write(file, serde_json::json!({ "zoom": zoom }).to_string());
+    let mut v = std::fs::read_to_string(file)
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .filter(serde_json::Value::is_object)
+        .unwrap_or_else(|| serde_json::json!({}));
+    if let Some(o) = v.as_object_mut() {
+        o.insert(key.to_string(), value);
+    }
+    let _ = std::fs::write(file, v.to_string());
+}
+
+/// Guarda el zoom del documento.
+pub fn save_zoom(file: &Path, zoom: f32) {
+    save_pref(file, "zoom", serde_json::json!(zoom));
+}
+
+/// Guarda el tema (`system`, `light`, `dark`).
+pub fn save_theme(file: &Path, theme: iurefficient_ui::theme::ThemeMode) {
+    use iurefficient_ui::theme::ThemeMode;
+    let t = match theme {
+        ThemeMode::Light => "light",
+        ThemeMode::Dark => "dark",
+        _ => "system",
+    };
+    save_pref(file, "theme", serde_json::json!(t));
+}
+
+/// El tema guardado (el del sistema si no hay).
+pub fn load_theme(file: &Path) -> iurefficient_ui::theme::ThemeMode {
+    use iurefficient_ui::theme::ThemeMode;
+    let t = std::fs::read_to_string(file)
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| v.get("theme").and_then(|x| x.as_str().map(str::to_string)));
+    match t.as_deref() {
+        Some("light") => ThemeMode::Light,
+        Some("dark") => ThemeMode::Dark,
+        _ => ThemeMode::System,
+    }
 }
 
 /// El zoom guardado (100 % si no hay o es raro).
@@ -220,6 +258,11 @@ mod tests {
         assert_eq!(load_zoom(&f), iure_doc_ui::ZOOM_MAX, "acotado");
         std::fs::write(&f, "no es json").unwrap();
         assert_eq!(load_zoom(&f), 1.0);
+        // El tema se guarda junto al zoom, sin borrarlo.
+        save_zoom(&f, 1.5);
+        save_theme(&f, iurefficient_ui::theme::ThemeMode::Dark);
+        assert_eq!(load_theme(&f), iurefficient_ui::theme::ThemeMode::Dark);
+        assert_eq!(load_zoom(&f), 1.5);
     }
 
     #[test]

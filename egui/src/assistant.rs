@@ -312,33 +312,6 @@ impl Assistant {
         let doc_name = doc
             .and_then(Path::file_stem)
             .map_or_else(|| pick("untitled", "sin título").to_string(), |n| n.to_string_lossy().into_owned());
-        // Arriba: ámbito, analizar y conversación nueva.
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
-            if let Some((_, title)) = &case {
-                let mut cap = word.clone();
-                if let Some(f) = cap.get(..1) {
-                    cap = format!("{}{}", f.to_uppercase(), cap.get(1..).unwrap_or(""));
-                }
-                if ui.selectable_label(!self.global, cap).on_hover_text(title).clicked() && self.global {
-                    self.global = false;
-                    self.reset();
-                }
-            }
-            let g =
-                ui.selectable_label(case.is_none() || self.global, pick("General chat", "Chat general")).on_hover_text(
-                    pick("Without searching the project documents", "Sin buscar en los documentos del proyecto"),
-                );
-            if g.clicked() && case.is_some() && !self.global {
-                self.global = true;
-                self.reset();
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if icons::icon_button(ui, Icon::Plus, pick("New conversation", "Nueva conversación"), true).clicked() {
-                    self.reset();
-                }
-            });
-        });
         let mut analyses = vec![
             (
                 pick("Review: inconsistencies and errors", "Revisar: inconsistencias y errores"),
@@ -371,14 +344,48 @@ impl Assistant {
                 ),
             ));
         }
+        // Arriba, en una línea y con letra pequeña: ámbito, analizar y conversación nueva.
         let mut analyze: Option<String> = None;
-        ui.menu_button(pick("Analyze the document", "Analizar el documento"), |ui| {
-            for (label, prompt) in &analyses {
-                if ui.button(*label).clicked() {
-                    analyze = Some((*prompt).to_string());
-                    ui.close();
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            ui.spacing_mut().button_padding = egui::vec2(5.0, 1.0);
+            let small = |t: &str| RichText::new(t).small();
+            if let Some((_, title)) = &case {
+                let mut cap = word.clone();
+                if let Some(f) = cap.get(..1) {
+                    cap = format!("{}{}", f.to_uppercase(), cap.get(1..).unwrap_or(""));
+                }
+                if ui.selectable_label(!self.global, small(&cap)).on_hover_text(title).clicked() && self.global {
+                    self.global = false;
+                    self.reset();
                 }
             }
+            let g = ui
+                .selectable_label(case.is_none() || self.global, small(pick("General chat", "Chat general")))
+                .on_hover_text(pick(
+                    "Without searching the project documents",
+                    "Sin buscar en los documentos del proyecto",
+                ));
+            if g.clicked() && case.is_some() && !self.global {
+                self.global = true;
+                self.reset();
+            }
+            ui.add_space(4.0);
+            ui.menu_button(small(pick("Analyze…", "Analizar…")), |ui| {
+                for (label, prompt) in &analyses {
+                    if ui.button(*label).clicked() {
+                        analyze = Some((*prompt).to_string());
+                        ui.close();
+                    }
+                }
+            })
+            .response
+            .on_hover_text(pick("Analyze the document", "Analizar el documento"));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if icons::icon_button(ui, Icon::Plus, pick("New conversation", "Nueva conversación"), true).clicked() {
+                    self.reset();
+                }
+            });
         });
         if let Some(p) = analyze {
             self.send(iure, case.as_ref(), &p, true, &DocCtx { name: &doc_name, text, selection });

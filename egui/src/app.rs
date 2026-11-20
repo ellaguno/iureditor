@@ -108,6 +108,8 @@ pub struct EditorApp {
     notes: Option<std::sync::Arc<crate::notes::FolderNotes>>,
     /// Enlace pulsado con Ctrl+clic en este cuadro.
     clicked_link: Option<String>,
+    /// Tema elegido en Ver (el del sistema por omisión).
+    pub(crate) theme: iurefficient_ui::theme::ThemeMode,
     /// Zoom del documento (1.0 = 100 %), el mismo para todas las pestañas.
     pub(crate) zoom: f32,
     /// Preferencias guardadas (el zoom; `None` en las pruebas).
@@ -189,6 +191,7 @@ impl EditorApp {
             session: if cfg!(test) { None } else { crate::drafts::session_file() },
             recovery: Vec::new(),
             zoom: 1.0,
+            theme: iurefficient_ui::theme::ThemeMode::System,
             prefs: None,
             notes: None,
             clicked_link: None,
@@ -198,6 +201,7 @@ impl EditorApp {
     /// Lee y guarda las preferencias (el zoom) en este archivo.
     pub(crate) fn with_prefs(mut self, f: PathBuf) -> Self {
         self.zoom = crate::drafts::load_zoom(&f);
+        self.theme = crate::drafts::load_theme(&f);
         self.prefs = Some(f);
         self
     }
@@ -779,6 +783,13 @@ impl EditorApp {
             MenuAct::ZoomIn => self.set_zoom(iure_doc_ui::zoom_step(self.zoom, true)),
             MenuAct::ZoomOut => self.set_zoom(iure_doc_ui::zoom_step(self.zoom, false)),
             MenuAct::ZoomReset => self.set_zoom(1.0),
+            MenuAct::Theme(mode) => {
+                self.theme = mode;
+                iurefficient_ui::theme::apply(ctx, mode, Default::default());
+                if let Some(f) = &self.prefs {
+                    crate::drafts::save_theme(f, mode);
+                }
+            }
             MenuAct::About => {
                 self.info = Some(format!(
                     "IureEditor {} — {}",
@@ -1130,7 +1141,7 @@ impl EditorApp {
             self.themed = true;
             // La tipografía de la suite (Inter con sus pesos: los títulos y la negrita se ven).
             iurefficient_ui::fonts::install_choice(&ctx, &iurefficient_ui::fonts::FontChoice::Bundled);
-            iurefficient_ui::theme::apply(&ctx, iurefficient_ui::theme::ThemeMode::System, Default::default());
+            iurefficient_ui::theme::apply(&ctx, self.theme, Default::default());
             iurefficient_ui::system::watch_system_theme(&ctx);
             // Ctrl + / Ctrl − agrandan el documento, no toda la interfaz.
             ctx.options_mut(|o| o.zoom_with_keyboard = false);
@@ -1821,6 +1832,14 @@ mod shot {
         });
         let _ = logo.save(dir.join("img/sello.png"));
         let text = text.replacen("\n\n## Pendientes", "\n\n![Sello del despacho](img/sello.png)\n\n## Pendientes", 1);
+        // `IUREDITOR_SHOT_MAP=<metadato>`: solo un mapa mental (con ese metadato: ``, `right`, `map`…).
+        let text = match std::env::var("IUREDITOR_SHOT_MAP") {
+            Ok(meta) => format!(
+                "# Planeación\n\n> [!MINDMAP{}] CDS\n> - Productos\n>   - SABI\n>   - NextSABI\n>   - VoiceTrade\n> - Plan venta\n>   - Afirme\n>   - Kapital\n> - Nube CDS\n> - Servicios\n>   - Soporte\n>   - Mantenimiento\n>   - Integración\n> - Ventaja competitiva\n>   - Versatilidad\n>   - Confiabilidad\n",
+                if meta.is_empty() { String::new() } else { format!("|{meta}") }
+            ),
+            Err(_) => text,
+        };
         // `IUREDITOR_SHOT_SIDE=links`: notas que enlazan y mencionan la propuesta.
         let links = std::env::var("IUREDITOR_SHOT_SIDE").as_deref() == Ok("links");
         let text = if links {

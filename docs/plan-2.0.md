@@ -116,7 +116,14 @@ línea del cursor, y el **asistente** (pestaña ✦, Ctrl+Mayús+J): la IA de la
 proyecto del documento (con fuentes) o el chat general; respuesta en vivo, «Analizar el documento»
 (revisar, resumen, qué le falta, contrastar con el proyecto), contexto (selección o documento
 completo), Insertar / Reemplazar / Copiar, conversación nueva y cancelar.
-**Pendiente para la paridad:** revisión visual del dueño frente a la 1.19.2.
+10) **Hecho** (revisión del dueño, `iure-doc` v0.23.0): cabecera del asistente en una línea; el menú
+☰ no se cierra al desplegar una sección; Ver › Tema (del sistema, claro, oscuro; recordado); las
+listas «sueltas» (índices) sin doble espacio; **mapas mentales** radiales por omisión (como la 1.x),
+con su lista arriba, a la izquierda (`right`) o solo el mapa (`map`), la lista sin estilo de cita, y
+clic derecho sobre el dibujo: distribución, forma, tamaño del centro, colores de las ramas y vista;
+en los diagramas Mermaid, tema y colores.
+**Pendiente:** editar el mapa desde el dibujo (clic en un nodo: hija, hermana, borrar), que pide
+las posiciones de los nodos al dibujante de `iuredesk-html-view`.
 
 **Alfas** (cuando se cumpla lo anterior; convive con la 1.x): etiqueta `egui-vX.Y.Z-alpha.N` → `release-egui.yml`
 compila Linux (`.tar.gz` con `instalar.sh`), Windows (`.zip`) y macOS universal (`.app` en
