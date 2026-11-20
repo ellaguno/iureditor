@@ -109,7 +109,14 @@ Typst (`iure_doc::math`, propio: griegas, fracciones, raíces, sumas, integrales
 acentos, estilos, matrices, `cases`, `aligned`) y Typst → imagen (`typst-render`); clic para editar
 el LaTeX; si Typst no la entiende, se ve el código con el error. El PDF también las lleva bien.
 Las fórmulas en línea (`$…$`) siguen como texto en el editor (sí salen bien en el PDF).
-**Siguiente:** color y resaltado de texto, asistente; fórmulas en línea dibujadas.
+9) **Hecho** (`iure-doc` v0.22.0): **color del texto y resaltado** (paleta de 30 colores de la 1.x
+en la barra; HTML en el Markdown como la 1.x: `<span style="color: …">`, `<mark style="background-color:
+…">`; también en HTML, PDF y Word), **fórmulas en línea** (`$…$`) dibujadas en su lugar fuera de la
+línea del cursor, y el **asistente** (pestaña ✦, Ctrl+Mayús+J): la IA de la instancia por el chat del
+proyecto del documento (con fuentes) o el chat general; respuesta en vivo, «Analizar el documento»
+(revisar, resumen, qué le falta, contrastar con el proyecto), contexto (selección o documento
+completo), Insertar / Reemplazar / Copiar, conversación nueva y cancelar.
+**Pendiente para la paridad:** revisión visual del dueño frente a la 1.19.2.
 
 **Alfas** (cuando se cumpla lo anterior; convive con la 1.x): etiqueta `egui-vX.Y.Z-alpha.N` → `release-egui.yml`
 compila Linux (`.tar.gz` con `instalar.sh`), Windows (`.zip`) y macOS universal (`.app` en

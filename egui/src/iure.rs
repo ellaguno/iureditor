@@ -28,6 +28,8 @@ const SHARED_SERVICE: &str = "iurefficient";
 const APP: &str = "iureditor";
 /// Tiempo máximo de cada petición (descargas incluidas).
 const TIMEOUT: Duration = Duration::from_secs(90);
+/// Tiempo máximo de una respuesta del asistente.
+const ASK_TIMEOUT: Duration = Duration::from_secs(300);
 /// Espera tras teclear en la búsqueda de proyectos (como la 1.x).
 const DEBOUNCE: f64 = 0.3;
 /// Proyectos que se piden.
@@ -80,6 +82,15 @@ pub(crate) enum Status {
 pub(crate) enum Req {
     /// Retomar la sesión compartida de la suite.
     Restore,
+    /// Pregunta al asistente (`id` de la petición; sin conversación, se abre una con `title`).
+    Ask {
+        id: u64,
+        case_id: Option<String>,
+        conversation: Option<String>,
+        title: String,
+        message: String,
+        system: Option<String>,
+    },
     Login {
         domain: String,
         email: String,
@@ -138,6 +149,20 @@ pub(crate) enum Rep {
         mirror: Mirror,
     },
     Error(String),
+    /// La respuesta del asistente según se escribe.
+    Token {
+        id: u64,
+        so_far: String,
+    },
+    Answer {
+        id: u64,
+        conversation: String,
+        answer: iurefficient_connect::chat::Answer,
+    },
+    AskFailed {
+        id: u64,
+        error: String,
+    },
 }
 
 /// Un documento de un proyecto, con si se puede editar aquí.
@@ -232,6 +257,9 @@ struct Worker {
     session: Option<iurefficient_connect::rest::Session>,
     /// Sesión a medio abrir mientras se espera el código TOTP.
     pending: Option<iurefficient_connect::rest::Session>,
+    /// Para mandar la respuesta del asistente según llega.
+    out: Sender<Rep>,
+    ctx: egui::Context,
 }
 
 impl Worker {
@@ -267,6 +295,41 @@ impl Worker {
     async fn handle(&mut self, req: Req) -> Rep {
         use iurefficient_connect::rest::{Login, Session, SessionExport};
         match req {
+            Req::Ask { id, case_id, conversation, title, message, system } => {
+                use iurefficient_connect::chat::{self, Request, Scope};
+                let Some(s) = &self.session else {
+                    return Rep::AskFailed {
+                        id,
+                        error: pick("Connect your account first.", "Primero conecta tu cuenta.").into(),
+                    };
+                };
+                let scope = case_id.as_deref().map_or(Scope::Global, Scope::Case);
+                let conv = match conversation {
+                    Some(c) => c,
+                    None => match chat::new_conversation(s, scope, &title).await {
+                        Ok(c) => c,
+                        Err(e) => return Rep::AskFailed { id, error: human(&e) },
+                    },
+                };
+                let req = Request {
+                    message: &message,
+                    system_prompt: system.as_deref(),
+                    conversation_id: Some(&conv),
+                    ..Default::default()
+                };
+                let (out, ctx) = (self.out.clone(), self.ctx.clone());
+                let mut so_far = String::new();
+                let got = chat::ask_streaming(s, scope, &req, |t| {
+                    so_far.push_str(t);
+                    let _ = out.send(Rep::Token { id, so_far: so_far.clone() });
+                    ctx.request_repaint();
+                })
+                .await;
+                match got {
+                    Ok(answer) => Rep::Answer { id, conversation: conv, answer },
+                    Err(e) => Rep::AskFailed { id, error: human(&e) },
+                }
+            }
             Req::Restore => {
                 let Some(active) = iurefficient_connect::account::active() else { return Self::logged_out(None, None) };
                 let Ok(acc) = active.account() else { return Self::logged_out(None, None) };
@@ -411,13 +474,24 @@ fn spawn(ctx: egui::Context, data: Option<PathBuf>) -> (Sender<Req>, Receiver<Re
                 return;
             }
         };
-        let mut w = Worker { data, session: None, pending: None };
+        let mut w = Worker { data, session: None, pending: None, out: rtx.clone(), ctx: ctx.clone() };
         while let Ok(req) = rx.recv() {
-            let rep = match rt.block_on(async { tokio::time::timeout(TIMEOUT, w.handle(req)).await }) {
+            let ask = match &req {
+                Req::Ask { id, .. } => Some(*id),
+                _ => None,
+            };
+            // Una respuesta larga del asistente puede tardar más.
+            let limit = if ask.is_some() { ASK_TIMEOUT } else { TIMEOUT };
+            let rep = match rt.block_on(async { tokio::time::timeout(limit, w.handle(req)).await }) {
                 Ok(r) => r,
-                Err(_) => Rep::Error(
-                    pick("Iurefficient took too long to answer.", "Iurefficient tardó demasiado en responder.").into(),
-                ),
+                Err(_) => {
+                    let msg =
+                        pick("Iurefficient took too long to answer.", "Iurefficient tardó demasiado en responder.");
+                    match ask {
+                        Some(id) => Rep::AskFailed { id, error: msg.into() },
+                        None => Rep::Error(msg.into()),
+                    }
+                }
             };
             if rtx.send(rep).is_err() {
                 break;
@@ -458,6 +532,8 @@ pub(crate) struct IurePanel {
     ctx: Option<egui::Context>,
     /// Apps de la suite: (estado, si ya trae la última versión) y la lectura en curso.
     pub(crate) apps: Option<(Vec<iurefficient_connect::apps::AppStatus>, bool)>,
+    /// Respuestas del asistente que aún no recogió su pestaña.
+    chat: Vec<Rep>,
     apps_rx: Option<Receiver<(Vec<iurefficient_connect::apps::AppStatus>, bool)>>,
 }
 
@@ -486,6 +562,34 @@ impl IurePanel {
         let mut p = Self::new(data);
         p.link = Some((tx, rx));
         p
+    }
+
+    /// Pregunta al asistente (sin marcar el panel como ocupado). `false` si no hay conexión.
+    pub(crate) fn ask(&mut self, req: Req) -> bool {
+        let was = self.busy;
+        self.send(req);
+        let sent = self.busy;
+        self.busy = was;
+        sent
+    }
+
+    /// Lo que llegó para el asistente (y se olvida).
+    pub(crate) fn take_chat(&mut self) -> Vec<Rep> {
+        std::mem::take(&mut self.chat)
+    }
+
+    /// El proyecto del documento activo (si es un espejo de un proyecto): (id, título).
+    pub(crate) fn case_of(&self, doc: Option<&Path>) -> Option<(String, String)> {
+        let m = self.mirror_of(doc?)?;
+        Some((m.case_id.clone()?, m.case_title.clone()))
+    }
+
+    pub(crate) fn ready(&self) -> bool {
+        matches!(self.status, Some(Status::Ready { .. }))
+    }
+
+    pub(crate) fn case_word(&self) -> String {
+        self.case_label()
     }
 
     fn send(&mut self, req: Req) {
@@ -553,7 +657,9 @@ impl IurePanel {
             None => Vec::new(),
         };
         for rep in reps {
-            self.busy = false;
+            if !matches!(rep, Rep::Token { .. } | Rep::Answer { .. } | Rep::AskFailed { .. }) {
+                self.busy = false;
+            }
             match rep {
                 Rep::Status { status, account, error } => {
                     if let Some((d, e)) = account {
@@ -621,6 +727,11 @@ impl IurePanel {
                     ));
                 }
                 Rep::Error(e) => self.notice = Some((false, e)),
+                r @ (Rep::Token { .. } | Rep::Answer { .. } | Rep::AskFailed { .. }) => {
+                    if self.chat.len() < 10_000 {
+                        self.chat.push(r);
+                    }
+                }
             }
         }
         act

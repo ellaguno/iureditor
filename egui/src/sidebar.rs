@@ -30,6 +30,7 @@ pub(crate) enum SideTab {
     Outline,
     Links,
     Iurefficient,
+    Assistant,
 }
 
 /// Un resultado de búsqueda: archivo, línea (desde 1), carácter donde empieza y el renglón.
@@ -54,6 +55,8 @@ pub(crate) enum SideAct {
     Renamed(PathBuf, PathBuf),
     /// Seguir un enlace `[[…]]` (abrir o crear la nota).
     Follow(String),
+    /// Lo que pide el asistente.
+    Assist(crate::assistant::AssistAct),
     /// Lo que pide la pestaña Iurefficient.
     Iure(crate::iure::IureAct),
 }
@@ -76,6 +79,8 @@ pub(crate) struct Sidebar {
     pub iure: crate::iure::IurePanel,
     /// La pestaña Enlaces.
     links: crate::backlinks::LinksPanel,
+    /// La pestaña Asistente.
+    pub assistant: crate::assistant::Assistant,
     /// Nombre que se está escribiendo (archivo o carpeta nuevos, renombrar).
     pub naming: Option<Naming>,
     name_error: Option<String>,
@@ -415,6 +420,7 @@ impl Sidebar {
         text: &str,
         caret: Option<usize>,
         notes: Option<&crate::notes::FolderNotes>,
+        selection: Option<&str>,
     ) -> Option<SideAct> {
         let ctx = ui.ctx().clone();
         let c = theme::colors(ui);
@@ -427,6 +433,8 @@ impl Sidebar {
             .size_range(180.0..=480.0)
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    ui.spacing_mut().button_padding.x = 6.0;
                     for (t, label) in [
                         (SideTab::Files, pick("Files", "Archivos")),
                         (SideTab::Outline, pick("Outline", "Esquema")),
@@ -441,6 +449,21 @@ impl Sidebar {
                             self.tab = t;
                         }
                     }
+                    // El asistente, solo con su icono (como la 1.x).
+                    let on = self.tab == SideTab::Assistant;
+                    let side = theme::density(ui.ctx()).icon_size();
+                    let r = ui
+                        .add(egui::Button::selectable(
+                            on,
+                            egui::Atom::custom(egui::IdSalt::new("asistente"), vec2(side, side)),
+                        ))
+                        .on_hover_text(pick("Assistant", "Asistente"));
+                    let ir = egui::Rect::from_center_size(r.rect.center(), vec2(side, side));
+                    icons::paint(ui.painter(), ir, Icon::Sparkle, if on { c.accent } else { c.text_muted }, c.accent);
+                    iurefficient_ui::a11y::button(&r, pick("Assistant", "Asistente"));
+                    if r.clicked() {
+                        self.tab = SideTab::Assistant;
+                    }
                 });
                 ui.separator();
                 let folder = self.folder(doc);
@@ -450,6 +473,11 @@ impl Sidebar {
                         Some(crate::backlinks::LinkAct::Follow(l)) => act = Some(SideAct::Follow(l)),
                         None => {}
                     },
+                    SideTab::Assistant => {
+                        if let Some(a) = self.assistant.show(ui, &mut self.iure, doc, text, selection) {
+                            act = Some(SideAct::Assist(a));
+                        }
+                    }
                     SideTab::Iurefficient => {
                         if let Some(a) = self.iure.show(ui, doc) {
                             act = Some(SideAct::Iure(a));

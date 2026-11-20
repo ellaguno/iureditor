@@ -64,30 +64,49 @@ impl iure_doc_ui::DiagramRenderer for Diagrams {
 pub struct Formulas {
     color: [u8; 3],
     size_pt: f32,
+    /// En línea (`$…$`, dentro de un párrafo) en vez de en bloque.
+    inline: bool,
 }
 
 impl Formulas {
     pub fn new(ui: &egui::Ui, zoom: f32) -> Self {
         let c = iurefficient_ui::theme::colors(ui);
         let body = iurefficient_ui::theme::body_font(ui.ctx()).size;
-        Formulas { color: rgb(c.text), size_pt: body * zoom.clamp(0.5, 3.0) * 1.1 }
+        Formulas { color: rgb(c.text), size_pt: body * zoom.clamp(0.5, 3.0) * 1.1, inline: false }
+    }
+
+    /// Para las fórmulas en línea: a la altura de la letra del texto.
+    pub fn inline(ui: &egui::Ui, zoom: f32) -> Self {
+        let mut f = Self::new(ui, zoom);
+        f.size_pt /= 1.1;
+        f.inline = true;
+        f
     }
 }
 
 impl iure_doc_ui::DiagramRenderer for Formulas {
     fn accepts(&self, block: &str) -> bool {
-        iure_doc::math::display_math(block).is_some()
+        if self.inline {
+            let t = block.trim();
+            t.len() > 2 && t.starts_with('$') && t.ends_with('$') && !t.starts_with("$$")
+        } else {
+            iure_doc::math::display_math(block).is_some()
+        }
     }
 
     fn key(&self) -> u64 {
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        format!("{:?}{}", self.color, self.size_pt).hash(&mut h);
+        format!("{:?}{}{}", self.color, self.size_pt, self.inline).hash(&mut h);
         h.finish()
     }
 
     fn render(&self, block: &str, scale: f32) -> Result<iure_doc_ui::DiagramImage, String> {
-        let latex = iure_doc::math::display_math(block).unwrap_or_default();
-        let img = iure_doc_export::math::render_math(latex, true, self.size_pt, self.color, scale)
+        let latex = if self.inline {
+            block.trim().trim_matches('$')
+        } else {
+            iure_doc::math::display_math(block).unwrap_or_default()
+        };
+        let img = iure_doc_export::math::render_math(latex, !self.inline, self.size_pt, self.color, scale)
             .map_err(|e| pick(&e.en, &e.es).to_string())?;
         Ok(iure_doc_ui::DiagramImage {
             width: img.width as usize,

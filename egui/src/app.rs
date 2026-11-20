@@ -812,6 +812,16 @@ impl EditorApp {
             }
             SideAct::Iure(a) => self.iure_act(a),
             SideAct::Follow(l) => self.follow_link(ctx, &l),
+            SideAct::Assist(a) => {
+                use crate::assistant::AssistAct;
+                match a {
+                    AssistAct::Insert(t) => {
+                        self.apply_to_active(ctx, iure_doc_ui::ExternalEdit::Insert(format!("\n\n{t}\n")))
+                    }
+                    AssistAct::Replace(t) => self.apply_to_active(ctx, iure_doc_ui::ExternalEdit::Replace(t)),
+                    AssistAct::Connect => self.side.tab = crate::sidebar::SideTab::Iurefficient,
+                }
+            }
             SideAct::PickFolder => {
                 let (tx, rx) = mpsc::channel();
                 let start = self.side.folder(self.doc().path.as_deref());
@@ -1145,6 +1155,7 @@ impl EditorApp {
             (Key::E, crate::sidebar::SideTab::Files),
             (Key::O, crate::sidebar::SideTab::Outline),
             (Key::I, crate::sidebar::SideTab::Iurefficient),
+            (Key::J, crate::sidebar::SideTab::Assistant),
         ] {
             if ctx.input_mut(|i| i.consume_key(shift, key)) {
                 self.side.open = true;
@@ -1188,16 +1199,17 @@ impl EditorApp {
             self.iure_act(a);
         }
         if self.side.open {
-            let (path, text, caret) = match self.tabs.get(self.active) {
-                Some(t) => (
-                    t.doc.path.clone(),
-                    t.doc.text.clone(),
-                    iure_doc_ui::caret_offset(&ctx, egui::Id::unique(("iureditor-doc", t.id)), &t.doc.text),
-                ),
-                None => (None, String::new(), None),
+            let (path, text, caret, selection) = match self.tabs.get(self.active) {
+                Some(t) => {
+                    let id = egui::Id::unique(("iureditor-doc", t.id));
+                    let sel = iure_doc_ui::selection(&ctx, id, &t.doc.text)
+                        .map(|(a, b)| t.doc.text.chars().skip(a).take(b - a).collect::<String>());
+                    (t.doc.path.clone(), t.doc.text.clone(), iure_doc_ui::caret_offset(&ctx, id, &t.doc.text), sel)
+                }
+                None => (None, String::new(), None, None),
             };
             let notes = self.notes.clone();
-            if let Some(a) = self.side.show(ui, path.as_deref(), &text, caret, notes.as_deref()) {
+            if let Some(a) = self.side.show(ui, path.as_deref(), &text, caret, notes.as_deref(), selection.as_deref()) {
                 self.side_act(&ctx, a);
             }
         }
@@ -1230,6 +1242,7 @@ impl EditorApp {
                     // Letra de documento (algo mayor que la de la interfaz), por el zoom elegido.
                     zoom: Some(self.zoom * DOC_SCALE),
                     notes: notes.map(|n| n as std::sync::Arc<dyn iure_doc_ui::NoteIndex>),
+                    math: Some(std::sync::Arc::new(crate::diagrams::Formulas::inline(ui, self.zoom * DOC_SCALE))),
                 };
                 // La columna de documento la pone el editor.
                 let out = iure_doc_ui::show_blocks_hooks(
@@ -1568,6 +1581,42 @@ mod chrome_tests {
         assert!((h.state().zoom - 1.0).abs() < 1e-4);
     }
 
+    /// Color del texto y resaltado desde la barra: la paleta de la 1.x sobre la selección.
+    #[test]
+    fn the_format_bar_paints_the_selection() {
+        iurefficient_ui::lang::set_lang(iurefficient_ui::lang::Lang::Es);
+        let app = EditorApp::new(Doc { text: "Hola mundo\n".into(), ..Default::default() }, None);
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 600.0))
+            .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app);
+        h.run();
+        h.get_by_label("Documento").focus();
+        h.run();
+        let ctx = h.ctx.clone();
+        let id = ctx.memory(|m| m.focused()).unwrap();
+        let mut st = egui::text_edit::TextEditState::load(&ctx, id).unwrap_or_default();
+        st.cursor.set_char_range(Some(egui::text::CCursorRange::two(
+            egui::text::CCursor::new(5),
+            egui::text::CCursor::new(10),
+        )));
+        st.store(&ctx, id);
+        h.run();
+        h.get_by_label("Color del texto").click();
+        h.run();
+        h.get_by_label("#FF0000").click();
+        h.run_steps(3);
+        assert_eq!(h.state().doc().text, "Hola <span style=\"color: #FF0000\">mundo</span>\n");
+        h.get_by_label("Resaltar").click();
+        h.run();
+        h.get_by_label("#FFF2CC").click();
+        h.run_steps(3);
+        assert!(
+            h.state().doc().text.contains("<mark style=\"background-color: #FFF2CC\">"),
+            "{}",
+            h.state().doc().text
+        );
+    }
+
     /// La barra de formato y el menú ☰ (marco como la 1.x).
     #[test]
     fn format_bar_and_menu_act_on_the_document() {
@@ -1757,7 +1806,7 @@ mod shot {
     #[ignore = "captura para revisar la interfaz"]
     fn shot() {
         let Some(out) = std::env::var_os("IUREDITOR_SHOT") else { return };
-        let text = "# Propuesta para Altamira\n\nAcuerdos de la **reunión** del martes con *Ana* y [el despacho](https://x.mx); falta la aceptacion del cliente.\n\n## Pendientes\n\n- [ ] Llamar al notario\n- [x] Enviar propuesta\n  - con anexos\n\n> Nota: revisar `contrato.md` antes del jueves.\n\n> [!TIP]\n> Llevar copia firmada a la audiencia.\n\n$$\n\\text{Total} = \\sum_{i=1}^{n} h_i \\cdot \\frac{1500}{1 + \\tau}\n$$\n\n| Concepto | Monto |\n|---|--:|\n| Honorarios | 12 000 |\n\n```rust\n// Honorarios por hora\nfn honorarios(horas: u32) -> u32 {\n    horas * 1_500 // pesos\n}\n```\n\n```mermaid\ngraph LR; Propuesta --> Firma --> Audiencia\n```\n\n> [!MINDMAP|map] Estrategia\n> - Análisis\n>   - Contrato\n> - Negociación\n";
+        let text = "# Propuesta para Altamira\n\nAcuerdos de la **reunión** del martes con *Ana* y [el despacho](https://x.mx); falta la aceptacion del cliente. Honorarios: $h \\cdot \\frac{3}{4}$ del total.\n\n## Pendientes\n\n- [ ] Llamar al notario\n- [x] Enviar propuesta\n  - con anexos\n\n> Nota: revisar `contrato.md` antes del jueves.\n\n> [!TIP]\n> Llevar copia firmada a la audiencia.\n\n$$\n\\text{Total} = \\sum_{i=1}^{n} h_i \\cdot \\frac{1500}{1 + \\tau}\n$$\n\n| Concepto | Monto |\n|---|--:|\n| Honorarios | 12 000 |\n\n```rust\n// Honorarios por hora\nfn honorarios(horas: u32) -> u32 {\n    horas * 1_500 // pesos\n}\n```\n\n```mermaid\ngraph LR; Propuesta --> Firma --> Audiencia\n```\n\n> [!MINDMAP|map] Estrategia\n> - Análisis\n>   - Contrato\n> - Negociación\n";
         // Una carpeta con una imagen junto al documento (se ve en su lugar).
         let dir = std::env::temp_dir().join(format!("iureditor-shot-{}", std::process::id()));
         let _ = std::fs::create_dir_all(dir.join("img"));
@@ -1802,6 +1851,16 @@ mod shot {
         match std::env::var("IUREDITOR_SHOT_SIDE").as_deref() {
             Ok("files") => app.side.tab = crate::sidebar::SideTab::Files,
             Ok("links") => app.side.tab = crate::sidebar::SideTab::Links,
+            Ok("assistant") => {
+                app.side.tab = crate::sidebar::SideTab::Assistant;
+                app.side.iure.status = Some(crate::iure::Status::Ready {
+                    name: "Ana Pérez".into(),
+                    email: "ana@despacho.mx".into(),
+                    host: "despacho.iurefficient.com".into(),
+                    case_label: "caso".into(),
+                });
+                app.side.assistant.demo();
+            }
             Ok("login") => {
                 app.side.tab = crate::sidebar::SideTab::Iurefficient;
                 app.side.iure.status = Some(crate::iure::Status::LoggedOut);

@@ -175,6 +175,11 @@ pub(crate) fn title_bar(app: &mut EditorApp, ui: &mut Ui, chrome: Option<&Window
 
 /// Botón de la barra de formato: un icono o un texto corto (H1, B, I…).
 fn fmt_button(ui: &mut Ui, label: Fmt<'_>, tip: &str) -> bool {
+    fmt_button_resp(ui, label, tip).clicked()
+}
+
+/// Como [`fmt_button`], con su respuesta (para colgarle un menú).
+fn fmt_button_resp(ui: &mut Ui, label: Fmt<'_>, tip: &str) -> egui::Response {
     let c = theme::colors(ui);
     let (rect, resp) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
     if resp.hovered() {
@@ -218,7 +223,53 @@ fn fmt_button(ui: &mut Ui, label: Fmt<'_>, tip: &str) -> bool {
         }
     }
     iurefficient_ui::a11y::button(&resp, tip);
-    resp.on_hover_text(tip).clicked()
+    resp.on_hover_text(tip)
+}
+
+/// Los colores de la 1.x (grises, vivos y pastel; 10 por fila).
+const PALETTE: [&str; 30] = [
+    "#000000", "#434343", "#666666", "#999999", "#B7B7B7", "#CCCCCC", "#D9D9D9", "#EFEFEF", "#F3F3F3", "#FFFFFF",
+    "#980000", "#FF0000", "#FF9900", "#FFFF00", "#00FF00", "#00FFFF", "#4A86E8", "#0000FF", "#9900FF", "#FF00FF",
+    "#E6B8AF", "#F4CCCC", "#FCE5CD", "#FFF2CC", "#D9EAD3", "#D0E0E3", "#C9DAF8", "#CFE2F3", "#D9D2E9", "#EAD1DC",
+];
+
+fn hex_color32(h: &str) -> egui::Color32 {
+    let v = u32::from_str_radix(h.trim_start_matches('#'), 16).unwrap_or(0);
+    egui::Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8)
+}
+
+/// Botón de color (texto o resaltado) con su paleta. Devuelve el color elegido (`Some(None)`: sin
+/// color).
+fn color_button(ui: &mut Ui, glyph: Glyph, tip: &str) -> Option<Option<String>> {
+    let resp = fmt_button_resp(ui, Fmt::Draw(glyph), tip);
+    let mut out = None;
+    egui::Popup::menu(&resp).show(|ui| {
+        ui.spacing_mut().item_spacing = vec2(3.0, 3.0);
+        egui::Grid::new(("paleta", tip)).spacing(vec2(3.0, 3.0)).show(ui, |ui| {
+            for (k, hex) in PALETTE.iter().enumerate() {
+                let (r, sw) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::click());
+                ui.painter().rect_filled(r, 3.0, hex_color32(hex));
+                ui.painter().rect_stroke(
+                    r,
+                    3.0,
+                    egui::Stroke::new(if sw.hovered() { 2.0 } else { 0.5 }, theme::colors(ui).separator),
+                    egui::StrokeKind::Inside,
+                );
+                iurefficient_ui::a11y::button(&sw, hex);
+                if sw.on_hover_text(*hex).clicked() {
+                    out = Some(Some((*hex).to_string()));
+                }
+                if k % 10 == 9 {
+                    ui.end_row();
+                }
+            }
+        });
+        ui.add_space(4.0);
+        if ui.button(pick("No color", "Sin color")).clicked() {
+            out = Some(None);
+        }
+    });
+    out
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -246,6 +297,10 @@ enum Glyph {
     Rule,
     /// Panel lateral (un recuadro con su columna izquierda).
     Sidebar,
+    /// Color del texto: una «A» con una barra de color debajo.
+    TextColor,
+    /// Resaltado: un marcador con su trazo amarillo.
+    Highlight,
 }
 
 /// Dibuja un icono de la barra de formato que no está en el kit.
@@ -275,6 +330,27 @@ fn draw_glyph(p: &egui::Painter, r: egui::Rect, g: Glyph, ink: egui::Color32) {
         Glyph::Rule => {
             p.line_segment([at(0.1, 0.5), at(0.9, 0.5)], egui::Stroke::new(1.8, ink));
         }
+        Glyph::TextColor => {
+            p.line_segment([at(0.22, 0.72), at(0.5, 0.08)], s);
+            p.line_segment([at(0.5, 0.08), at(0.78, 0.72)], s);
+            p.line_segment([at(0.33, 0.48), at(0.67, 0.48)], s);
+            p.rect_filled(
+                egui::Rect::from_min_max(at(0.1, 0.82), at(0.9, 0.98)),
+                1.0,
+                egui::Color32::from_rgb(0xE5, 0x39, 0x35),
+            );
+        }
+        Glyph::Highlight => {
+            p.rect_filled(
+                egui::Rect::from_min_max(at(0.05, 0.78), at(0.95, 0.98)),
+                1.0,
+                egui::Color32::from_rgb(0xFF, 0xD5, 0x4F),
+            );
+            let body = [at(0.55, 0.05), at(0.9, 0.38), at(0.5, 0.72), at(0.18, 0.4)];
+            p.add(egui::Shape::closed_line(body.to_vec(), s));
+            p.line_segment([at(0.18, 0.4), at(0.12, 0.7)], s);
+            p.line_segment([at(0.12, 0.7), at(0.5, 0.72)], s);
+        }
         Glyph::Sidebar => {
             p.rect_stroke(egui::Rect::from_min_max(at(0.08, 0.15), at(0.92, 0.85)), 2.0, s, egui::StrokeKind::Middle);
             p.line_segment([at(0.38, 0.15), at(0.38, 0.85)], s);
@@ -289,6 +365,7 @@ pub(crate) fn format_bar(app: &mut EditorApp, ui: &mut Ui) {
     let c = theme::colors(ui);
     let frame = egui::Frame::new().fill(c.surface).inner_margin(egui::Margin::symmetric(8, 3));
     let mut act: Option<E> = None;
+    let mut painted: Option<E> = None;
     egui::Panel::top("iureditor-format").frame(frame).resizable(false).show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 1.0;
@@ -319,6 +396,12 @@ pub(crate) fn format_bar(app: &mut EditorApp, ui: &mut Ui) {
             b(ui, Fmt::Text("I", TextStyle::Italic), pick("Italic (Ctrl+I)", "Cursiva (Ctrl+I)"), E::Wrap("*".into()));
             b(ui, Fmt::Text("S", TextStyle::Strike), pick("Strikethrough", "Tachado"), E::Wrap("~~".into()));
             b(ui, Fmt::Text("</>", TextStyle::Mono), pick("Inline code", "Código en línea"), E::Wrap("`".into()));
+            if let Some(c) = color_button(ui, Glyph::TextColor, pick("Text color", "Color del texto")) {
+                painted = Some(E::Paint(iure_doc::edit::Paint::Color, c));
+            }
+            if let Some(c) = color_button(ui, Glyph::Highlight, pick("Highlight", "Resaltar")) {
+                painted = Some(E::Paint(iure_doc::edit::Paint::Highlight, c));
+            }
             sep(ui);
             b(ui, Fmt::Icon(Icon::List), pick("Bulleted list", "Lista con viñetas"), E::Line(LineKind::Bullet));
             b(
@@ -353,7 +436,7 @@ pub(crate) fn format_bar(app: &mut EditorApp, ui: &mut Ui) {
             );
         });
     });
-    if let Some(e) = act {
+    if let Some(e) = act.or(painted) {
         app.apply_to_active(ui.ctx(), e);
     }
 }
