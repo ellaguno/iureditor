@@ -15,6 +15,7 @@ mod instance;
 mod iure;
 mod links;
 mod mcp;
+mod notes;
 mod sidebar;
 mod templates;
 

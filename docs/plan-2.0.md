@@ -93,8 +93,15 @@ contraseña y código TOTP) o retomar la sesión compartida de la suite (llavero
 «Guardar en Iurefficient…» (General o el proyecto elegido). Panel de **Archivos** con las acciones
 de la 1.x: buscar (la lupa; ya no es pestaña), nuevo archivo, nueva carpeta, subir un directorio,
 recargar, cambiar carpeta; clic derecho: renombrar, nuevo, recargar. Atajos Ctrl+Mayús+E / O / I.
-**Siguiente:** `[[` (enlaces entre notas), menú `/`, selector de plantillas de diagrama, barra de
-buscar/reemplazar como la 1.x; luego apps de la suite en la pestaña, fórmulas, avisos, color.
+6) **Hecho** (`iure-doc` v0.19.0): menú **`/`** (títulos, listas, cita, código, tabla, diagrama,
+fórmula, separador, avisos, mapa mental; se filtra al escribir: `/mental`, `/diagrama`), **`[[`**
+con las notas de la carpeta (por nombre o ruta; «Crear nota «…»»; `[[nota#` sugiere sus títulos) y
+Ctrl+clic para abrir el enlace (crea la nota si no existe; `#título` lleva al título; las direcciones
+web van al navegador), selector **Plantilla…** con las 21 plantillas Mermaid de la 1.x en los
+bloques de diagrama, **barra de buscar/reemplazar** en franja como la 1.x (contador `1/5`, flechas,
+Aa, «Reemplazar…», cerrar). Pegar ya no toma un HTML viejo del portapapeles (GNOME).
+**Siguiente:** apps de la suite en la pestaña Iurefficient, panel de enlaces (retroenlaces),
+asistente, fórmulas, avisos con estilo, color y resaltado.
 
 **Alfas** (cuando se cumpla lo anterior; convive con la 1.x): etiqueta `egui-vX.Y.Z-alpha.N` → `release-egui.yml`
 compila Linux (`.tar.gz` con `instalar.sh`), Windows (`.zip`) y macOS universal (`.app` en

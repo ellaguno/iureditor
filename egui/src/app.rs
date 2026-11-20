@@ -104,6 +104,10 @@ pub struct EditorApp {
     session: Option<PathBuf>,
     /// Borradores de un cierre inesperado, para ofrecer recuperarlos (el más reciente primero).
     pub(crate) recovery: Vec<(PathBuf, crate::drafts::Draft)>,
+    /// Las notas de la carpeta del documento (para `[[`).
+    notes: Option<std::sync::Arc<crate::notes::FolderNotes>>,
+    /// Enlace pulsado con Ctrl+clic en este cuadro.
+    clicked_link: Option<String>,
     /// Zoom del documento (1.0 = 100 %), el mismo para todas las pestañas.
     pub(crate) zoom: f32,
     /// Preferencias guardadas (el zoom; `None` en las pruebas).
@@ -186,6 +190,8 @@ impl EditorApp {
             recovery: Vec::new(),
             zoom: 1.0,
             prefs: None,
+            notes: None,
+            clicked_link: None,
         }
     }
 
@@ -856,6 +862,77 @@ impl EditorApp {
         }
     }
 
+    /// Ctrl+clic en un enlace: `[[nota#título]]` abre (o crea) la nota; una dirección web, el
+    /// navegador; una ruta relativa a un Markdown, ese archivo.
+    pub(crate) fn follow_link(&mut self, ctx: &egui::Context, link: &str) {
+        let from = self.doc().path.clone();
+        if let Some((note, head)) = crate::notes::split_wiki(link) {
+            let Some(idx) = self.notes.clone() else {
+                self.notice = Some(
+                    pick(
+                        "Save the document to link it with other notes.",
+                        "Guarda el documento para enlazarlo con otras notas.",
+                    )
+                    .to_string(),
+                );
+                return;
+            };
+            if note.is_empty() {
+                // `[[#título]]`: en este documento.
+                if let Some(h) = head {
+                    self.goto_heading(ctx, &h);
+                }
+                return;
+            }
+            let path = match idx.resolve(&note, from.as_deref()) {
+                Some(p) => p,
+                None => {
+                    let made = idx.new_path(&note, from.as_deref()).filter(|p| {
+                        p.parent().is_some_and(|d| std::fs::create_dir_all(d).is_ok())
+                            && std::fs::OpenOptions::new().write(true).create_new(true).open(p).is_ok()
+                    });
+                    match made {
+                        Some(p) => p,
+                        None => {
+                            self.notice = Some(format!(
+                                "{} «{note}».",
+                                pick("Could not create the note", "No se pudo crear la nota")
+                            ));
+                            return;
+                        }
+                    }
+                }
+            };
+            self.open_path(&path);
+            if let Some(h) = head {
+                self.goto_heading(ctx, &h);
+            }
+            return;
+        }
+        let lower = link.to_ascii_lowercase();
+        if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:") {
+            ctx.open_url(egui::OpenUrl::new_tab(link));
+            return;
+        }
+        // Un enlace Markdown a otro archivo, relativo al documento.
+        let rel = link.split('#').next().unwrap_or(link);
+        if let Some(dir) = from.as_deref().and_then(std::path::Path::parent) {
+            let p = dir.join(rel);
+            if !rel.is_empty() && !rel.contains("..") && p.is_file() {
+                self.open_path(&p);
+            }
+        }
+    }
+
+    /// Lleva el cursor al título `h` del documento activo (sin mayúsculas).
+    fn goto_heading(&mut self, ctx: &egui::Context, h: &str) {
+        let want = h.trim().to_lowercase();
+        let at = crate::sidebar::outline(&self.doc().text).into_iter().find(|(_, t, _)| t.to_lowercase() == want);
+        if let Some((_, _, at)) = at {
+            self.goto(ctx, at);
+        }
+    }
+
     /// Lleva el cursor de la pestaña activa al carácter `at`.
     fn goto(&mut self, ctx: &egui::Context, at: usize) {
         if let Some(t) = self.tabs.get(self.active) {
@@ -1117,6 +1194,11 @@ impl EditorApp {
                 self.side_act(&ctx, a);
             }
         }
+        // Las notas que puede enlazar `[[`: las de la carpeta del panel o del documento.
+        let folder = self.side.folder(self.doc().path.as_deref());
+        if self.notes.as_ref().map(|n| &n.root) != folder.as_ref() {
+            self.notes = folder.map(|f| std::sync::Arc::new(crate::notes::FolderNotes::new(f)));
+        }
         crate::chrome::format_bar(self, ui);
         self.notices(ui);
         let bg = iurefficient_ui::theme::colors(ui).surface;
@@ -1124,6 +1206,7 @@ impl EditorApp {
             .frame(egui::Frame::new().fill(bg).inner_margin(egui::Margin::symmetric(28, 12)))
             .show(ui, |ui| {
                 let speller = self.speller.clone();
+                let notes = self.notes.clone();
                 let Some(t) = self.tabs.get_mut(self.active) else { return };
                 // Diagramas (Mermaid, mapas mentales) e imágenes de la carpeta del documento,
                 // dibujados en su lugar.
@@ -1143,6 +1226,7 @@ impl EditorApp {
                     images: Some(std::sync::Arc::new(iure_doc_ui::FolderImages::new(folder, "assets"))),
                     // Letra de documento (algo mayor que la de la interfaz), por el zoom elegido.
                     zoom: Some(self.zoom * DOC_SCALE),
+                    notes: notes.map(|n| n as std::sync::Arc<dyn iure_doc_ui::NoteIndex>),
                 };
                 // La columna de documento la pone el editor.
                 let out = iure_doc_ui::show_blocks_hooks(
@@ -1155,7 +1239,13 @@ impl EditorApp {
                 out.response.widget_info(|| {
                     egui::WidgetInfo::labeled(egui::Role::MultilineTextInput, true, pick("Document", "Documento"))
                 });
+                if out.link.is_some() {
+                    self.clicked_link = out.link;
+                }
             });
+        if let Some(l) = self.clicked_link.take() {
+            self.follow_link(&ctx, &l);
+        }
         if let Some(ch) = &chrome {
             iurefficient_ui::window::frame(ui, ch, egui::Id::unique("iureditor-window"));
         }
@@ -1423,6 +1513,33 @@ mod chrome_tests {
     use super::*;
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
+
+    /// Ctrl+clic en `[[nota]]`: abre la nota de la carpeta; si no existe, la crea junto al
+    /// documento; `[[nota#título]]` lleva al título.
+    #[test]
+    fn wiki_links_open_or_create_notes() {
+        let dir = tempfile::tempdir().unwrap();
+        let doc = dir.path().join("inicio.md");
+        std::fs::write(&doc, "Ver [[Acta]]\n").unwrap();
+        std::fs::write(dir.path().join("Acta.md"), "# Acta\n\ntexto\n\n## Pagos\n").unwrap();
+        let app = EditorApp::new(Doc::open(&doc).unwrap(), None);
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 600.0))
+            .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app);
+        h.run();
+        let ctx = h.ctx.clone();
+        h.state_mut().follow_link(&ctx, "[[acta#pagos]]");
+        h.run_steps(3);
+        assert_eq!(h.state().doc().path.as_deref(), Some(dir.path().join("Acta.md").as_path()));
+        h.state_mut().follow_link(&ctx, "[[Temas/Nueva nota]]");
+        h.run_steps(2);
+        let made = dir.path().join("Temas/Nueva nota.md");
+        assert!(made.is_file(), "se crea con su carpeta");
+        assert_eq!(h.state().tabs.len(), 3);
+        h.state_mut().follow_link(&ctx, "[[../fuera]]");
+        h.run();
+        assert!(!dir.path().parent().unwrap().join("fuera.md").exists());
+    }
 
     /// Zoom: Ctrl + / Ctrl − / Ctrl 0 y la barra de estado (− 100 % +), solo para el documento.
     #[test]
@@ -1740,6 +1857,24 @@ mod shot {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         h.run_steps(2);
+        // `IUREDITOR_SHOT_SLASH=1`: el menú de `/` al final del título.
+        // `IUREDITOR_SHOT_FIND=1`: la barra de buscar y reemplazar (Ctrl+H) con «honor».
+        for (var, keys) in [("IUREDITOR_SHOT_SLASH", " /dia"), ("IUREDITOR_SHOT_FIND", "honor")] {
+            if std::env::var_os(var).is_none() {
+                continue;
+            }
+            use egui_kittest::kittest::Queryable;
+            h.get_by_label("Documento").focus();
+            h.run_steps(2);
+            if var == "IUREDITOR_SHOT_FIND" {
+                h.key_press_modifiers(Modifiers::COMMAND, Key::H);
+            } else {
+                h.key_press(Key::End);
+            }
+            h.run_steps(2);
+            h.event(egui::Event::Text(keys.into()));
+            h.run_steps(3);
+        }
         // `IUREDITOR_SHOT_SPAN=1`: selección que cruza bloques (de «reunión» a «Pendientes»).
         if std::env::var_os("IUREDITOR_SHOT_SPAN").is_some() {
             use egui_kittest::kittest::Queryable;
