@@ -5,6 +5,8 @@ use egui::{Align, Key, KeyboardShortcut, Layout, Modifiers, RichText, Sense, Ui,
 use iurefficient_ui::window::{self, WindowChrome};
 use iurefficient_ui::{Icon, icons, pick, theme};
 
+use iure_doc_ui::toolbar::{Fmt, Glyph, fmt_button};
+
 use crate::app::EditorApp;
 
 /// Lo que se eligió en el menú ☰ (se hace fuera del menú, con la app libre).
@@ -257,270 +259,19 @@ pub(crate) fn title_bar(app: &mut EditorApp, ui: &mut Ui, chrome: Option<&Window
     act
 }
 
-/// Botón de la barra de formato: un icono o un texto corto (H1, B, I…).
-fn fmt_button(ui: &mut Ui, label: Fmt<'_>, tip: &str) -> bool {
-    fmt_button_resp(ui, label, tip).clicked()
-}
-
-/// Como [`fmt_button`], con su respuesta (para colgarle un menú).
-fn fmt_button_resp(ui: &mut Ui, label: Fmt<'_>, tip: &str) -> egui::Response {
-    let c = theme::colors(ui);
-    let (rect, resp) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
-    if resp.hovered() {
-        ui.painter().rect_filled(rect, 5.0, c.hover);
-    }
-    match label {
-        Fmt::Icon(ic) => icons::paint(ui.painter(), rect.shrink(6.0), ic, c.text, c.accent),
-        Fmt::Draw(g) => draw_glyph(ui.painter(), rect.shrink(7.0), g, c.text),
-        Fmt::Text(t, style) => {
-            let size = 13.5;
-            let font = match style {
-                TextStyle::Bold => theme::bold_font(ui.ctx(), size),
-                TextStyle::Mono => egui::FontId::monospace(size - 1.0),
-                TextStyle::Plain | TextStyle::Italic | TextStyle::Strike => egui::FontId::proportional(size),
-            };
-            let galley = ui.painter().layout_no_wrap(t.to_string(), font, c.text);
-            let pos = rect.center() - galley.size() / 2.0;
-            let mut job_galley = galley;
-            if style == TextStyle::Italic {
-                let mut job = egui::text::LayoutJob::default();
-                job.append(
-                    t,
-                    0.0,
-                    egui::TextFormat {
-                        font_id: egui::FontId::proportional(size),
-                        color: c.text,
-                        italics: true,
-                        ..Default::default()
-                    },
-                );
-                job_galley = ui.painter().layout_job(job);
-            }
-            ui.painter().galley(pos, job_galley, c.text);
-            if style == TextStyle::Strike {
-                let y = rect.center().y;
-                ui.painter().line_segment(
-                    [egui::pos2(rect.center().x - 6.0, y), egui::pos2(rect.center().x + 6.0, y)],
-                    egui::Stroke::new(1.2, c.text),
-                );
-            }
-        }
-    }
-    iurefficient_ui::a11y::button(&resp, tip);
-    resp.on_hover_text(tip)
-}
-
-/// Los colores de la 1.x (grises, vivos y pastel; 10 por fila).
-const PALETTE: [&str; 30] = [
-    "#000000", "#434343", "#666666", "#999999", "#B7B7B7", "#CCCCCC", "#D9D9D9", "#EFEFEF", "#F3F3F3", "#FFFFFF",
-    "#980000", "#FF0000", "#FF9900", "#FFFF00", "#00FF00", "#00FFFF", "#4A86E8", "#0000FF", "#9900FF", "#FF00FF",
-    "#E6B8AF", "#F4CCCC", "#FCE5CD", "#FFF2CC", "#D9EAD3", "#D0E0E3", "#C9DAF8", "#CFE2F3", "#D9D2E9", "#EAD1DC",
-];
-
-fn hex_color32(h: &str) -> egui::Color32 {
-    let v = u32::from_str_radix(h.trim_start_matches('#'), 16).unwrap_or(0);
-    egui::Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8)
-}
-
-/// Botón de color (texto o resaltado) con su paleta. Devuelve el color elegido (`Some(None)`: sin
-/// color).
-fn color_button(ui: &mut Ui, glyph: Glyph, tip: &str) -> Option<Option<String>> {
-    let resp = fmt_button_resp(ui, Fmt::Draw(glyph), tip);
-    let mut out = None;
-    egui::Popup::menu(&resp).show(|ui| {
-        ui.spacing_mut().item_spacing = vec2(3.0, 3.0);
-        egui::Grid::new(("paleta", tip)).spacing(vec2(3.0, 3.0)).show(ui, |ui| {
-            for (k, hex) in PALETTE.iter().enumerate() {
-                let (r, sw) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::click());
-                ui.painter().rect_filled(r, 3.0, hex_color32(hex));
-                ui.painter().rect_stroke(
-                    r,
-                    3.0,
-                    egui::Stroke::new(if sw.hovered() { 2.0 } else { 0.5 }, theme::colors(ui).separator),
-                    egui::StrokeKind::Inside,
-                );
-                iurefficient_ui::a11y::button(&sw, hex);
-                if sw.on_hover_text(*hex).clicked() {
-                    out = Some(Some((*hex).to_string()));
-                }
-                if k % 10 == 9 {
-                    ui.end_row();
-                }
-            }
-        });
-        ui.add_space(4.0);
-        if ui.button(pick("No color", "Sin color")).clicked() {
-            out = Some(None);
-        }
-    });
-    out
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum TextStyle {
-    Plain,
-    Bold,
-    Italic,
-    Strike,
-    Mono,
-}
-
-#[derive(Clone, Copy)]
-enum Fmt<'a> {
-    Icon(Icon),
-    Text(&'a str, TextStyle),
-    /// Dibujados con líneas (sin depender de los glifos de la letra).
-    Draw(Glyph),
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Glyph {
-    Quote,
-    Table,
-    Diagram,
-    Rule,
-    /// Panel lateral (un recuadro con su columna izquierda).
-    Sidebar,
-    /// Color del texto: una «A» con una barra de color debajo.
-    TextColor,
-    /// Resaltado: un marcador con su trazo amarillo.
-    Highlight,
-}
-
-/// Dibuja un icono de la barra de formato que no está en el kit.
-fn draw_glyph(p: &egui::Painter, r: egui::Rect, g: Glyph, ink: egui::Color32) {
-    let s = egui::Stroke::new(1.4, ink);
-    let at = |x: f32, y: f32| egui::pos2(r.left() + x * r.width(), r.top() + y * r.height());
-    match g {
-        Glyph::Quote => {
-            p.line_segment([at(0.2, 0.15), at(0.2, 0.85)], egui::Stroke::new(2.4, ink));
-            for y in [0.3, 0.5, 0.7] {
-                p.line_segment([at(0.38, y), at(0.85, y)], s);
-            }
-        }
-        Glyph::Table => {
-            p.rect_stroke(egui::Rect::from_min_max(at(0.1, 0.18), at(0.9, 0.82)), 1.5, s, egui::StrokeKind::Middle);
-            p.line_segment([at(0.1, 0.4), at(0.9, 0.4)], s);
-            p.line_segment([at(0.1, 0.61), at(0.9, 0.61)], s);
-            p.line_segment([at(0.5, 0.18), at(0.5, 0.82)], s);
-        }
-        Glyph::Diagram => {
-            p.rect_stroke(egui::Rect::from_min_max(at(0.05, 0.38), at(0.35, 0.62)), 1.5, s, egui::StrokeKind::Middle);
-            p.rect_stroke(egui::Rect::from_min_max(at(0.65, 0.1), at(0.95, 0.34)), 1.5, s, egui::StrokeKind::Middle);
-            p.rect_stroke(egui::Rect::from_min_max(at(0.65, 0.66), at(0.95, 0.9)), 1.5, s, egui::StrokeKind::Middle);
-            p.line_segment([at(0.35, 0.5), at(0.65, 0.22)], s);
-            p.line_segment([at(0.35, 0.5), at(0.65, 0.78)], s);
-        }
-        Glyph::Rule => {
-            p.line_segment([at(0.1, 0.5), at(0.9, 0.5)], egui::Stroke::new(1.8, ink));
-        }
-        Glyph::TextColor => {
-            p.line_segment([at(0.22, 0.72), at(0.5, 0.08)], s);
-            p.line_segment([at(0.5, 0.08), at(0.78, 0.72)], s);
-            p.line_segment([at(0.33, 0.48), at(0.67, 0.48)], s);
-            p.rect_filled(
-                egui::Rect::from_min_max(at(0.1, 0.82), at(0.9, 0.98)),
-                1.0,
-                egui::Color32::from_rgb(0xE5, 0x39, 0x35),
-            );
-        }
-        Glyph::Highlight => {
-            p.rect_filled(
-                egui::Rect::from_min_max(at(0.05, 0.78), at(0.95, 0.98)),
-                1.0,
-                egui::Color32::from_rgb(0xFF, 0xD5, 0x4F),
-            );
-            let body = [at(0.55, 0.05), at(0.9, 0.38), at(0.5, 0.72), at(0.18, 0.4)];
-            p.add(egui::Shape::closed_line(body.to_vec(), s));
-            p.line_segment([at(0.18, 0.4), at(0.12, 0.7)], s);
-            p.line_segment([at(0.12, 0.7), at(0.5, 0.72)], s);
-        }
-        Glyph::Sidebar => {
-            p.rect_stroke(egui::Rect::from_min_max(at(0.08, 0.15), at(0.92, 0.85)), 2.0, s, egui::StrokeKind::Middle);
-            p.line_segment([at(0.38, 0.15), at(0.38, 0.85)], s);
-        }
-    }
-}
-
 /// La barra de formato: cada botón le pide al editor la acción sobre la selección.
 pub(crate) fn format_bar(app: &mut EditorApp, ui: &mut Ui) {
-    use iure_doc::edit::LineKind;
-    use iure_doc_ui::ExternalEdit as E;
+    use iure_doc_ui::toolbar::{self, Pressed};
     let c = theme::colors(ui);
     let frame = egui::Frame::new().fill(c.surface).inner_margin(egui::Margin::symmetric(8, 3));
-    let mut act: Option<E> = None;
-    let mut painted: Option<E> = None;
+    let mut act = None;
     egui::Panel::top("iureditor-format").frame(frame).resizable(false).show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 1.0;
-            let sep = |ui: &mut Ui| {
-                ui.add_space(4.0);
-                ui.separator();
-                ui.add_space(4.0);
-            };
-            let mut b = |ui: &mut Ui, f: Fmt<'_>, tip: &str, e: E| {
-                if fmt_button(ui, f, tip) {
-                    act = Some(e);
-                }
-            };
-            b(ui, Fmt::Icon(Icon::Undo), pick("Undo (Ctrl+Z)", "Deshacer (Ctrl+Z)"), E::Undo);
-            b(ui, Fmt::Icon(Icon::Redo), pick("Redo (Ctrl+Shift+Z)", "Rehacer (Ctrl+Mayús+Z)"), E::Redo);
-            sep(ui);
-            for n in 1..=3u8 {
-                let t = ["H1", "H2", "H3"].get(usize::from(n - 1)).copied().unwrap_or("H");
-                b(
-                    ui,
-                    Fmt::Text(t, TextStyle::Bold),
-                    &format!("{} {n}", pick("Heading", "Título")),
-                    E::Line(LineKind::Heading(n)),
-                );
-            }
-            sep(ui);
-            b(ui, Fmt::Text("B", TextStyle::Bold), pick("Bold (Ctrl+B)", "Negrita (Ctrl+B)"), E::Wrap("**".into()));
-            b(ui, Fmt::Text("I", TextStyle::Italic), pick("Italic (Ctrl+I)", "Cursiva (Ctrl+I)"), E::Wrap("*".into()));
-            b(ui, Fmt::Text("S", TextStyle::Strike), pick("Strikethrough", "Tachado"), E::Wrap("~~".into()));
-            b(ui, Fmt::Text("</>", TextStyle::Mono), pick("Inline code", "Código en línea"), E::Wrap("`".into()));
-            if let Some(c) = color_button(ui, Glyph::TextColor, pick("Text color", "Color del texto")) {
-                painted = Some(E::Paint(iure_doc::edit::Paint::Color, c));
-            }
-            if let Some(c) = color_button(ui, Glyph::Highlight, pick("Highlight", "Resaltar")) {
-                painted = Some(E::Paint(iure_doc::edit::Paint::Highlight, c));
-            }
-            sep(ui);
-            b(ui, Fmt::Icon(Icon::List), pick("Bulleted list", "Lista con viñetas"), E::Line(LineKind::Bullet));
-            b(
-                ui,
-                Fmt::Text("1.", TextStyle::Plain),
-                pick("Numbered list", "Lista numerada"),
-                E::Line(LineKind::Ordered),
-            );
-            b(ui, Fmt::Icon(Icon::Tasks), pick("Task list", "Lista de tareas"), E::Line(LineKind::Task));
-            sep(ui);
-            b(ui, Fmt::Draw(Glyph::Quote), pick("Quote", "Cita"), E::Quote);
-            b(
-                ui,
-                Fmt::Text("{ }", TextStyle::Mono),
-                pick("Code block", "Bloque de código"),
-                E::Insert("\n```\n\n```\n".into()),
-            );
-            b(ui, Fmt::Draw(Glyph::Rule), pick("Horizontal rule", "Línea horizontal"), E::Insert("\n\n---\n\n".into()));
-            sep(ui);
-            b(ui, Fmt::Icon(Icon::Hyperlink), pick("Link", "Enlace"), E::Link);
-            b(
-                ui,
-                Fmt::Draw(Glyph::Table),
-                pick("Table", "Tabla"),
-                E::Insert("\n\n| Columna 1 | Columna 2 |\n| --- | --- |\n|  |  |\n\n".into()),
-            );
-            b(
-                ui,
-                Fmt::Draw(Glyph::Diagram),
-                pick("Diagram (Mermaid)", "Diagrama (Mermaid)"),
-                E::Insert("\n\n```mermaid\nflowchart LR\n  A[Inicio] --> B[Fin]\n```\n\n".into()),
-            );
+            act = toolbar::tools(ui, toolbar::FULL);
         });
     });
-    if let Some(e) = act.or(painted) {
+    if let Some(Pressed::Edit(e)) = act {
         app.apply_to_active(ui.ctx(), e);
     }
 }
