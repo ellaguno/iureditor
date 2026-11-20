@@ -1216,6 +1216,7 @@ impl EditorApp {
                 let diagrams: std::sync::Arc<dyn iure_doc_ui::DiagramRenderer> =
                     std::sync::Arc::new(iure_doc_ui::Renderers(vec![
                         std::sync::Arc::new(crate::diagrams::Diagrams::new(ui)),
+                        std::sync::Arc::new(crate::diagrams::Formulas::new(ui, self.zoom * DOC_SCALE)),
                         std::sync::Arc::new(iure_doc_ui::LocalImages::new(folder.clone())),
                     ]));
                 // Pegar de la web, Word o Google Docs pega su Markdown (el HTML del portapapeles).
@@ -1756,7 +1757,7 @@ mod shot {
     #[ignore = "captura para revisar la interfaz"]
     fn shot() {
         let Some(out) = std::env::var_os("IUREDITOR_SHOT") else { return };
-        let text = "# Propuesta para Altamira\n\nAcuerdos de la **reunión** del martes con *Ana* y [el despacho](https://x.mx); falta la aceptacion del cliente.\n\n## Pendientes\n\n- [ ] Llamar al notario\n- [x] Enviar propuesta\n  - con anexos\n\n> Nota: revisar `contrato.md` antes del jueves.\n\n> [!TIP]\n> Llevar copia firmada a la audiencia.\n\n| Concepto | Monto |\n|---|--:|\n| Honorarios | 12 000 |\n\n```rust\n// Honorarios por hora\nfn honorarios(horas: u32) -> u32 {\n    horas * 1_500 // pesos\n}\n```\n\n```mermaid\ngraph LR; Propuesta --> Firma --> Audiencia\n```\n\n> [!MINDMAP|map] Estrategia\n> - Análisis\n>   - Contrato\n> - Negociación\n";
+        let text = "# Propuesta para Altamira\n\nAcuerdos de la **reunión** del martes con *Ana* y [el despacho](https://x.mx); falta la aceptacion del cliente.\n\n## Pendientes\n\n- [ ] Llamar al notario\n- [x] Enviar propuesta\n  - con anexos\n\n> Nota: revisar `contrato.md` antes del jueves.\n\n> [!TIP]\n> Llevar copia firmada a la audiencia.\n\n$$\n\\text{Total} = \\sum_{i=1}^{n} h_i \\cdot \\frac{1500}{1 + \\tau}\n$$\n\n| Concepto | Monto |\n|---|--:|\n| Honorarios | 12 000 |\n\n```rust\n// Honorarios por hora\nfn honorarios(horas: u32) -> u32 {\n    horas * 1_500 // pesos\n}\n```\n\n```mermaid\ngraph LR; Propuesta --> Firma --> Audiencia\n```\n\n> [!MINDMAP|map] Estrategia\n> - Análisis\n>   - Contrato\n> - Negociación\n";
         // Una carpeta con una imagen junto al documento (se ve en su lugar).
         let dir = std::env::temp_dir().join(format!("iureditor-shot-{}", std::process::id()));
         let _ = std::fs::create_dir_all(dir.join("img"));
@@ -1858,7 +1859,7 @@ mod shot {
         for _ in 0..600 {
             h.step();
             use egui_kittest::kittest::Queryable;
-            if h.query_all_by_label_contains("Diagrama").count() >= 2
+            if h.query_all_by_label_contains("Diagrama").count() >= 3
                 && h.query_all_by_label_contains("Imagen").count() >= 1
             {
                 break;

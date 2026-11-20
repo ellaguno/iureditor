@@ -3009,8 +3009,8 @@ checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
 
 [[package]]
 name = "iure-doc"
-version = "0.20.0"
-source = "git+https://github.com/ellaguno/iure-doc?tag=v0.20.0#69c533bb545f61c20da63d1be57c317e97ba5707"
+version = "0.21.1"
+source = "git+https://github.com/ellaguno/iure-doc?tag=v0.21.1#b1226b555b44a34ab7302fa19fcac4f1dba1f2dc"
 dependencies = [
  "html5ever",
  "pulldown-cmark",
@@ -3019,8 +3019,8 @@ dependencies = [
 
 [[package]]
 name = "iure-doc-export"
-version = "0.20.0"
-source = "git+https://github.com/ellaguno/iure-doc?tag=v0.20.0#69c533bb545f61c20da63d1be57c317e97ba5707"
+version = "0.21.1"
+source = "git+https://github.com/ellaguno/iure-doc?tag=v0.21.1#b1226b555b44a34ab7302fa19fcac4f1dba1f2dc"
 dependencies = [
  "image",
  "iure-doc",
@@ -3029,13 +3029,14 @@ dependencies = [
  "typst-assets",
  "typst-layout",
  "typst-pdf",
+ "typst-render",
  "zip",
 ]
 
 [[package]]
 name = "iure-doc-ui"
-version = "0.20.0"
-source = "git+https://github.com/ellaguno/iure-doc?tag=v0.20.0#69c533bb545f61c20da63d1be57c317e97ba5707"
+version = "0.21.1"
+source = "git+https://github.com/ellaguno/iure-doc?tag=v0.21.1#b1226b555b44a34ab7302fa19fcac4f1dba1f2dc"
 dependencies = [
  "arboard",
  "egui",
@@ -4481,6 +4482,15 @@ dependencies = [
  "atomic-waker",
  "fastrand",
  "futures-io",
+]
+
+[[package]]
+name = "pixglyph"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47945e80a49d08350e4a007ac4294c6498d23956c18ea5e6ff480dc93d31643c"
+dependencies = [
+ "ttf-parser",
 ]
 
 [[package]]
@@ -6764,6 +6774,29 @@ dependencies = [
  "typst-library",
  "typst-macros",
  "typst-syntax",
+ "typst-timing",
+ "typst-utils",
+]
+
+[[package]]
+name = "typst-render"
+version = "0.15.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de8a657a5fa5b9b7d3d458f482978674de910b54889d46f3bb55ca89f570f83e"
+dependencies = [
+ "bytemuck",
+ "comemo",
+ "hayro",
+ "image",
+ "libm",
+ "pixglyph",
+ "resvg",
+ "tiny-skia",
+ "ttf-parser",
+ "typst-assets",
+ "typst-layout",
+ "typst-library",
+ "typst-macros",
  "typst-timing",
  "typst-utils",
 ]

@@ -104,8 +104,12 @@ Aa, «Reemplazar…», cerrar). Pegar ya no toma un HTML viejo del portapapeles 
 crea— y menciones sin enlazar), **apps de la suite** al pie de la pestaña Iurefficient (instalada o
 no, última versión, Abrir/Descargar, GitHub) y **avisos con estilo** (`iure-doc` v0.20.0: fondo y
 barra del color del tipo, «Nota», «Consejo»… en vez de `[!TIPO]` fuera de su línea).
-**Siguiente:** fórmulas dibujadas (LaTeX → Typst, también en el PDF), color y resaltado de texto,
-asistente.
+8) **Hecho** (`iure-doc` v0.21): **fórmulas** en bloque (`$$…$$`) dibujadas en su lugar: LaTeX →
+Typst (`iure_doc::math`, propio: griegas, fracciones, raíces, sumas, integrales, relaciones,
+acentos, estilos, matrices, `cases`, `aligned`) y Typst → imagen (`typst-render`); clic para editar
+el LaTeX; si Typst no la entiende, se ve el código con el error. El PDF también las lleva bien.
+Las fórmulas en línea (`$…$`) siguen como texto en el editor (sí salen bien en el PDF).
+**Siguiente:** color y resaltado de texto, asistente; fórmulas en línea dibujadas.
 
 **Alfas** (cuando se cumpla lo anterior; convive con la 1.x): etiqueta `egui-vX.Y.Z-alpha.N` → `release-egui.yml`
 compila Linux (`.tar.gz` con `instalar.sh`), Windows (`.zip`) y macOS universal (`.app` en

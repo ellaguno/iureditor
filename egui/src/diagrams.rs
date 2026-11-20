@@ -58,3 +58,42 @@ impl iure_doc_ui::DiagramRenderer for Diagrams {
         })
     }
 }
+
+/// Fórmulas en bloque (`$$…$$`), dibujadas con Typst (`iure-doc-export`, la misma conversión que el
+/// PDF). Si Typst no entiende la fórmula, se ve el LaTeX con el error debajo.
+pub struct Formulas {
+    color: [u8; 3],
+    size_pt: f32,
+}
+
+impl Formulas {
+    pub fn new(ui: &egui::Ui, zoom: f32) -> Self {
+        let c = iurefficient_ui::theme::colors(ui);
+        let body = iurefficient_ui::theme::body_font(ui.ctx()).size;
+        Formulas { color: rgb(c.text), size_pt: body * zoom.clamp(0.5, 3.0) * 1.1 }
+    }
+}
+
+impl iure_doc_ui::DiagramRenderer for Formulas {
+    fn accepts(&self, block: &str) -> bool {
+        iure_doc::math::display_math(block).is_some()
+    }
+
+    fn key(&self) -> u64 {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        format!("{:?}{}", self.color, self.size_pt).hash(&mut h);
+        h.finish()
+    }
+
+    fn render(&self, block: &str, scale: f32) -> Result<iure_doc_ui::DiagramImage, String> {
+        let latex = iure_doc::math::display_math(block).unwrap_or_default();
+        let img = iure_doc_export::math::render_math(latex, true, self.size_pt, self.color, scale)
+            .map_err(|e| pick(&e.en, &e.es).to_string())?;
+        Ok(iure_doc_ui::DiagramImage {
+            width: img.width as usize,
+            height: img.height as usize,
+            rgba: img.rgba,
+            points: [img.points.0, img.points.1],
+        })
+    }
+}
