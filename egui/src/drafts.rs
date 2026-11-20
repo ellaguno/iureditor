@@ -142,6 +142,70 @@ pub fn save_zoom(file: &Path, zoom: f32) {
     save_pref(file, "zoom", serde_json::json!(zoom));
 }
 
+/// Apariencia (como Preferencias › Apariencia de IureDesk e IureProject): fuente, tamaño del texto,
+/// nitidez y densidad.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Appearance {
+    /// Clave de `FontChoice` (`inter`, `system`, `family:<nombre>`).
+    pub font: String,
+    /// Tamaño del texto de toda la ventana, 90–130 %.
+    pub text_scale: u32,
+    pub crisp: bool,
+    pub density: iurefficient_ui::Density,
+}
+
+impl Default for Appearance {
+    fn default() -> Self {
+        Appearance {
+            font: "inter".into(),
+            text_scale: 100,
+            crisp: false,
+            density: iurefficient_ui::Density::Comfortable,
+        }
+    }
+}
+
+fn density_key(d: iurefficient_ui::Density) -> &'static str {
+    match d {
+        iurefficient_ui::Density::Comfortable => "comfortable",
+        iurefficient_ui::Density::Compact => "compact",
+        iurefficient_ui::Density::Dense => "dense",
+    }
+}
+
+/// Guarda la apariencia (junto a las demás preferencias).
+pub fn save_appearance(file: &Path, a: &Appearance) {
+    save_pref(
+        file,
+        "appearance",
+        serde_json::json!({
+            "font": a.font,
+            "text_scale": a.text_scale,
+            "crisp": a.crisp,
+            "density": density_key(a.density),
+        }),
+    );
+}
+
+/// La apariencia guardada (lo que falte o sea raro, por omisión).
+pub fn load_appearance(file: &Path) -> Appearance {
+    let d = Appearance::default();
+    let v = std::fs::read_to_string(file)
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| v.get("appearance").cloned());
+    let Some(v) = v else { return d };
+    let font = v.get("font").and_then(|x| x.as_str()).map(|f| f.chars().take(200).collect()).unwrap_or(d.font);
+    let text_scale = v.get("text_scale").and_then(serde_json::Value::as_u64).map_or(100, |x| x.clamp(90, 130) as u32);
+    let crisp = v.get("crisp").and_then(serde_json::Value::as_bool).unwrap_or(false);
+    let density = match v.get("density").and_then(|x| x.as_str()) {
+        Some("compact") => iurefficient_ui::Density::Compact,
+        Some("dense") => iurefficient_ui::Density::Dense,
+        _ => iurefficient_ui::Density::Comfortable,
+    };
+    Appearance { font, text_scale, crisp, density }
+}
+
 /// Guarda el tema (`system`, `light`, `dark`).
 pub fn save_theme(file: &Path, theme: iurefficient_ui::theme::ThemeMode) {
     use iurefficient_ui::theme::ThemeMode;
@@ -262,6 +326,16 @@ mod tests {
         save_zoom(&f, 1.5);
         save_theme(&f, iurefficient_ui::theme::ThemeMode::Dark);
         assert_eq!(load_theme(&f), iurefficient_ui::theme::ThemeMode::Dark);
+        assert_eq!(load_zoom(&f), 1.5);
+        // La apariencia, también junto a lo demás.
+        let a = Appearance {
+            font: "family:IBM Plex Sans".into(),
+            text_scale: 120,
+            crisp: true,
+            density: iurefficient_ui::Density::Compact,
+        };
+        save_appearance(&f, &a);
+        assert_eq!(load_appearance(&f), a);
         assert_eq!(load_zoom(&f), 1.5);
     }
 

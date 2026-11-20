@@ -23,10 +23,10 @@ eframe = { version = "0.37", default-features = false, features = ["default_font
 # Kit de interfaz de la suite (por ruta, como en IureProject) y editor de documentos (repositorio
 # propio, etiqueta fija).
 iurefficient-ui = { path = "../../iurefficient-ui" }
-iure-doc-ui = { git = "https://github.com/ellaguno/iure-doc", tag = "v0.24.0" }
-iure-doc = { git = "https://github.com/ellaguno/iure-doc", tag = "v0.24.0" }
+iure-doc-ui = { git = "https://github.com/ellaguno/iure-doc", tag = "v0.25.0" }
+iure-doc = { git = "https://github.com/ellaguno/iure-doc", tag = "v0.25.0" }
 # Exportar a HTML, Word y PDF (S1.14; PDF con Typst, Rust puro).
-iure-doc-export = { git = "https://github.com/ellaguno/iure-doc", tag = "v0.24.0", features = ["pdf"] }
+iure-doc-export = { git = "https://github.com/ellaguno/iure-doc", tag = "v0.25.0", features = ["pdf"] }
 # Diagramas exportados como PNG.
 image = { version = "0.25", default-features = false, features = ["png"] }
 thiserror = "2"
@@ -47,7 +47,7 @@ getrandom = "0.3"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Diagramas dibujados en su lugar con el mismo motor que IureDesk (mermaid-svg, mapas mentales,
 # Blitz; Rust puro). Fijado a un commit de IureDesk (público).
-iuredesk-html-view = { git = "https://github.com/ellaguno/iuredesk", rev = "2c516911ffc68d58d2a9c7b51d171d620769607d" }
+iuredesk-html-view = { git = "https://github.com/ellaguno/iuredesk", rev = "3ff5d2ebc4bec90b82f0ea3eb65db8052eb3600f" }
 
 # Llavero (la sesión compartida de la suite, como IureDesk): Secret Service por D-Bus con zbus y
 # cifrado RustCrypto (Rust puro, sin libdbus); administrador de credenciales en Windows; llavero en

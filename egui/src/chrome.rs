@@ -8,7 +8,7 @@ use iurefficient_ui::{Icon, icons, pick, theme};
 use crate::app::EditorApp;
 
 /// Lo que se eligió en el menú ☰ (se hace fuera del menú, con la app libre).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum MenuAct {
     New,
     Open,
@@ -30,6 +30,11 @@ pub(crate) enum MenuAct {
     ZoomOut,
     ZoomReset,
     Theme(iurefficient_ui::theme::ThemeMode),
+    /// Fuente (clave de `FontChoice`).
+    Font(String),
+    TextScale(u32),
+    Crisp(bool),
+    Density(iurefficient_ui::Density),
 }
 
 const NEW: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::N);
@@ -84,7 +89,7 @@ fn item_checked(ui: &mut Ui, label: &str, checked: bool) -> bool {
     resp.clicked()
 }
 
-fn menu(ui: &mut Ui, current: iurefficient_ui::theme::ThemeMode) -> Option<MenuAct> {
+fn menu(ui: &mut Ui, current: iurefficient_ui::theme::ThemeMode, look: &crate::drafts::Appearance) -> Option<MenuAct> {
     use crate::export::Format;
     let mut act = None;
     ui.set_min_width(250.0);
@@ -139,6 +144,53 @@ fn menu(ui: &mut Ui, current: iurefficient_ui::theme::ThemeMode) -> Option<MenuA
                 act = Some(MenuAct::Theme(mode));
             }
         }
+        ui.separator();
+        // Apariencia, como Preferencias › Apariencia de IureDesk e IureProject.
+        use iurefficient_ui::fonts::FontChoice;
+        let desktop = iurefficient_ui::fonts::desktop_font().map(|(f, _)| f);
+        let font_label = |c: &FontChoice| match c {
+            FontChoice::Bundled => pick("Inter (included)", "Inter (incluida)").to_string(),
+            FontChoice::Desktop => match &desktop {
+                Some(d) => format!("{} ({d})", pick("The desktop's", "La del escritorio")),
+                None => pick("The desktop's", "La del escritorio").to_string(),
+            },
+            FontChoice::Family(f) => f.clone(),
+        };
+        let now = FontChoice::from_key(&look.font);
+        ui.menu_button(format!("{}: {}", pick("Font", "Fuente"), font_label(&now)), |ui| {
+            let mut all = vec![FontChoice::Bundled, FontChoice::Desktop];
+            all.extend(iurefficient_ui::fonts::available_families().into_iter().map(FontChoice::Family));
+            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                for c in all {
+                    if item_checked(ui, &font_label(&c), c == now) {
+                        act = Some(MenuAct::Font(c.key()));
+                    }
+                }
+            });
+        });
+        ui.menu_button(format!("{}: {} %", pick("Text size", "Tamaño del texto"), look.text_scale), |ui| {
+            for pct in [90u32, 100, 110, 120, 130] {
+                if item_checked(ui, &format!("{pct} %"), pct == look.text_scale) {
+                    act = Some(MenuAct::TextScale(pct));
+                }
+            }
+        });
+        use iurefficient_ui::Density;
+        let dname = |d: Density| match d {
+            Density::Comfortable => pick("Comfortable", "Cómoda"),
+            Density::Compact => pick("Compact", "Compacta"),
+            Density::Dense => pick("Dense", "Densa"),
+        };
+        ui.menu_button(format!("{}: {}", pick("Density", "Densidad"), dname(look.density)), |ui| {
+            for d in [Density::Comfortable, Density::Compact, Density::Dense] {
+                if item_checked(ui, dname(d), d == look.density) {
+                    act = Some(MenuAct::Density(d));
+                }
+            }
+        });
+        if item_checked(ui, pick("Sharper text", "Nitidez"), look.crisp) {
+            act = Some(MenuAct::Crisp(!look.crisp));
+        }
     });
     egui::CollapsingHeader::new(pick("Help", "Ayuda")).default_open(false).show(ui, |ui| {
         if item(ui, pick("About IureEditor", "Acerca de IureEditor"), None) {
@@ -177,9 +229,10 @@ pub(crate) fn title_bar(app: &mut EditorApp, ui: &mut Ui, chrome: Option<&Window
             }
             let m = icons::icon_button(ui, Icon::Menu, pick("Menu", "Menú"), true);
             let current = app.theme;
+            let look = app.look.clone();
             // Desplegar Archivo, Edición, Ver o Ayuda no cierra el menú; elegir algo, sí.
             egui::Popup::menu(&m).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
-                if let Some(a) = menu(ui, current) {
+                if let Some(a) = menu(ui, current, &look) {
                     act = Some(a);
                     ui.close();
                 }

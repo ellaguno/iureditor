@@ -126,6 +126,12 @@ en los diagramas Mermaid, tema y colores.
 **editar el mapa mental desde el dibujo**: clic en un nodo lo resalta y muestra su barra (rama
 hija, rama hermana, borrar con sus ramas); doble clic lleva a su texto en la lista. Cada acción
 edita la lista y, con la lista a la vista, deja el cursor en la rama nueva para escribir.
+12) **Hecho** (revisión del dueño 2026-11-20, `iure-doc` v0.25.0): **Ver › Apariencia** como IureDesk
+e IureProject (fuente: Inter, la del escritorio o una instalada; tamaño del texto 90–130 %; densidad;
+nitidez; recordado); en la lista de un mapa mental (dentro de la cita `> `) Intro sigue la lista y
+**Tab / Mayús+Tab** hacen hija o hermana; **franjas para escribir** antes y después de un diagrama,
+imagen o tabla («Clic para escribir aquí»); **vista previa** del diagrama debajo de su código al
+editarlo (queda el último dibujo bueno mientras se redibuja); líneas **curvas** en el mapa radial.
 
 **Alfas** (cuando se cumpla lo anterior; convive con la 1.x): etiqueta `egui-vX.Y.Z-alpha.N` → `release-egui.yml`
 compila Linux (`.tar.gz` con `instalar.sh`), Windows (`.zip`) y macOS universal (`.app` en

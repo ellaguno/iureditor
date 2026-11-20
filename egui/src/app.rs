@@ -110,6 +110,8 @@ pub struct EditorApp {
     clicked_link: Option<String>,
     /// Tema elegido en Ver (el del sistema por omisión).
     pub(crate) theme: iurefficient_ui::theme::ThemeMode,
+    /// Fuente, tamaño del texto, nitidez y densidad (Ver › Apariencia).
+    pub(crate) look: crate::drafts::Appearance,
     /// Zoom del documento (1.0 = 100 %), el mismo para todas las pestañas.
     pub(crate) zoom: f32,
     /// Preferencias guardadas (el zoom; `None` en las pruebas).
@@ -192,6 +194,7 @@ impl EditorApp {
             recovery: Vec::new(),
             zoom: 1.0,
             theme: iurefficient_ui::theme::ThemeMode::System,
+            look: crate::drafts::Appearance::default(),
             prefs: None,
             notes: None,
             clicked_link: None,
@@ -202,6 +205,7 @@ impl EditorApp {
     pub(crate) fn with_prefs(mut self, f: PathBuf) -> Self {
         self.zoom = crate::drafts::load_zoom(&f);
         self.theme = crate::drafts::load_theme(&f);
+        self.look = crate::drafts::load_appearance(&f);
         self.prefs = Some(f);
         self
     }
@@ -785,11 +789,15 @@ impl EditorApp {
             MenuAct::ZoomReset => self.set_zoom(1.0),
             MenuAct::Theme(mode) => {
                 self.theme = mode;
-                iurefficient_ui::theme::apply(ctx, mode, Default::default());
+                iurefficient_ui::theme::apply(ctx, mode, self.look.density);
                 if let Some(f) = &self.prefs {
                     crate::drafts::save_theme(f, mode);
                 }
             }
+            MenuAct::Font(k) => self.set_look(ctx, |l| l.font = k),
+            MenuAct::TextScale(p) => self.set_look(ctx, |l| l.text_scale = p),
+            MenuAct::Crisp(c) => self.set_look(ctx, |l| l.crisp = c),
+            MenuAct::Density(d) => self.set_look(ctx, |l| l.density = d),
             MenuAct::About => {
                 self.info = Some(format!(
                     "IureEditor {} — {}",
@@ -952,6 +960,24 @@ impl EditorApp {
         let at = crate::sidebar::outline(&self.doc().text).into_iter().find(|(_, t, _)| t.to_lowercase() == want);
         if let Some((_, _, at)) = at {
             self.goto(ctx, at);
+        }
+    }
+
+    /// Aplica la apariencia: fuente, nitidez, tema con su densidad y tamaño del texto.
+    fn apply_look(&self, ctx: &egui::Context) {
+        let choice = iurefficient_ui::fonts::FontChoice::from_key(&self.look.font);
+        iurefficient_ui::fonts::set_crisp_text(ctx, self.look.crisp);
+        iurefficient_ui::fonts::install_choice(ctx, &choice);
+        iurefficient_ui::theme::apply(ctx, self.theme, self.look.density);
+        iurefficient_ui::system::set_text_scale(ctx, self.look.text_scale as f32 / 100.0);
+    }
+
+    /// Cambia la apariencia, la aplica y la guarda.
+    fn set_look(&mut self, ctx: &egui::Context, f: impl FnOnce(&mut crate::drafts::Appearance)) {
+        f(&mut self.look);
+        self.apply_look(ctx);
+        if let Some(p) = &self.prefs {
+            crate::drafts::save_appearance(p, &self.look);
         }
     }
 
@@ -1140,8 +1166,7 @@ impl EditorApp {
         if !self.themed {
             self.themed = true;
             // La tipografía de la suite (Inter con sus pesos: los títulos y la negrita se ven).
-            iurefficient_ui::fonts::install_choice(&ctx, &iurefficient_ui::fonts::FontChoice::Bundled);
-            iurefficient_ui::theme::apply(&ctx, self.theme, Default::default());
+            self.apply_look(&ctx);
             iurefficient_ui::system::watch_system_theme(&ctx);
             // Ctrl + / Ctrl − agrandan el documento, no toda la interfaz.
             ctx.options_mut(|o| o.zoom_with_keyboard = false);
@@ -1566,6 +1591,82 @@ mod chrome_tests {
         h.state_mut().follow_link(&ctx, "[[../fuera]]");
         h.run();
         assert!(!dir.path().parent().unwrap().join("fuera.md").exists());
+    }
+
+    /// Mapa mental: clic en el centro del dibujo y «Añadir rama hija» agrega una rama a la lista.
+    #[test]
+    fn the_node_bar_adds_a_child_branch() {
+        use egui_kittest::kittest::Queryable;
+        iurefficient_ui::lang::set_lang(iurefficient_ui::lang::Lang::Es);
+        let text = "Intro\n\n> [!MINDMAP|map] Centro\n> - Uno\n> - Dos\n> - Tres\n> - Cuatro\n";
+        let app = EditorApp::new(Doc { text: text.into(), saved: text.into(), ..Default::default() }, None);
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 700.0))
+            .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app);
+        let mut rect = None;
+        for _ in 0..800 {
+            h.step();
+            rect = h.query_by_label("Diagrama 2").map(|n| n.rect());
+            if rect.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        rect.expect("el mapa se dibujó");
+        // Que se asiente la distribución (las alturas estimadas cambian al dibujar).
+        h.run_steps(10);
+        let r = h.get_by_label("Diagrama 2").rect();
+        let p = r.center();
+        h.event(egui::Event::PointerMoved(p));
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: p,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+        assert!(h.query_by_label("Añadir rama hija").is_some(), "la barra del nodo");
+        h.get_by_label("Añadir rama hija").click();
+        h.run_steps(3);
+        assert!(h.state().doc().text.contains("> - Cuatro\n> - Nueva rama"), "{:?}", h.state().doc().text);
+    }
+
+    /// Con la lista a la vista (debajo): la barra del nodo agrega la rama y deja el cursor en ella.
+    #[test]
+    fn the_node_bar_works_with_the_list_in_view() {
+        use egui_kittest::kittest::Queryable;
+        iurefficient_ui::lang::set_lang(iurefficient_ui::lang::Lang::Es);
+        let text = "Intro\n\n> [!MINDMAP] Centro\n> - Uno\n> - Dos\n> - Tres\n> - Cuatro\n";
+        let app = EditorApp::new(Doc { text: text.into(), saved: text.into(), ..Default::default() }, None);
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 900.0))
+            .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app);
+        for _ in 0..800 {
+            h.step();
+            if h.query_by_label("Dibujo del diagrama").is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        h.run_steps(10);
+        let r = h.get_by_label("Dibujo del diagrama").rect();
+        let p = r.center();
+        h.event(egui::Event::PointerMoved(p));
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: p,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+        assert!(h.query_by_label("Añadir rama hija").is_some(), "la barra del nodo");
+        h.get_by_label("Añadir rama hija").click();
+        h.run_steps(3);
+        assert!(h.state().doc().text.contains("> - Cuatro\n> - Nueva rama"), "{:?}", h.state().doc().text);
     }
 
     /// Zoom: Ctrl + / Ctrl − / Ctrl 0 y la barra de estado (− 100 % +), solo para el documento.
