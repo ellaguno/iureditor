@@ -157,7 +157,8 @@ pub struct Appearance {
 impl Default for Appearance {
     fn default() -> Self {
         Appearance {
-            font: "inter".into(),
+            // La del escritorio, como la 1.x (Inter se ve más ancha y tosca en un documento).
+            font: "system".into(),
             text_scale: 100,
             crisp: false,
             density: iurefficient_ui::Density::Comfortable,

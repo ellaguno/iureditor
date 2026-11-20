@@ -1955,6 +1955,9 @@ mod shot {
         } else {
             text
         };
+        // `IUREDITOR_SHOT_FILE=<ruta>`: un documento propio en vez del de muestra.
+        let text =
+            std::env::var_os("IUREDITOR_SHOT_FILE").and_then(|f| std::fs::read_to_string(f).ok()).unwrap_or(text);
         let doc = Doc { path: Some(dir.join("propuesta.md")), saved: text.clone(), text, mtime: None };
         let mut app = EditorApp::new(doc, None);
         // La barra de título propia (con los botones de la ventana de GNOME).
@@ -2030,7 +2033,9 @@ mod shot {
         // `IUREDITOR_SHOT_LIGHT=1`: tema claro (como las capturas de la 1.x).
         if std::env::var_os("IUREDITOR_SHOT_LIGHT").is_some() {
             h.state_mut().themed = true;
-            iurefficient_ui::fonts::install_choice(&h.ctx, &iurefficient_ui::fonts::FontChoice::Bundled);
+            // `IUREDITOR_SHOT_FONT=inter|system|family:<nombre>` (por omisión, la de la apariencia).
+            let font = std::env::var("IUREDITOR_SHOT_FONT").unwrap_or_else(|_| h.state().look.font.clone());
+            iurefficient_ui::fonts::install_choice(&h.ctx, &iurefficient_ui::fonts::FontChoice::from_key(&font));
             iurefficient_ui::theme::apply(&h.ctx, iurefficient_ui::theme::ThemeMode::Light, Default::default());
         }
         h.run_steps(4);
