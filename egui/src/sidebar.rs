@@ -28,6 +28,7 @@ pub(crate) enum SideTab {
     Search,
     #[default]
     Outline,
+    Links,
     Iurefficient,
 }
 
@@ -51,6 +52,8 @@ pub(crate) enum SideAct {
     PickFolder,
     /// Se renombró un archivo (si está abierto, la pestaña sigue al nombre nuevo).
     Renamed(PathBuf, PathBuf),
+    /// Seguir un enlace `[[…]]` (abrir o crear la nota).
+    Follow(String),
     /// Lo que pide la pestaña Iurefficient.
     Iure(crate::iure::IureAct),
 }
@@ -71,6 +74,8 @@ pub(crate) struct Sidebar {
     pub focus_search: bool,
     /// La pestaña Iurefficient (conexión, proyectos, espejos).
     pub iure: crate::iure::IurePanel,
+    /// La pestaña Enlaces.
+    links: crate::backlinks::LinksPanel,
     /// Nombre que se está escribiendo (archivo o carpeta nuevos, renombrar).
     pub naming: Option<Naming>,
     name_error: Option<String>,
@@ -245,7 +250,7 @@ pub(crate) fn search(root: &Path, query: &str) -> Vec<Hit> {
 }
 
 /// Un renglón del panel que se puede pulsar.
-fn row(ui: &mut Ui, text: &str, indent: f32, selected: bool, muted: bool) -> egui::Response {
+pub(crate) fn row(ui: &mut Ui, text: &str, indent: f32, selected: bool, muted: bool) -> egui::Response {
     let c = theme::colors(ui);
     let w = ui.available_width();
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 26.0), Sense::click());
@@ -409,6 +414,7 @@ impl Sidebar {
         doc: Option<&Path>,
         text: &str,
         caret: Option<usize>,
+        notes: Option<&crate::notes::FolderNotes>,
     ) -> Option<SideAct> {
         let ctx = ui.ctx().clone();
         let c = theme::colors(ui);
@@ -417,13 +423,14 @@ impl Sidebar {
         egui::Panel::left("iureditor-side")
             .frame(frame)
             .resizable(true)
-            .default_size(250.0)
+            .default_size(288.0)
             .size_range(180.0..=480.0)
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     for (t, label) in [
                         (SideTab::Files, pick("Files", "Archivos")),
                         (SideTab::Outline, pick("Outline", "Esquema")),
+                        (SideTab::Links, pick("Links", "Enlaces")),
                         (SideTab::Iurefficient, "Iurefficient"),
                     ] {
                         // «Buscar» vive dentro de Archivos (la lupa), como en la 1.x.
@@ -438,6 +445,11 @@ impl Sidebar {
                 ui.separator();
                 let folder = self.folder(doc);
                 match self.tab {
+                    SideTab::Links => match self.links.show(ui, doc, text, notes) {
+                        Some(crate::backlinks::LinkAct::Open(p, at)) => act = Some(SideAct::Open(p, Some(at))),
+                        Some(crate::backlinks::LinkAct::Follow(l)) => act = Some(SideAct::Follow(l)),
+                        None => {}
+                    },
                     SideTab::Iurefficient => {
                         if let Some(a) = self.iure.show(ui, doc) {
                             act = Some(SideAct::Iure(a));

@@ -811,6 +811,7 @@ impl EditorApp {
                 }
             }
             SideAct::Iure(a) => self.iure_act(a),
+            SideAct::Follow(l) => self.follow_link(ctx, &l),
             SideAct::PickFolder => {
                 let (tx, rx) = mpsc::channel();
                 let start = self.side.folder(self.doc().path.as_deref());
@@ -1177,6 +1178,11 @@ impl EditorApp {
         if let Some(a) = crate::chrome::status_bar(self, ui) {
             self.menu_act(&ctx, a);
         }
+        // Las notas que puede enlazar `[[`: las de la carpeta del panel o del documento.
+        let folder = self.side.folder(self.doc().path.as_deref());
+        if self.notes.as_ref().map(|n| &n.root) != folder.as_ref() {
+            self.notes = folder.map(|f| std::sync::Arc::new(crate::notes::FolderNotes::new(f)));
+        }
         self.side.poll();
         if let Some(a) = self.side.iure.poll() {
             self.iure_act(a);
@@ -1190,14 +1196,10 @@ impl EditorApp {
                 ),
                 None => (None, String::new(), None),
             };
-            if let Some(a) = self.side.show(ui, path.as_deref(), &text, caret) {
+            let notes = self.notes.clone();
+            if let Some(a) = self.side.show(ui, path.as_deref(), &text, caret, notes.as_deref()) {
                 self.side_act(&ctx, a);
             }
-        }
-        // Las notas que puede enlazar `[[`: las de la carpeta del panel o del documento.
-        let folder = self.side.folder(self.doc().path.as_deref());
-        if self.notes.as_ref().map(|n| &n.root) != folder.as_ref() {
-            self.notes = folder.map(|f| std::sync::Arc::new(crate::notes::FolderNotes::new(f)));
         }
         crate::chrome::format_bar(self, ui);
         self.notices(ui);
@@ -1769,6 +1771,20 @@ mod shot {
         });
         let _ = logo.save(dir.join("img/sello.png"));
         let text = text.replacen("\n\n## Pendientes", "\n\n![Sello del despacho](img/sello.png)\n\n## Pendientes", 1);
+        // `IUREDITOR_SHOT_SIDE=links`: notas que enlazan y mencionan la propuesta.
+        let links = std::env::var("IUREDITOR_SHOT_SIDE").as_deref() == Ok("links");
+        let text = if links {
+            let _ = std::fs::write(dir.join("Minuta 12-11.md"), "# Minuta\n\nSe revisó la [[propuesta]] con Ana.\n");
+            let _ = std::fs::write(dir.join("Contrato de arrendamiento.md"), "# Contrato\n");
+            let _ = std::fs::write(dir.join("Pendientes.md"), "- Enviar la propuesta firmada al cliente\n");
+            text.replacen(
+                "falta la aceptacion del cliente.",
+                "falta la aceptacion del cliente. Ver [[Contrato de arrendamiento]] y [[Anexo B]].",
+                1,
+            )
+        } else {
+            text
+        };
         let doc = Doc { path: Some(dir.join("propuesta.md")), saved: text.clone(), text, mtime: None };
         let mut app = EditorApp::new(doc, None);
         // La barra de título propia (con los botones de la ventana de GNOME).
@@ -1784,6 +1800,7 @@ mod shot {
         // `IUREDITOR_SHOT_SIDE=files|iure|login`: esa pestaña del panel lateral.
         match std::env::var("IUREDITOR_SHOT_SIDE").as_deref() {
             Ok("files") => app.side.tab = crate::sidebar::SideTab::Files,
+            Ok("links") => app.side.tab = crate::sidebar::SideTab::Links,
             Ok("login") => {
                 app.side.tab = crate::sidebar::SideTab::Iurefficient;
                 app.side.iure.status = Some(crate::iure::Status::LoggedOut);
@@ -1805,6 +1822,7 @@ mod shot {
                     client_name: Some(c.into()),
                     client_id: None,
                 };
+                app.side.iure.apps = Some((iurefficient_connect::apps::installed(), false));
                 app.side.iure.cases = vec![
                     k("2026-014", "Arrendamiento Altamira", "Inmobiliaria Altamira"),
                     k("2026-021", "Despido injustificado", "Juan Gómez"),

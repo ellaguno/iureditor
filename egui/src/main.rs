@@ -6,6 +6,7 @@
 //! o `iureditor2 --mcp` (servidor MCP por stdio: exportar, convertir, plantillas).
 
 mod app;
+mod backlinks;
 mod chrome;
 mod diagrams;
 mod doc;

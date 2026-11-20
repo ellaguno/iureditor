@@ -45,7 +45,7 @@ impl FolderNotes {
         FolderNotes { root, cache: Mutex::new(None) }
     }
 
-    fn files(&self) -> Vec<PathBuf> {
+    pub(crate) fn files(&self) -> Vec<PathBuf> {
         let Ok(mut c) = self.cache.lock() else { return Vec::new() };
         if let Some((t, f)) = c.as_ref()
             && t.elapsed() < REFRESH

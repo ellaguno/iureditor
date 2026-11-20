@@ -456,6 +456,9 @@ pub(crate) struct IurePanel {
     data: Option<PathBuf>,
     /// Para despertar la ventana cuando responde la red (se toma al dibujar el panel).
     ctx: Option<egui::Context>,
+    /// Apps de la suite: (estado, si ya trae la última versión) y la lectura en curso.
+    pub(crate) apps: Option<(Vec<iurefficient_connect::apps::AppStatus>, bool)>,
+    apps_rx: Option<Receiver<(Vec<iurefficient_connect::apps::AppStatus>, bool)>>,
 }
 
 impl IurePanel {
@@ -640,6 +643,11 @@ impl IurePanel {
         }
         let c = theme::colors(ui);
         let mut act = None;
+        // Las apps de la suite, abajo (como la 1.x).
+        egui::Panel::bottom("iure-apps")
+            .frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(0, 6)))
+            .resizable(false)
+            .show(ui, |ui| self.apps_section(ui));
         match self.status.clone().unwrap_or(Status::Checking) {
             Status::Checking => {
                 ui.label(
@@ -664,6 +672,100 @@ impl IurePanel {
             }
         }
         act
+    }
+
+    /// Lee las apps instaladas (al momento) y luego sus últimas versiones (con red), en otro hilo.
+    fn load_apps(&mut self, ctx: &egui::Context) {
+        if cfg!(test) || self.apps_rx.is_some() {
+            return;
+        }
+        let (tx, rx) = channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send((iurefficient_connect::apps::installed(), false));
+            ctx.request_repaint();
+            if let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                let ua = iurefficient_connect::user_agent("IureEditor", env!("CARGO_PKG_VERSION"));
+                let fut = tokio::time::timeout(Duration::from_secs(20), iurefficient_connect::apps::status(&ua));
+                if let Ok(list) = rt.block_on(fut) {
+                    let _ = tx.send((list, true));
+                    ctx.request_repaint();
+                }
+            }
+        });
+        self.apps_rx = Some(rx);
+    }
+
+    fn apps_section(&mut self, ui: &mut Ui) {
+        let ctx = ui.ctx().clone();
+        let c = theme::colors(ui);
+        if let Some(rx) = &self.apps_rx {
+            for got in rx.try_iter().take(4) {
+                self.apps = Some(got);
+            }
+            if self.apps.as_ref().is_some_and(|(_, net)| *net) {
+                self.apps_rx = None;
+            }
+        }
+        if self.apps.is_none() && self.apps_rx.is_none() {
+            self.load_apps(&ctx);
+        }
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(pick("IUREFFICIENT APPS", "APPS DE IUREFFICIENT")).small().color(c.text_muted));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if icons::icon_button(ui, Icon::Sync, pick("Refresh", "Actualizar"), self.apps_rx.is_none()).clicked() {
+                    self.apps = None;
+                    self.load_apps(&ctx);
+                }
+            });
+        });
+        let Some((list, _)) = self.apps.clone() else {
+            ui.label(
+                RichText::new(pick("Looking for installed apps…", "Buscando apps instaladas…"))
+                    .small()
+                    .color(c.text_muted),
+            );
+            return;
+        };
+        for a in list {
+            ui.horizontal(|ui| {
+                let mut suffix = if a.installed {
+                    pick(" · installed", " · instalada")
+                } else {
+                    pick(" · not installed", " · no instalada")
+                }
+                .to_string();
+                if let Some(v) = &a.latest_version {
+                    suffix.push_str(&format!(" · {} {v}", pick("latest", "última")));
+                }
+                ui.label(RichText::new(a.name).color(c.text)).on_hover_text(a.description);
+                ui.label(RichText::new(suffix).small().color(c.text_muted));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let def = iurefficient_connect::apps::APPS.iter().find(|d| d.id == a.id);
+                    if let Some(d) = def
+                        && icons::icon_button(
+                            ui,
+                            Icon::Hyperlink,
+                            pick("Code and releases on GitHub", "Código y releases en GitHub"),
+                            true,
+                        )
+                        .clicked()
+                    {
+                        ctx.open_url(egui::OpenUrl::new_tab(format!("https://github.com/{}", d.repo)));
+                    }
+                    if a.installed {
+                        if ui.small_button(pick("Open", "Abrir")).clicked()
+                            && let Err(e) = iurefficient_connect::apps::launch(a.id, &[])
+                        {
+                            self.notice = Some((false, format!("{e:#}")));
+                        }
+                    } else if ui.small_button(pick("Download", "Descargar")).clicked() {
+                        ctx.open_url(egui::OpenUrl::new_tab(a.download_url.clone()));
+                    }
+                });
+            });
+        }
     }
 
     fn login_form(&mut self, ui: &mut Ui) {
