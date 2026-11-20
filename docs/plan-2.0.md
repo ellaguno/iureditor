@@ -122,8 +122,10 @@ listas «sueltas» (índices) sin doble espacio; **mapas mentales** radiales por
 con su lista arriba, a la izquierda (`right`) o solo el mapa (`map`), la lista sin estilo de cita, y
 clic derecho sobre el dibujo: distribución, forma, tamaño del centro, colores de las ramas y vista;
 en los diagramas Mermaid, tema y colores.
-**Pendiente:** editar el mapa desde el dibujo (clic en un nodo: hija, hermana, borrar), que pide
-las posiciones de los nodos al dibujante de `iuredesk-html-view`.
+11) **Hecho** (`iure-doc` v0.24.0; `iuredesk-html-view` en la rama `html-view-node-boxes`):
+**editar el mapa mental desde el dibujo**: clic en un nodo lo resalta y muestra su barra (rama
+hija, rama hermana, borrar con sus ramas); doble clic lleva a su texto en la lista. Cada acción
+edita la lista y, con la lista a la vista, deja el cursor en la rama nueva para escribir.
 
 **Alfas** (cuando se cumpla lo anterior; convive con la 1.x): etiqueta `egui-vX.Y.Z-alpha.N` → `release-egui.yml`
 compila Linux (`.tar.gz` con `instalar.sh`), Windows (`.zip`) y macOS universal (`.app` en

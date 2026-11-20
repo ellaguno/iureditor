@@ -56,7 +56,14 @@ impl iure_doc_ui::DiagramRenderer for Diagrams {
             height: px.height as usize,
             rgba: px.rgba,
             points: [px.points.0, px.points.1],
+            // Cada nodo, pulsable: su número es su línea del bloque.
+            hotspots: px.boxes.iter().map(|b| iure_doc_ui::Hotspot { id: b.line, rect: b.rect }).collect(),
         })
+    }
+
+    fn node_action(&self, block: &str, id: usize, action: iure_doc_ui::NodeAction) -> Option<(String, Option<usize>)> {
+        mindmap::find(block).into_iter().next()?;
+        node_edit(block, id, action)
     }
 
     /// Un mapa mental se ve con su lista (arriba, o a la izquierda con `right`), salvo «solo el
@@ -102,6 +109,76 @@ impl iure_doc_ui::DiagramRenderer for Diagrams {
             changed = true;
         }
         changed.then(|| fence_with(block, &diagram::set_options(&code, &opts)))
+    }
+}
+
+/// Sangría (columnas tras `> `), marca y dónde empieza el texto (bytes) de un elemento de la lista
+/// de un mapa en la línea `line`.
+fn item_of(line: &str) -> Option<(usize, String, usize)> {
+    let lead = line.len() - line.trim_start_matches([' ', '\t']).len();
+    let rest = line.get(lead..)?.strip_prefix('>')?;
+    let after_gt = lead + 1 + usize::from(rest.starts_with(' '));
+    let body = line.get(after_gt..)?;
+    let t = body.trim_start_matches(' ');
+    let indent = body.len() - t.len();
+    let marker: String = t.chars().take_while(|c| matches!(c, '-' | '*' | '+')).take(1).collect();
+    if marker.is_empty() || !t.get(1..).is_some_and(|r| r.starts_with(' ')) {
+        return None;
+    }
+    Some((indent, marker, after_gt + indent + 2))
+}
+
+/// Edita la lista de un mapa mental desde su dibujo: rama hija o hermana del nodo de la línea `id`
+/// (después de sus ramas), borrarla con sus ramas, o ir a su texto. Devuelve el bloque y dónde
+/// dejar el cursor (carácter del bloque).
+fn node_edit(block: &str, id: usize, action: iure_doc_ui::NodeAction) -> Option<(String, Option<usize>)> {
+    use iure_doc_ui::NodeAction;
+    let mut lines: Vec<String> = block.split('\n').map(str::to_string).collect();
+    let line = lines.get(id)?.clone();
+    let char_at = |lines: &[String], l: usize, byte: usize| -> usize {
+        lines.iter().take(l).map(|x| x.chars().count() + 1).sum::<usize>()
+            + lines.get(l).and_then(|x| x.get(..byte.min(x.len()))).map_or(0, |p| p.chars().count())
+    };
+    // El nodo: el centro (línea del marcador) o un elemento de la lista.
+    let me = if id == 0 { None } else { Some(item_of(&line)?) };
+    // Fin de sus ramas: las líneas siguientes más sangradas (o, para el centro, toda la lista).
+    let mut end = id + 1;
+    while let Some(l) = lines.get(end) {
+        let deeper = match (&me, item_of(l)) {
+            (None, _) => l.trim_start().starts_with('>'),
+            (Some((ind, _, _)), Some((i2, _, _))) => i2 > *ind,
+            (Some(_), None) => {
+                l.trim_start().starts_with('>') && !l.trim_start().trim_start_matches('>').trim().is_empty()
+            }
+        };
+        if !deeper {
+            break;
+        }
+        end += 1;
+    }
+    let new_label = pick("New branch", "Nueva rama");
+    match action {
+        NodeAction::Goto => {
+            let at = me.as_ref().map_or_else(|| line.find(']').map_or(0, |b| b + 1), |m| m.2);
+            Some((block.to_string(), Some(char_at(&lines, id, at))))
+        }
+        NodeAction::Delete => {
+            me.as_ref()?;
+            lines.drain(id..end);
+            Some((lines.join("\n"), None))
+        }
+        NodeAction::AddChild | NodeAction::AddSibling => {
+            let (indent, marker) = match (&me, action) {
+                (None, _) => (0, "-".to_string()),
+                (Some((i, m, _)), NodeAction::AddChild) => (i + 2, m.clone()),
+                (Some((i, m, _)), _) => (*i, m.clone()),
+            };
+            let new = format!("> {}{marker} {new_label}", " ".repeat(indent));
+            let at = new.len();
+            lines.insert(end, new);
+            let caret = char_at(&lines, end, at);
+            Some((lines.join("\n"), Some(caret)))
+        }
     }
 }
 
@@ -373,6 +450,7 @@ impl iure_doc_ui::DiagramRenderer for Formulas {
             height: img.height as usize,
             rgba: img.rgba,
             points: [img.points.0, img.points.1],
+            hotspots: Vec::new(),
         })
     }
 }
@@ -392,5 +470,27 @@ mod tests {
         let w = mindmap::set_options(b, 0, &o).unwrap();
         assert!(w.contains("layout-both") && w.contains("palette-pastel"), "{w}");
         assert_eq!(fence_with("~~~mermaid\nx\n~~~", "pie\n"), "~~~mermaid\npie\n~~~");
+    }
+
+    #[test]
+    fn nodes_are_edited_from_the_drawing() {
+        use iure_doc_ui::NodeAction as A;
+        iurefficient_ui::lang::set_lang(iurefficient_ui::lang::Lang::Es);
+        let b = "> [!MINDMAP] C\n> - Uno\n>   - Uno.a\n> - Dos";
+        // Hija de «Uno»: después de sus ramas, más sangrada; el cursor al final.
+        let (t, c) = node_edit(b, 1, A::AddChild).unwrap();
+        assert_eq!(t, "> [!MINDMAP] C\n> - Uno\n>   - Uno.a\n>   - Nueva rama\n> - Dos");
+        assert_eq!(c, Some(t.find("Nueva rama").map(|i| t[..i].chars().count() + 10).unwrap()));
+        // Hermana de «Uno»: después de todo su subárbol, misma sangría.
+        let (t, _) = node_edit(b, 1, A::AddSibling).unwrap();
+        assert_eq!(t, "> [!MINDMAP] C\n> - Uno\n>   - Uno.a\n> - Nueva rama\n> - Dos");
+        // Del centro: rama de primer nivel al final.
+        let (t, _) = node_edit(b, 0, A::AddChild).unwrap();
+        assert!(t.ends_with("> - Dos\n> - Nueva rama"), "{t}");
+        // Borrar «Uno» se lleva sus ramas; el centro no se borra.
+        assert_eq!(node_edit(b, 1, A::Delete).map(|x| x.0).as_deref(), Some("> [!MINDMAP] C\n> - Dos"));
+        assert_eq!(node_edit(b, 0, A::Delete), None);
+        // Ir al texto de «Dos».
+        assert_eq!(node_edit(b, 3, A::Goto).and_then(|x| x.1), Some(b.find("Dos").unwrap()));
     }
 }

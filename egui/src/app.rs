@@ -1954,6 +1954,24 @@ mod shot {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         h.run_steps(2);
+        // `IUREDITOR_SHOT_NODE=1` (con `IUREDITOR_SHOT_MAP=map`): clic en el centro del mapa.
+        if std::env::var_os("IUREDITOR_SHOT_NODE").is_some() {
+            use egui_kittest::kittest::Queryable;
+            let rect = h.query_by_label("Diagrama 2").map(|n| n.rect());
+            if let Some(r) = rect {
+                let p = r.center();
+                h.event(egui::Event::PointerMoved(p));
+                for pressed in [true, false] {
+                    h.event(egui::Event::PointerButton {
+                        pos: p,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    });
+                }
+                h.run_steps(3);
+            }
+        }
         // `IUREDITOR_SHOT_SLASH=1`: el menú de `/` al final del título.
         // `IUREDITOR_SHOT_FIND=1`: la barra de buscar y reemplazar (Ctrl+H) con «honor».
         for (var, keys) in [("IUREDITOR_SHOT_SLASH", " /dia"), ("IUREDITOR_SHOT_FIND", "honor")] {
