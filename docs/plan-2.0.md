@@ -100,8 +100,12 @@ Ctrl+clic para abrir el enlace (crea la nota si no existe; `#título` lleva al t
 web van al navegador), selector **Plantilla…** con las 21 plantillas Mermaid de la 1.x en los
 bloques de diagrama, **barra de buscar/reemplazar** en franja como la 1.x (contador `1/5`, flechas,
 Aa, «Reemplazar…», cerrar). Pegar ya no toma un HTML viejo del portapapeles (GNOME).
-**Siguiente:** apps de la suite en la pestaña Iurefficient, panel de enlaces (retroenlaces),
-asistente, fórmulas, avisos con estilo, color y resaltado.
+7) **Hecho**: pestaña **Enlaces** (entrantes, salientes —los que no existen en gris; clic los
+crea— y menciones sin enlazar), **apps de la suite** al pie de la pestaña Iurefficient (instalada o
+no, última versión, Abrir/Descargar, GitHub) y **avisos con estilo** (`iure-doc` v0.20.0: fondo y
+barra del color del tipo, «Nota», «Consejo»… en vez de `[!TIPO]` fuera de su línea).
+**Siguiente:** fórmulas dibujadas (LaTeX → Typst, también en el PDF), color y resaltado de texto,
+asistente.
 
 **Alfas** (cuando se cumpla lo anterior; convive con la 1.x): etiqueta `egui-vX.Y.Z-alpha.N` → `release-egui.yml`
 compila Linux (`.tar.gz` con `instalar.sh`), Windows (`.zip`) y macOS universal (`.app` en
