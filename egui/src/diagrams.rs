@@ -80,6 +80,7 @@ impl iure_doc_ui::DiagramRenderer for Diagrams {
     }
 
     fn menu(&self, ui: &mut egui::Ui, block: &str) -> Option<String> {
+        export_items(ui, block, &self.style, self.background);
         if let Some(map) = mindmap::find(block).into_iter().next() {
             return map_menu(ui, block, map.options);
         }
@@ -180,6 +181,37 @@ fn node_edit(block: &str, id: usize, action: iure_doc_ui::NodeAction) -> Option<
             Some((lines.join("\n"), Some(caret)))
         }
     }
+}
+
+/// «Exportar como PNG…» y «Exportar como SVG…» (como IureEditor 1.x): el diálogo de guardar y el
+/// dibujo van en otro hilo.
+fn export_items(ui: &mut egui::Ui, block: &str, style: &NoteStyle, bg: [u8; 3]) {
+    for (png, label) in
+        [(true, pick("Export as PNG…", "Exportar como PNG…")), (false, pick("Export as SVG…", "Exportar como SVG…"))]
+    {
+        if ui.button(label).clicked() {
+            let (block, style) = (block.to_string(), style.clone());
+            let name = if png { pick("diagram.png", "diagrama.png") } else { pick("diagram.svg", "diagrama.svg") };
+            std::thread::spawn(move || {
+                let ext = if png { "png" } else { "svg" };
+                let Some(path) = rfd::FileDialog::new().set_file_name(name).add_filter(ext, &[ext]).save_file() else {
+                    return;
+                };
+                let data = if png {
+                    diagram::draw_block(&block, &style, Layout::Radial, 2.0, bg)
+                        .ok()
+                        .and_then(|p| diagram::encode_png(p.width, p.height, &p.rgba))
+                } else {
+                    diagram::block_svg(&block, &style, Layout::Radial).ok().map(String::into_bytes)
+                };
+                if let Some(d) = data {
+                    let _ = std::fs::write(path, d);
+                }
+            });
+            ui.close();
+        }
+    }
+    ui.separator();
 }
 
 /// Las palabras del metadato de un mapa (`> [!MINDMAP|map right] …`).
