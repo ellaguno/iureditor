@@ -48,8 +48,8 @@ impl iure_doc_ui::DiagramRenderer for Diagrams {
     }
 
     fn render(&self, block: &str, scale: f32) -> Result<iure_doc_ui::DiagramImage, String> {
-        // Los mapas sin distribución propia, como la 1.x: radial (ramas alrededor del centro).
-        let px = diagram::draw_block(block, &self.style, Layout::Radial, scale, self.background)
+        // Los mapas sin distribución propia: a ambos lados del centro (la radial se ve caótica).
+        let px = diagram::draw_block(block, &self.style, DEFAULT_LAYOUT, scale, self.background)
             .map_err(|e| pick(&e.en, &e.es).to_string())?;
         Ok(iure_doc_ui::DiagramImage {
             width: px.width as usize,
@@ -198,11 +198,11 @@ fn export_items(ui: &mut egui::Ui, block: &str, style: &NoteStyle, bg: [u8; 3]) 
                     return;
                 };
                 let data = if png {
-                    diagram::draw_block(&block, &style, Layout::Radial, 2.0, bg)
+                    diagram::draw_block(&block, &style, DEFAULT_LAYOUT, 2.0, bg)
                         .ok()
                         .and_then(|p| diagram::encode_png(p.width, p.height, &p.rgba))
                 } else {
-                    diagram::block_svg(&block, &style, Layout::Radial).ok().map(String::into_bytes)
+                    diagram::block_svg(&block, &style, DEFAULT_LAYOUT).ok().map(String::into_bytes)
                 };
                 if let Some(d) = data {
                     let _ = std::fs::write(path, d);
@@ -246,7 +246,7 @@ fn map_menu(ui: &mut egui::Ui, block: &str, o: mindmap::MapOptions) -> Option<St
     let mut opts = o;
     let mut changed = false;
     let layouts: Vec<Option<Layout>> = std::iter::once(None).chain(Layout::ALL.map(Some)).collect();
-    let label = |l: Option<Layout>| l.map_or(pick("Radial (default)", "Radial (omisión)"), layout_label);
+    let label = |l: Option<Layout>| l.map_or(pick("Both sides (default)", "A ambos lados (omisión)"), layout_label);
     if let Some(l) = choose(ui, pick("Layout", "Distribución"), opts.layout, &layouts, label) {
         opts.layout = l;
         changed = true;
@@ -365,6 +365,9 @@ fn swatches(ui: &mut egui::Ui, current: Option<[u8; 3]>) -> Option<Option<[u8; 3
     }
     out
 }
+
+/// Distribución de un mapa mental que no dice la suya (decisión del dueño 2026-11-20).
+const DEFAULT_LAYOUT: Layout = Layout::Balanced;
 
 fn layout_label(l: Layout) -> &'static str {
     match l {
