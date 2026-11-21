@@ -941,12 +941,9 @@ impl EditorApp {
                 }
             }
             MenuAct::SourceCode => self.source = !self.source,
+            // Solo los números: se ven con el texto con formato y en el código fuente.
             MenuAct::LineNumbers => {
                 self.line_numbers = !self.line_numbers;
-                // Los números se ven en el código fuente.
-                if self.line_numbers {
-                    self.source = true;
-                }
                 self.save_pref("line_numbers", serde_json::json!(self.line_numbers));
             }
             MenuAct::PageWidth(w) => {
@@ -1684,7 +1681,9 @@ impl EditorApp {
                     notes: notes.map(|n| n as std::sync::Arc<dyn iure_doc_ui::NoteIndex>),
                     math: Some(std::sync::Arc::new(crate::diagrams::Formulas::inline(ui, self.zoom * DOC_SCALE))),
                     page: Some(page.ems()),
-                    gutter: Some(28.0),
+                    // Con números de línea, un margen más ancho para que quepan.
+                    gutter: Some(if line_numbers { 44.0 } else { 28.0 }),
+                    line_numbers,
                 };
                 // La columna de documento la pone el editor.
                 let out = iure_doc_ui::show_blocks_hooks(
@@ -2589,6 +2588,11 @@ mod shot {
                 // Lo que se despliega se anima: se espera a que termine.
                 h.run_steps(30);
             }
+        }
+        // `IUREDITOR_SHOT_LINES=1`: con números de línea.
+        if std::env::var_os("IUREDITOR_SHOT_LINES").is_some() {
+            h.state_mut().line_numbers = true;
+            h.run_steps(2);
         }
         // `IUREDITOR_SHOT_ABOUT=1`: Acerca de.
         if std::env::var_os("IUREDITOR_SHOT_ABOUT").is_some() {
