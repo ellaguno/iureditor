@@ -23,10 +23,10 @@ eframe = { version = "0.37", default-features = false, features = ["default_font
 # Kit de interfaz de la suite (por ruta, como en IureProject) y editor de documentos (repositorio
 # propio, etiqueta fija).
 iurefficient-ui = { path = "../../iurefficient-ui" }
-iure-doc-ui = { git = "https://github.com/ellaguno/iure-doc", tag = "v0.28.0" }
-iure-doc = { git = "https://github.com/ellaguno/iure-doc", tag = "v0.28.0" }
+iure-doc-ui = { git = "https://github.com/ellaguno/iure-doc", tag = "v0.29.0" }
+iure-doc = { git = "https://github.com/ellaguno/iure-doc", tag = "v0.29.0" }
 # Exportar a HTML, Word y PDF (S1.14; PDF con Typst, Rust puro).
-iure-doc-export = { git = "https://github.com/ellaguno/iure-doc", tag = "v0.28.0", features = ["pdf"] }
+iure-doc-export = { git = "https://github.com/ellaguno/iure-doc", tag = "v0.29.0", features = ["pdf"] }
 # Diagramas exportados como PNG.
 image = { version = "0.25", default-features = false, features = ["png"] }
 thiserror = "2"
@@ -39,6 +39,9 @@ anyhow = "1"
 tokio = { version = "1", default-features = false, features = ["rt", "time"] }
 serde = { version = "1", features = ["derive"] }
 keyring = { version = "3", default-features = false }
+# Ayuda › Buscar actualizaciones (el `latest.json` de GitHub; rustls, el mismo que trae
+# iurefficient-connect).
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 # Plantillas: carpeta de datos (la de la versión Tauri) y la fecha local.
 dirs = "6"
 # Enlaces `iureditor://` y una sola ventana (token del socket local).

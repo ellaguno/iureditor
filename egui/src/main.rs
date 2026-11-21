@@ -13,13 +13,16 @@ mod diagrams;
 mod doc;
 mod drafts;
 mod export;
+mod help;
 mod instance;
 mod iure;
 mod links;
 mod mcp;
 mod notes;
+mod palette;
 mod sidebar;
 mod templates;
+mod updates;
 
 use std::process::ExitCode;
 

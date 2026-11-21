@@ -122,7 +122,7 @@ pub fn prefs_file() -> Option<PathBuf> {
 }
 
 /// Cambia una preferencia y deja las demás.
-fn save_pref(file: &Path, key: &str, value: serde_json::Value) {
+pub(crate) fn save_pref(file: &Path, key: &str, value: serde_json::Value) {
     if let Some(dir) = file.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
@@ -230,6 +230,120 @@ pub fn load_theme(file: &Path) -> iurefficient_ui::theme::ThemeMode {
         Some("dark") => ThemeMode::Dark,
         _ => ThemeMode::System,
     }
+}
+
+/// Ver › Ancho de página (como la 1.x; «Medio» por omisión).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum PageWidth {
+    #[default]
+    Medium,
+    Wide,
+    Full,
+}
+
+impl PageWidth {
+    pub(crate) fn key(self) -> &'static str {
+        match self {
+            PageWidth::Medium => "medium",
+            PageWidth::Wide => "wide",
+            PageWidth::Full => "full",
+        }
+    }
+
+    pub(crate) fn from_key(k: &str) -> Self {
+        match k {
+            "wide" => PageWidth::Wide,
+            "full" => PageWidth::Full,
+            _ => PageWidth::Medium,
+        }
+    }
+
+    /// El siguiente (Ctrl+Mayús+A).
+    pub(crate) fn next(self) -> Self {
+        match self {
+            PageWidth::Medium => PageWidth::Wide,
+            PageWidth::Wide => PageWidth::Full,
+            PageWidth::Full => PageWidth::Medium,
+        }
+    }
+
+    /// Ancho de la columna del editor, en «em».
+    pub(crate) fn ems(self) -> f32 {
+        match self {
+            PageWidth::Medium => iure_doc_ui::PAGE_MEDIUM,
+            PageWidth::Wide => iure_doc_ui::PAGE_WIDE,
+            PageWidth::Full => iure_doc_ui::PAGE_FULL,
+        }
+    }
+}
+
+/// Ver › Idioma: el del sistema o uno fijo.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum LangPref {
+    #[default]
+    Auto,
+    En,
+    Es,
+}
+
+impl LangPref {
+    pub(crate) fn key(self) -> &'static str {
+        match self {
+            LangPref::Auto => "auto",
+            LangPref::En => "en",
+            LangPref::Es => "es",
+        }
+    }
+
+    pub(crate) fn from_key(k: &str) -> Self {
+        match k {
+            "en" => LangPref::En,
+            "es" => LangPref::Es,
+            _ => LangPref::Auto,
+        }
+    }
+
+    /// El idioma de la interfaz que resulta.
+    pub(crate) fn lang(self) -> iurefficient_ui::lang::Lang {
+        match self {
+            LangPref::Auto => iurefficient_ui::lang::detect(),
+            LangPref::En => iurefficient_ui::lang::Lang::En,
+            LangPref::Es => iurefficient_ui::lang::Lang::Es,
+        }
+    }
+}
+
+/// Una preferencia guardada (`None` si no hay archivo o clave).
+pub(crate) fn load_pref(file: &Path, key: &str) -> Option<serde_json::Value> {
+    if std::fs::metadata(file).ok()?.len() > MAX_BYTES {
+        return None;
+    }
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(file).ok()?).ok()?;
+    v.get(key).cloned()
+}
+
+/// Archivos abiertos hace poco (el más reciente primero), como «Recientes» de la 1.x.
+pub(crate) const MAX_RECENT: usize = 12;
+
+/// Los recientes guardados que todavía existen.
+pub(crate) fn load_recent(file: &Path) -> Vec<PathBuf> {
+    load_pref(file, "recent")
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|x| x.as_str().map(PathBuf::from))
+        .filter(|p| p.is_file())
+        .take(MAX_RECENT)
+        .collect()
+}
+
+/// Pone `path` al principio de los recientes y los guarda.
+pub(crate) fn push_recent(file: &Path, list: &mut Vec<PathBuf>, path: &Path) {
+    list.retain(|p| p != path);
+    list.insert(0, path.to_path_buf());
+    list.truncate(MAX_RECENT);
+    let v: Vec<String> = list.iter().map(|p| p.display().to_string()).collect();
+    save_pref(file, "recent", serde_json::json!(v));
 }
 
 /// El zoom guardado (100 % si no hay o es raro).

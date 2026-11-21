@@ -116,6 +116,26 @@ pub struct EditorApp {
     pub(crate) zoom: f32,
     /// Preferencias guardadas (el zoom; `None` en las pruebas).
     prefs: Option<PathBuf>,
+    /// Ver › Ancho de página.
+    pub(crate) page: crate::drafts::PageWidth,
+    /// Ver › Corrector ortográfico.
+    pub(crate) spell_on: bool,
+    /// Ver › Código fuente (el Markdown tal cual) y sus números de línea.
+    pub(crate) source: bool,
+    pub(crate) line_numbers: bool,
+    /// Ver › Idioma.
+    pub(crate) lang: crate::drafts::LangPref,
+    /// Archivo › Recientes (el más reciente primero).
+    pub(crate) recent: Vec<PathBuf>,
+    /// Edición › Ir a línea: lo escrito en el cuadro abierto.
+    goto_line: Option<String>,
+    /// Paleta de comandos o «Ir a nota» abierta.
+    palette: Option<crate::palette::Palette>,
+    /// Ayuda › Acerca de.
+    about: bool,
+    /// Ayuda › Buscar actualizaciones: la búsqueda en curso y su resultado.
+    updating: Option<mpsc::Receiver<crate::updates::Check>>,
+    update: Option<crate::updates::Check>,
 }
 
 /// Espera tras el último cambio antes de escribir el borrador (como IureEditor Tauri).
@@ -198,6 +218,17 @@ impl EditorApp {
             prefs: None,
             notes: None,
             clicked_link: None,
+            page: crate::drafts::PageWidth::default(),
+            spell_on: true,
+            source: false,
+            line_numbers: false,
+            lang: crate::drafts::LangPref::default(),
+            recent: Vec::new(),
+            goto_line: None,
+            palette: None,
+            about: false,
+            updating: None,
+            update: None,
         }
     }
 
@@ -206,8 +237,49 @@ impl EditorApp {
         self.zoom = crate::drafts::load_zoom(&f);
         self.theme = crate::drafts::load_theme(&f);
         self.look = crate::drafts::load_appearance(&f);
+        let key = |k: &str| crate::drafts::load_pref(&f, k);
+        self.page =
+            key("page_width").and_then(|v| v.as_str().map(crate::drafts::PageWidth::from_key)).unwrap_or_default();
+        self.spell_on = key("spellcheck").and_then(|v| v.as_bool()).unwrap_or(true);
+        self.line_numbers = key("line_numbers").and_then(|v| v.as_bool()).unwrap_or(false);
+        self.lang = key("language").and_then(|v| v.as_str().map(crate::drafts::LangPref::from_key)).unwrap_or_default();
+        iurefficient_ui::lang::set_lang(self.lang.lang());
+        self.recent = crate::drafts::load_recent(&f);
         self.prefs = Some(f);
         self
+    }
+
+    /// Guarda una preferencia (si hay archivo de preferencias).
+    fn save_pref(&self, key: &str, v: serde_json::Value) {
+        if let Some(f) = &self.prefs {
+            crate::drafts::save_pref(f, key, v);
+        }
+    }
+
+    /// Anota un archivo en Recientes.
+    fn remember(&mut self, path: &std::path::Path) {
+        if let Some(f) = self.prefs.clone() {
+            crate::drafts::push_recent(&f, &mut self.recent, path);
+        } else {
+            self.recent.retain(|p| p != path);
+            self.recent.insert(0, path.to_path_buf());
+            self.recent.truncate(crate::drafts::MAX_RECENT);
+        }
+    }
+
+    /// Los nombres de las plantillas (crea la carpeta con las de arranque si no existe).
+    pub(crate) fn template_names(&self) -> Vec<String> {
+        crate::templates::dir()
+            .map(|d| {
+                crate::templates::ensure(&d);
+                crate::templates::list(&d)
+            })
+            .unwrap_or_default()
+    }
+
+    /// El id del editor de la pestaña activa.
+    fn editor_id(&self) -> Option<egui::Id> {
+        self.tabs.get(self.active).map(|t| egui::Id::unique(("iureditor-doc", t.id)))
     }
 
     /// Cambia el zoom del documento (acotado) y lo guarda.
@@ -286,7 +358,10 @@ impl EditorApp {
             return;
         }
         match Doc::open(path) {
-            Ok(d) => self.push_tab(d),
+            Ok(d) => {
+                self.push_tab(d);
+                self.remember(path);
+            }
             Err(e) => self.notice = Some(e.human(path)),
         }
     }
@@ -474,6 +549,7 @@ impl EditorApp {
     fn after_save(&mut self) {
         if let Some(p) = self.doc().path.clone() {
             self.side.iure.after_save(&p);
+            self.remember(&p);
         }
     }
 
@@ -780,10 +856,6 @@ impl EditorApp {
                 self.side.tab = crate::sidebar::SideTab::Search;
                 self.side.focus_search = true;
             }
-            MenuAct::Outline => {
-                self.side.open = true;
-                self.side.tab = crate::sidebar::SideTab::Outline;
-            }
             MenuAct::ZoomIn => self.set_zoom(iure_doc_ui::zoom_step(self.zoom, true)),
             MenuAct::ZoomOut => self.set_zoom(iure_doc_ui::zoom_step(self.zoom, false)),
             MenuAct::ZoomReset => self.set_zoom(1.0),
@@ -798,15 +870,238 @@ impl EditorApp {
             MenuAct::TextScale(p) => self.set_look(ctx, |l| l.text_scale = p),
             MenuAct::Crisp(c) => self.set_look(ctx, |l| l.crisp = c),
             MenuAct::Density(d) => self.set_look(ctx, |l| l.density = d),
-            MenuAct::About => {
-                self.info = Some(format!(
-                    "IureEditor {} — {}",
-                    env!("CARGO_PKG_VERSION"),
-                    pick(
-                        "Markdown document editor of the Iurefficient suite.",
-                        "Editor de documentos Markdown de la suite Iurefficient."
-                    )
-                ));
+            MenuAct::About => self.about = true,
+            MenuAct::Side(tab) => {
+                if self.side.open && self.side.tab == tab {
+                    self.side.open = false;
+                } else {
+                    self.side.open = true;
+                    self.side.tab = tab;
+                }
+            }
+            MenuAct::OpenFolder => self.side_act(ctx, crate::sidebar::SideAct::PickFolder),
+            MenuAct::FromTemplate(name) => {
+                let filled = crate::templates::dir()
+                    .ok_or_else(|| pick("No data folder.", "No hay carpeta de datos.").to_string())
+                    .and_then(|d| crate::templates::fill(&d, &name, &[], crate::templates::today()));
+                match filled {
+                    Ok(text) => self.push_tab(Doc { path: None, saved: String::new(), text, mtime: None }),
+                    Err(e) => self.notice = Some(e),
+                }
+            }
+            MenuAct::OpenTemplatesFolder => {
+                if let Some(d) = crate::templates::dir() {
+                    crate::templates::ensure(&d);
+                    ctx.open_url(egui::OpenUrl::new_tab(format!("file://{}", d.display())));
+                }
+            }
+            MenuAct::OpenRecent(p) => self.open_path(&p),
+            MenuAct::QuickSwitcher => {
+                let root = self.side.folder(self.doc().path.as_deref());
+                match (root, self.notes.clone()) {
+                    (Some(r), Some(n)) => self.palette = Some(crate::palette::Palette::notes(&r, &n.files())),
+                    _ => {
+                        self.notice = Some(
+                            pick(
+                                "Open a folder or save the document to find its notes.",
+                                "Abre una carpeta o guarda el documento para buscar sus notas.",
+                            )
+                            .to_string(),
+                        );
+                    }
+                }
+            }
+            MenuAct::CommandPalette => self.palette = Some(crate::palette::Palette::commands()),
+            MenuAct::Find | MenuAct::Replace => {
+                self.source = false;
+                if let (Some(id), Some(t)) = (self.editor_id(), self.tabs.get(self.active)) {
+                    iure_doc_ui::open_find(ctx, id, &t.doc.text, matches!(a, MenuAct::Replace));
+                }
+            }
+            MenuAct::GotoLine => self.goto_line = Some(String::new()),
+            MenuAct::InsertToc => {
+                let toc = toc_of(&self.doc().text);
+                if toc.is_empty() {
+                    self.notice =
+                        Some(pick("The document has no headings.", "El documento no tiene títulos.").to_string());
+                } else {
+                    self.apply_to_active(ctx, iure_doc_ui::ExternalEdit::Insert(toc));
+                }
+            }
+            MenuAct::SelectAll => {
+                if let (Some(id), Some(t)) = (self.editor_id(), self.tabs.get(self.active)) {
+                    iure_doc_ui::select_all(ctx, id, &t.doc.text);
+                }
+            }
+            MenuAct::SourceCode => self.source = !self.source,
+            MenuAct::LineNumbers => {
+                self.line_numbers = !self.line_numbers;
+                // Los números se ven en el código fuente.
+                if self.line_numbers {
+                    self.source = true;
+                }
+                self.save_pref("line_numbers", serde_json::json!(self.line_numbers));
+            }
+            MenuAct::PageWidth(w) => {
+                self.page = w;
+                self.save_pref("page_width", serde_json::json!(w.key()));
+            }
+            MenuAct::Spellcheck(on) => {
+                self.spell_on = on;
+                self.save_pref("spellcheck", serde_json::json!(on));
+            }
+            MenuAct::Language(l) => {
+                self.lang = l;
+                iurefficient_ui::lang::set_lang(l.lang());
+                self.save_pref("language", serde_json::json!(l.key()));
+                ctx.request_repaint();
+            }
+            MenuAct::Help => match crate::drafts::data_dir().map(|d| d.join("ayuda")) {
+                Some(dir) => match crate::help::write_to(&dir) {
+                    Ok(p) => self.open_path(&p),
+                    Err(e) => {
+                        self.notice =
+                            Some(format!("{} ({e})", pick("Could not open the help", "No se pudo abrir la ayuda")))
+                    }
+                },
+                None => self.notice = Some(pick("No data folder.", "No hay carpeta de datos.").to_string()),
+            },
+            MenuAct::Url(u) => ctx.open_url(egui::OpenUrl::new_tab(u)),
+            MenuAct::CheckUpdates => {
+                if self.updating.is_none() {
+                    self.update = None;
+                    self.updating = Some(crate::updates::start());
+                }
+                self.about = true;
+            }
+        }
+    }
+
+    /// Los cuadros de la app: ir a línea, paleta, acerca de (con la búsqueda de actualizaciones).
+    fn dialogs(&mut self, ctx: &egui::Context) {
+        if let Some(rx) = &self.updating {
+            match rx.try_recv() {
+                Ok(c) => {
+                    self.update = Some(c);
+                    self.updating = None;
+                }
+                Err(mpsc::TryRecvError::Disconnected) => self.updating = None,
+                Err(mpsc::TryRecvError::Empty) => ctx.request_repaint_after(std::time::Duration::from_millis(200)),
+            }
+        }
+        if let Some(mut p) = self.palette.take() {
+            match crate::palette::show(ctx, &mut p) {
+                None => self.palette = Some(p),
+                Some(Some(a)) => self.menu_act(ctx, a),
+                Some(None) => {}
+            }
+        }
+        if let Some(mut q) = self.goto_line.take() {
+            let mut keep = true;
+            let mut go = None;
+            let lines = self.doc().text.split('\n').count();
+            egui::Window::new(pick("Go to line", "Ir a línea"))
+                .id(egui::Id::unique("iureditor-goto"))
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_TOP, [0.0, 80.0])
+                .show(ctx, |ui| {
+                    ui.label(format!("{} (1–{lines})", pick("Line number", "Número de línea")));
+                    let r = ui.add(egui::TextEdit::singleline(&mut q).desired_width(160.0));
+                    r.request_focus();
+                    let (enter, esc) = ui.input_mut(|i| {
+                        (i.consume_key(Modifiers::NONE, Key::Enter), i.consume_key(Modifiers::NONE, Key::Escape))
+                    });
+                    ui.horizontal(|ui| {
+                        if ui.button(pick("Go", "Ir")).clicked() || enter {
+                            go = q.trim().parse::<usize>().ok();
+                            keep = false;
+                        }
+                        if ui.button(pick("Cancel", "Cancelar")).clicked() || esc {
+                            keep = false;
+                        }
+                    });
+                });
+            if let Some(n) = go {
+                let n = n.clamp(1, lines.max(1));
+                let at: usize = self.doc().text.split('\n').take(n - 1).map(|l| l.chars().count() + 1).sum();
+                self.source = false;
+                self.goto(ctx, at);
+            }
+            if keep {
+                self.goto_line = Some(q);
+            }
+        }
+        if self.about {
+            let mut open = true;
+            let mut download = false;
+            let mut check = false;
+            egui::Window::new(pick("About IureEditor", "Acerca de IureEditor"))
+                .id(egui::Id::unique("iureditor-about"))
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    let c = iurefficient_ui::theme::colors(ui);
+                    ui.set_width(360.0);
+                    ui.vertical_centered(|ui| {
+                        ui.label(egui::RichText::new("IureEditor").size(22.0).strong());
+                        ui.label(format!("{} {}", pick("Version", "Versión"), env!("CARGO_PKG_VERSION")));
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new(pick(
+                                "Markdown document editor of the Iurefficient suite, written in Rust.",
+                                "Editor de documentos Markdown de la suite Iurefficient, escrito en Rust.",
+                            ))
+                            .color(c.text_muted),
+                        );
+                        ui.add_space(6.0);
+                        ui.label("© Eduardo Llaguno Velasco · Apache-2.0");
+                        ui.hyperlink_to("iurefficient.com", "https://iurefficient.com");
+                        ui.add_space(8.0);
+                        use crate::updates::Check;
+                        match (&self.updating, &self.update) {
+                            (Some(_), _) => {
+                                ui.horizontal(|ui| {
+                                    ui.spinner();
+                                    ui.label(pick("Checking for updates…", "Buscando actualizaciones…"));
+                                });
+                            }
+                            (None, Some(Check::UpToDate)) => {
+                                ui.label(pick("You have the latest version.", "Tienes la versión más reciente."));
+                            }
+                            (None, Some(Check::Newer(v))) => {
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "{} {v}.",
+                                        pick("A new version is available:", "Hay una versión nueva:")
+                                    ))
+                                    .strong(),
+                                );
+                                if ui.button(pick("Download…", "Descargar…")).clicked() {
+                                    download = true;
+                                }
+                            }
+                            (None, Some(Check::Failed(e))) => {
+                                ui.label(egui::RichText::new(e.as_str()).color(c.text_muted));
+                            }
+                            (None, None) => {
+                                if ui.button(pick("Check for updates…", "Buscar actualizaciones…")).clicked() {
+                                    check = true;
+                                }
+                            }
+                        }
+                    });
+                });
+            if download {
+                ctx.open_url(egui::OpenUrl::new_tab(crate::updates::RELEASES));
+            }
+            if check {
+                self.menu_act(ctx, crate::chrome::MenuAct::CheckUpdates);
+            }
+            if !open || ctx.input(|i| i.key_pressed(Key::Escape)) {
+                self.about = false;
             }
         }
     }
@@ -939,6 +1234,11 @@ impl EditorApp {
             }
             return;
         }
+        // `[texto](#ancla)`: un título de este documento.
+        if let Some(anchor) = link.strip_prefix('#') {
+            self.goto_heading(ctx, anchor);
+            return;
+        }
         let lower = link.to_ascii_lowercase();
         if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:") {
             ctx.open_url(egui::OpenUrl::new_tab(link));
@@ -957,7 +1257,11 @@ impl EditorApp {
     /// Lleva el cursor al título `h` del documento activo (sin mayúsculas).
     fn goto_heading(&mut self, ctx: &egui::Context, h: &str) {
         let want = h.trim().to_lowercase();
-        let at = crate::sidebar::outline(&self.doc().text).into_iter().find(|(_, t, _)| t.to_lowercase() == want);
+        // Por el texto del título o por su ancla (`#22-c_saldo18-…`, como GitHub o Pandoc).
+        let key = crate::sidebar::anchor_key(h);
+        let at = crate::sidebar::outline(&self.doc().text)
+            .into_iter()
+            .find(|(_, t, _)| t.to_lowercase() == want || (!key.is_empty() && crate::sidebar::anchor_key(t) == key));
         if let Some((_, _, at)) = at {
             self.goto(ctx, at);
         }
@@ -1201,6 +1505,27 @@ impl EditorApp {
         if ctx.input_mut(|i| i.consume_shortcut(&FIND_ALL)) {
             self.menu_act(&ctx, crate::chrome::MenuAct::FindInFiles);
         }
+        {
+            use crate::chrome::{self as ch, MenuAct as M};
+            for (k, a) in [
+                (ch::LINKS, M::Side(crate::sidebar::SideTab::Links)),
+                (ch::SOURCE, M::SourceCode),
+                (ch::LINE_NUMBERS, M::LineNumbers),
+                (ch::PAGE_WIDTH, M::PageWidth(self.page.next())),
+                (ch::GOTO_LINE, M::GotoLine),
+                (ch::QUICK, M::QuickSwitcher),
+                (ch::PALETTE, M::CommandPalette),
+                (ch::HELP, M::Help),
+            ] {
+                // Ctrl+Mayús+K también es «enlace» en el editor: mientras se escribe, es suyo.
+                if k == ch::LINKS && ctx.egui_wants_keyboard_input() {
+                    continue;
+                }
+                if ctx.input_mut(|i| i.consume_shortcut(&k)) {
+                    self.menu_act(&ctx, a);
+                }
+            }
+        }
         if ctx.input_mut(|i| i.consume_shortcut(&QUIT)) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
@@ -1253,11 +1578,18 @@ impl EditorApp {
         self.notices(ui);
         let bg = iurefficient_ui::theme::colors(ui).surface;
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(bg).inner_margin(egui::Margin::symmetric(28, 12)))
+            // Sin margen a los lados: la barra de desplazamiento va en la orilla y el editor pone
+            // el margen del texto (`gutter`).
+            .frame(egui::Frame::new().fill(bg).inner_margin(egui::Margin { left: 0, right: 0, top: 12, bottom: 0 }))
             .show(ui, |ui| {
                 let speller = self.speller.clone();
                 let notes = self.notes.clone();
+                let (page, spell_on, source, line_numbers) = (self.page, self.spell_on, self.source, self.line_numbers);
                 let Some(t) = self.tabs.get_mut(self.active) else { return };
+                if source {
+                    source_view(ui, &mut t.doc.text, line_numbers, page);
+                    return;
+                }
                 // Diagramas (Mermaid, mapas mentales) e imágenes de la carpeta del documento,
                 // dibujados en su lugar.
                 let folder = t.doc.path.as_ref().and_then(|p| p.parent()).map(std::path::Path::to_path_buf);
@@ -1271,7 +1603,7 @@ impl EditorApp {
                 let hooks = iure_doc_ui::Hooks {
                     diagrams: Some(diagrams),
                     paste: Some(std::sync::Arc::new(iure_doc_ui::SystemClipboard)),
-                    spell: Some(speller),
+                    spell: spell_on.then_some(speller),
                     // Imágenes pegadas o soltadas: en `assets/` junto al documento (como la versión
                     // Tauri).
                     images: Some(std::sync::Arc::new(iure_doc_ui::FolderImages::new(folder, "assets"))),
@@ -1279,6 +1611,8 @@ impl EditorApp {
                     zoom: Some(self.zoom * DOC_SCALE),
                     notes: notes.map(|n| n as std::sync::Arc<dyn iure_doc_ui::NoteIndex>),
                     math: Some(std::sync::Arc::new(crate::diagrams::Formulas::inline(ui, self.zoom * DOC_SCALE))),
+                    page: Some(page.ems()),
+                    gutter: Some(28.0),
                 };
                 // La columna de documento la pone el editor.
                 let out = iure_doc_ui::show_blocks_hooks(
@@ -1303,7 +1637,55 @@ impl EditorApp {
         }
         self.ask_window(&ctx);
         self.recovery_window(&ctx);
+        self.dialogs(&ctx);
     }
+}
+
+/// Ver › Código fuente: el Markdown tal cual, en monoespaciado, con números de línea si se piden.
+fn source_view(ui: &mut egui::Ui, text: &mut String, line_numbers: bool, page: crate::drafts::PageWidth) {
+    let size = iurefficient_ui::theme::body_font(ui.ctx()).size;
+    let font = egui::FontId::monospace(size);
+    egui::ScrollArea::vertical().id_salt("iureditor-source").auto_shrink([false, false]).show(ui, |ui| {
+        let full = ui.available_width();
+        let col = (full - 56.0).min(size * page.ems() * 1.1).max(200.0);
+        ui.horizontal_top(|ui| {
+            ui.add_space(((full - col) / 2.0).max(28.0));
+            if line_numbers {
+                let c = iurefficient_ui::theme::colors(ui);
+                let n = text.split('\n').count();
+                let nums: String = (1..=n).map(|i| format!("{i}\n")).collect();
+                ui.add(
+                    egui::Label::new(egui::RichText::new(nums).font(font.clone()).color(c.text_muted))
+                        .selectable(false),
+                );
+            }
+            let r = ui.add(
+                egui::TextEdit::multiline(text)
+                    .id(egui::Id::unique("iureditor-source-edit"))
+                    .font(font.clone())
+                    .code_editor()
+                    .frame(egui::Frame::NONE)
+                    .desired_width(col)
+                    .desired_rows(30),
+            );
+            r.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::Role::MultilineTextInput, true, pick("Source code", "Código fuente"))
+            });
+        });
+    });
+}
+
+/// Índice del documento: una lista con un enlace a cada título (anclas como GitHub).
+pub(crate) fn toc_of(text: &str) -> String {
+    let heads = crate::sidebar::outline(text);
+    let Some(min) = heads.iter().map(|(l, _, _)| *l).min() else { return String::new() };
+    let mut out = String::from("\n");
+    for (level, title, _) in heads {
+        let indent = "  ".repeat(usize::from(level.saturating_sub(min)));
+        out.push_str(&format!("{indent}- [{title}](#{})\n", crate::sidebar::slug(&title)));
+    }
+    out.push('\n');
+    out
 }
 
 #[cfg(test)]
@@ -1311,6 +1693,42 @@ mod tests {
     use super::*;
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
+
+    /// Edición › Insertar índice, enlaces `#ancla` que llevan al título, Acerca de y el ancho de
+    /// página guardado.
+    #[test]
+    fn toc_anchors_about_and_page_width() {
+        iurefficient_ui::lang::set_lang(iurefficient_ui::lang::Lang::Es);
+        let t = "# Informe\n\n## 2.2 C_SALDO[1..8]: la escalera\n\ntexto\n\n### Más\n";
+        let toc = toc_of(t);
+        assert!(toc.contains("- [Informe](#informe)"), "{toc}");
+        // El esquema quita las marcas (`_`): el ancla queda como la de Pandoc.
+        assert!(toc.contains("  - [2.2 CSALDO[1..8]: la escalera](#22-csaldo18-la-escalera)"), "{toc}");
+        assert!(toc.contains("    - [Más](#más)"), "{toc}");
+        let dir = tempfile::tempdir().unwrap();
+        let prefs = dir.path().join("preferencias.json");
+        let doc = Doc { path: None, saved: t.into(), text: t.into(), mtime: None };
+        let app = EditorApp::new(doc, None).with_prefs(prefs.clone());
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 700.0))
+            .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app);
+        h.run_steps(2);
+        // Un ancla de Pandoc (sin el guion bajo) también llega al título.
+        let ctx = h.ctx.clone();
+        h.state_mut().follow_link(&ctx, "#22-csaldo18-la-escalera");
+        h.run_steps(3);
+        let id = h.state().tabs.get(h.state().active).map(|t| t.id).unwrap_or(0);
+        let at = iure_doc_ui::caret_offset(&h.ctx, egui::Id::unique(("iureditor-doc", id)), t);
+        assert_eq!(at, Some("# Informe\n\n".chars().count()), "el cursor en el título del ancla");
+        // Acerca de: un cuadro con la versión.
+        h.state_mut().menu_act(&ctx, crate::chrome::MenuAct::About);
+        h.run_steps(2);
+        assert!(h.query_by_label_contains(env!("CARGO_PKG_VERSION")).is_some(), "la versión en Acerca de");
+        // Ancho de página: se guarda y se lee.
+        h.state_mut().menu_act(&ctx, crate::chrome::MenuAct::PageWidth(crate::drafts::PageWidth::Full));
+        let again = EditorApp::new(Doc::default(), None).with_prefs(prefs);
+        assert_eq!(again.page, crate::drafts::PageWidth::Full);
+    }
 
     #[test]
     fn typing_marks_the_document_unsaved_and_ctrl_s_saves() {
@@ -2054,6 +2472,23 @@ mod shot {
         if std::env::var_os("IUREDITOR_SHOT_NOSIDE").is_some() {
             h.state_mut().side.open = false;
             h.run_steps(2);
+        }
+        // `IUREDITOR_SHOT_MENU=<sección>,…`: el menú ☰ abierto; se pulsan esas secciones en orden.
+        if let Ok(sec) = std::env::var("IUREDITOR_SHOT_MENU") {
+            use egui_kittest::kittest::Queryable;
+            h.get_by_label("Menú").click();
+            h.run_steps(2);
+            for sec in sec.split(',').filter(|s| !s.is_empty()) {
+                h.get_by_label(sec).click();
+                // Lo que se despliega se anima: se espera a que termine.
+                h.run_steps(30);
+            }
+        }
+        // `IUREDITOR_SHOT_ABOUT=1`: Acerca de.
+        if std::env::var_os("IUREDITOR_SHOT_ABOUT").is_some() {
+            let ctx = h.ctx.clone();
+            h.state_mut().menu_act(&ctx, crate::chrome::MenuAct::About);
+            h.run_steps(3);
         }
         if let Some(px) = std::env::var("IUREDITOR_SHOT_SCROLL").ok().and_then(|p| p.parse::<f32>().ok()) {
             let r = h.ctx.content_rect();

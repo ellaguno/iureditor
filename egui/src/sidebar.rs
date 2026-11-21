@@ -149,6 +149,26 @@ pub(crate) fn rename(from: &Path, name: &str) -> Result<PathBuf, String> {
     std::fs::rename(from, &to).map(|()| to).map_err(|e| e.to_string())
 }
 
+/// El ancla de un título, como GitHub: minúsculas, letras, números, `-` y `_`; los espacios, `-`.
+pub(crate) fn slug(title: &str) -> String {
+    title
+        .trim()
+        .to_lowercase()
+        .chars()
+        .filter_map(|c| match c {
+            ' ' => Some('-'),
+            c if c.is_alphanumeric() || c == '-' || c == '_' => Some(c),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Para comparar un ancla con un título: solo letras y números, en minúsculas (así coinciden las
+/// anclas de GitHub, Pandoc y otros, que difieren en guiones bajos y signos).
+pub(crate) fn anchor_key(s: &str) -> String {
+    s.to_lowercase().chars().filter(|c| c.is_alphanumeric()).collect()
+}
+
 /// Títulos de un Markdown: (nivel, texto, carácter donde empieza la línea). Sin los de dentro de
 /// bloques de código.
 pub(crate) fn outline(text: &str) -> Vec<(u8, String, usize)> {
