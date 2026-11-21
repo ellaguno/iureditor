@@ -3,7 +3,7 @@
 # (`src-tauri/`) hasta la paridad; ver `docs/plan-2.0.md`.
 [package]
 name = "iureditor-egui"
-version = "2.0.0-alpha.3"
+version = "2.0.0-alpha.4"
 edition = "2024"
 rust-version = "1.91"
 license = "Apache-2.0"
