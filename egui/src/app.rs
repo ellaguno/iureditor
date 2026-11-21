@@ -131,6 +131,10 @@ pub struct EditorApp {
     goto_line: Option<String>,
     /// Paleta de comandos o «Ir a nota» abierta.
     palette: Option<crate::palette::Palette>,
+    /// La carpeta de plantillas (`None` en las pruebas, que ponen la suya).
+    pub(crate) templates: Option<PathBuf>,
+    /// Nueva desde plantilla: la plantilla y sus campos (nombre, valor) que se están pidiendo.
+    template_ask: Option<(String, Vec<(String, String)>)>,
     /// Ayuda › Acerca de.
     about: bool,
     /// Ayuda › Buscar actualizaciones: la búsqueda en curso y su resultado.
@@ -226,6 +230,8 @@ impl EditorApp {
             recent: Vec::new(),
             goto_line: None,
             palette: None,
+            template_ask: None,
+            templates: if cfg!(test) { None } else { crate::templates::dir() },
             about: false,
             updating: None,
             update: None,
@@ -269,10 +275,11 @@ impl EditorApp {
 
     /// Los nombres de las plantillas (crea la carpeta con las de arranque si no existe).
     pub(crate) fn template_names(&self) -> Vec<String> {
-        crate::templates::dir()
+        self.templates
+            .as_deref()
             .map(|d| {
-                crate::templates::ensure(&d);
-                crate::templates::list(&d)
+                crate::templates::ensure(d);
+                crate::templates::list(d)
             })
             .unwrap_or_default()
     }
@@ -881,16 +888,16 @@ impl EditorApp {
             }
             MenuAct::OpenFolder => self.side_act(ctx, crate::sidebar::SideAct::PickFolder),
             MenuAct::FromTemplate(name) => {
-                let filled = crate::templates::dir()
-                    .ok_or_else(|| pick("No data folder.", "No hay carpeta de datos.").to_string())
-                    .and_then(|d| crate::templates::fill(&d, &name, &[], crate::templates::today()));
-                match filled {
-                    Ok(text) => self.push_tab(Doc { path: None, saved: String::new(), text, mtime: None }),
-                    Err(e) => self.notice = Some(e),
+                // Con campos `{{clave}}`, primero se piden; si no, se crea directo.
+                let fields = self.templates.as_deref().map(|d| crate::templates::fields(d, &name)).unwrap_or_default();
+                if fields.is_empty() {
+                    self.new_from_template(&name, &[]);
+                } else {
+                    self.template_ask = Some((name, fields.into_iter().map(|f| (f, String::new())).collect()));
                 }
             }
             MenuAct::OpenTemplatesFolder => {
-                if let Some(d) = crate::templates::dir() {
+                if let Some(d) = self.templates.clone() {
                     crate::templates::ensure(&d);
                     ctx.open_url(egui::OpenUrl::new_tab(format!("file://{}", d.display())));
                 }
@@ -977,8 +984,73 @@ impl EditorApp {
         }
     }
 
+    /// Un documento nuevo (sin guardar) desde la plantilla `name` con estos campos.
+    fn new_from_template(&mut self, name: &str, fields: &[(String, String)]) {
+        let filled = self
+            .templates
+            .as_deref()
+            .ok_or_else(|| pick("No data folder.", "No hay carpeta de datos.").to_string())
+            .and_then(|d| crate::templates::fill(d, name, fields, crate::templates::today()));
+        match filled {
+            // Nace sin guardar: «Guardar» pide dónde (la plantilla no se toca).
+            Ok(text) => self.push_tab(Doc { path: None, saved: String::new(), text, mtime: None }),
+            Err(e) => self.notice = Some(e),
+        }
+    }
+
     /// Los cuadros de la app: ir a línea, paleta, acerca de (con la búsqueda de actualizaciones).
     fn dialogs(&mut self, ctx: &egui::Context) {
+        if let Some((name, mut fields)) = self.template_ask.take() {
+            let mut keep = true;
+            let mut create = false;
+            egui::Window::new(format!("{} «{name}»", pick("New from template", "Nueva desde plantilla")))
+                .id(egui::Id::unique("iureditor-template-fields"))
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_TOP, [0.0, 80.0])
+                .show(ctx, |ui| {
+                    ui.label(pick("Fill in the template fields:", "Completa los campos de la plantilla:"));
+                    ui.add_space(4.0);
+                    egui::Grid::new("iureditor-template-grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
+                        for (i, (k, v)) in fields.iter_mut().enumerate() {
+                            let l = ui.label(k.as_str());
+                            let r = ui.add(egui::TextEdit::singleline(v).desired_width(260.0));
+                            let r = r.labelled_by(l.id);
+                            if i == 0 && !ui.memory(|m| m.focused().is_some()) {
+                                r.request_focus();
+                            }
+                            ui.end_row();
+                        }
+                    });
+                    ui.add_space(6.0);
+                    let (enter, esc) = ui.input_mut(|i| {
+                        (i.consume_key(Modifiers::COMMAND, Key::Enter), i.consume_key(Modifiers::NONE, Key::Escape))
+                    });
+                    ui.horizontal(|ui| {
+                        if iurefficient_ui::primary_button(ui, pick("Create", "Crear")).clicked() || enter {
+                            create = true;
+                        }
+                        if ui.button(pick("Cancel", "Cancelar")).clicked() || esc {
+                            keep = false;
+                        }
+                    });
+                    ui.label(
+                        egui::RichText::new(pick(
+                            "Empty fields stay as {{field}}.",
+                            "Los campos vacíos quedan como {{campo}}.",
+                        ))
+                        .small()
+                        .color(iurefficient_ui::theme::colors(ui).text_muted),
+                    );
+                });
+            if create {
+                // Lo vacío queda como estaba (`{{campo}}`), para llenarlo después.
+                let filled: Vec<(String, String)> = fields.into_iter().filter(|(_, v)| !v.trim().is_empty()).collect();
+                self.new_from_template(&name, &filled);
+            } else if keep {
+                self.template_ask = Some((name, fields));
+            }
+        }
         if let Some(rx) = &self.updating {
             match rx.try_recv() {
                 Ok(c) => {
@@ -1693,6 +1765,40 @@ mod tests {
     use super::*;
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
+
+    /// Nueva desde plantilla con campos: un cuadro los pide y el documento nace con ellos (lo
+    /// vacío queda como `{{campo}}`), sin guardar.
+    #[test]
+    fn templates_ask_for_their_fields() {
+        iurefficient_ui::lang::set_lang(iurefficient_ui::lang::Lang::Es);
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Carta.md"),
+            "# Carta a {{cliente}}\n\nExpediente {{ expediente }}, {{fecha}}.\n",
+        )
+        .unwrap();
+        let mut app = EditorApp::new(Doc::default(), None);
+        app.templates = Some(dir.path().to_path_buf());
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 700.0))
+            .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app);
+        h.run();
+        let ctx = h.ctx.clone();
+        h.state_mut().menu_act(&ctx, crate::chrome::MenuAct::FromTemplate("Carta".into()));
+        h.run_steps(2);
+        assert!(h.query_by_label("cliente").is_some() && h.query_by_label("expediente").is_some());
+        h.get_by_label("cliente").focus();
+        h.run();
+        h.get_by_label("cliente").type_text("Altamira");
+        h.run();
+        h.get_by_label("Crear").click();
+        h.run_steps(2);
+        let d = h.state().doc();
+        assert!(d.text.starts_with("# Carta a Altamira"), "{}", d.text);
+        assert!(d.text.contains("Expediente {{ expediente }}"), "lo vacío queda: {}", d.text);
+        assert!(!d.text.contains("{{fecha}}"), "la fecha se pone sola");
+        assert!(d.path.is_none() && d.dirty(), "nace sin guardar");
+    }
 
     /// Edición › Insertar índice, enlaces `#ancla` que llevan al título, Acerca de y el ancho de
     /// página guardado.

@@ -143,7 +143,7 @@ pub fn fill(dir: &Path, name: &str, fields: &[(String, String)], today: (i32, u3
         if k.is_empty() || k.len() > 100 || k.contains(['{', '}']) {
             continue;
         }
-        out = out.replace(&format!("{{{{{k}}}}}"), v);
+        out = out.replace(&format!("{{{{{k}}}}}"), v).replace(&format!("{{{{ {k} }}}}"), v);
     }
     Ok(out)
 }
@@ -155,8 +155,54 @@ pub fn today() -> (i32, u32, u32) {
     (n.year(), n.month(), n.day())
 }
 
+/// Los campos `{{clave}}` de la plantilla `name` que hay que pedir (sin `fecha` ni `date`, que se
+/// ponen solos), en el orden en que aparecen y sin repetir.
+pub fn fields(dir: &Path, name: &str) -> Vec<String> {
+    if !safe_name(name) {
+        return Vec::new();
+    }
+    let path = dir.join(format!("{name}.md"));
+    if std::fs::metadata(&path).map_or(true, |m| !m.is_file() || m.len() > MAX_BYTES) {
+        return Vec::new();
+    }
+    let raw = std::fs::read_to_string(&path).unwrap_or_default();
+    fields_in(&raw)
+}
+
+/// Los campos de un texto de plantilla (ver [`fields`]).
+pub fn fields_in(raw: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut rest = raw;
+    while let Some(i) = rest.find("{{") {
+        let after = rest.get(i + 2..).unwrap_or("");
+        let Some(j) = after.find("}}") else { break };
+        let k = after.get(..j).unwrap_or("").trim();
+        if !k.is_empty()
+            && k.len() <= 100
+            && !k.contains(['{', '}', '\n'])
+            && k != "fecha"
+            && k != "date"
+            && !out.iter().any(|x| x == k)
+        {
+            out.push(k.to_string());
+            if out.len() >= 50 {
+                break;
+            }
+        }
+        rest = after.get(j + 2..).unwrap_or("");
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn fields_are_found_once_and_in_order() {
+        let t = "# {{cliente}}\n\nExpediente {{ expediente }} de {{cliente}}, a {{fecha}} ({{date}}). {{}} {{a\nb}}";
+        assert_eq!(super::fields_in(t), ["cliente", "expediente"]);
+        assert!(super::fields_in("sin campos").is_empty());
+    }
+
     use super::*;
 
     #[test]
