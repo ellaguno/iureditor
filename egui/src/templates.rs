@@ -20,7 +20,9 @@ pub fn dir() -> Option<PathBuf> {
     dirs::data_dir().map(|d| d.join("com.ellaguno.iureditor").join("plantillas"))
 }
 
-const STARTERS: [(&str, &str); 3] = [
+/// Las plantillas de arranque de antes (con `[corchetes]`, las de la 1.x): si una sigue tal cual, se
+/// cambia por la nueva.
+const OLD_STARTERS: [(&str, &str); 3] = [
     (
         "Escrito legal.md",
         "---\ntitulo: Escrito\nexpediente: 000/0000\nautor:\nfecha: {{fecha}}\n---\n\n# Escrito\n\n\
@@ -47,9 +49,45 @@ Fecha: — Lugar: —\n",
     ),
 ];
 
-/// Crea la carpeta con las plantillas de arranque la primera vez.
+/// Plantillas de arranque: lo que hay que llenar va como `{{campo}}` (al crear el documento se pide).
+const STARTERS: [(&str, &str); 3] = [
+    (
+        "Escrito legal.md",
+        "---\ntitulo: Escrito\nexpediente: {{expediente}}\nautor: {{autor}}\nfecha: {{fecha}}\n---\n\n# Escrito\n\n\
+**C. JUEZ** — {{órgano jurisdiccional}}\n\n{{nombre}}, por mi propio derecho, señalando como domicilio para oír \
+y recibir notificaciones el ubicado en {{domicilio}}, ante usted comparezco y expongo:\n\n## Hechos\n\n\
+1. Primer hecho.\n2. Segundo hecho.\n\n## Derecho\n\nSon aplicables los artículos {{artículos}}.\n\n\
+## Puntos petitorios\n\n**PRIMERO.** Tenerme por presentado en los términos de este escrito.\n\n\
+**SEGUNDO.** Acordar de conformidad lo solicitado.\n\nProtesto lo necesario.\n\n{{lugar}}, a {{fecha}}.\n",
+    ),
+    (
+        "Contrato.md",
+        "---\ntitulo: Contrato\nexpediente: {{expediente}}\nfecha: {{fecha}}\n---\n\n# Contrato de {{objeto}}\n\n\
+Contrato que celebran por una parte **{{parte A}}** y por la otra **{{parte B}}**, al tenor de las siguientes \
+declaraciones y cláusulas.\n\n## Declaraciones\n\n1. Declara **{{parte A}}**…\n2. Declara **{{parte B}}**…\n\n\
+## Cláusulas\n\n**PRIMERA. Objeto.**\n\n**SEGUNDA. Contraprestación.**\n\n| Concepto | Monto | Plazo |\n\
+|----------|-------|-------|\n|          |       |       |\n\n**TERCERA. Vigencia.**\n\n\
+Leído el presente y enteradas las partes de su contenido y alcance, lo firman por duplicado en {{lugar}}, a \
+{{fecha}}.\n",
+    ),
+    (
+        "Acta de reunión.md",
+        "---\ntitulo: Acta de reunión\nfecha: {{fecha}}\n---\n\n# Acta de reunión — {{fecha}}\n\n\
+**Asistentes:** {{asistentes}}\n\n## Temas tratados\n\n1.\n\n## Acuerdos\n\n\
+- [ ] Acuerdo 1 — responsable, fecha compromiso\n\n## Próxima reunión\n\n{{próxima reunión}}\n",
+    ),
+];
+
+/// Crea la carpeta con las plantillas de arranque la primera vez. Si ya existe, cambia por la nueva
+/// cada plantilla de arranque que siga igual a la de antes (las que el usuario cambió no se tocan).
 pub fn ensure(dir: &Path) {
     if dir.exists() {
+        for ((name, new), (_, old)) in STARTERS.iter().zip(OLD_STARTERS.iter()) {
+            let p = dir.join(name);
+            if std::fs::read_to_string(&p).ok().as_deref() == Some(*old) {
+                let _ = std::fs::write(&p, new);
+            }
+        }
         return;
     }
     if std::fs::create_dir_all(dir).is_err() {
@@ -196,6 +234,30 @@ pub fn fields_in(raw: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn starters_ask_for_fields_and_untouched_old_ones_are_upgraded() {
+        for (name, text) in super::STARTERS {
+            assert!(!super::fields_in(text).is_empty(), "{name} pide campos");
+            assert!(!text.contains("[Nombre]") && !text.contains("[lugar]"), "{name} sin corchetes");
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        std::fs::write(d.join("Contrato.md"), super::OLD_STARTERS[1].1).unwrap();
+        std::fs::write(d.join("Escrito legal.md"), "mi escrito, cambiado").unwrap();
+        super::ensure(d);
+        assert_eq!(
+            std::fs::read_to_string(d.join("Contrato.md")).unwrap(),
+            super::STARTERS[1].1,
+            "la de antes, al día"
+        );
+        assert_eq!(
+            std::fs::read_to_string(d.join("Escrito legal.md")).unwrap(),
+            "mi escrito, cambiado",
+            "la cambiada, no"
+        );
+        assert!(!d.join("Acta de reunión.md").exists(), "no se crea la que se borró");
+    }
+
     #[test]
     fn fields_are_found_once_and_in_order() {
         let t = "# {{cliente}}\n\nExpediente {{ expediente }} de {{cliente}}, a {{fecha}} ({{date}}). {{}} {{a\nb}}";
