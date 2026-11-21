@@ -1684,6 +1684,7 @@ impl EditorApp {
                     // Con números de línea, un margen más ancho para que quepan.
                     gutter: Some(if line_numbers { 44.0 } else { 28.0 }),
                     line_numbers,
+                    read_only: false,
                 };
                 // La columna de documento la pone el editor.
                 let out = iure_doc_ui::show_blocks_hooks(

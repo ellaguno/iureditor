@@ -192,6 +192,15 @@ impl eframe::App for Window {
 
 #[cfg(test)]
 mod tests {
+    /// Sin la función `clipboard` de eframe, egui solo pega lo copiado dentro de la app (no lo de
+    /// una página web); sin `links`, no abre direcciones.
+    #[test]
+    fn eframe_has_the_system_clipboard_and_links() {
+        let manifest = include_str!("../Cargo.toml");
+        let line = manifest.lines().find(|l| l.starts_with("eframe")).unwrap_or_default();
+        assert!(line.contains("\"clipboard\"") && line.contains("\"links\""), "{line}");
+    }
+
     #[test]
     fn surfaces_never_wait_for_vsync() {
         // Con vsync, Wayland + NVIDIA congelaba la ventana tapada o sin foco.
