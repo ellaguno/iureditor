@@ -68,6 +68,9 @@ pub(crate) struct Sidebar {
     /// Carpeta abierta con «Abrir carpeta…» (si no, la del documento).
     pub root: Option<PathBuf>,
     files: Option<(PathBuf, Vec<PathBuf>, f64)>,
+    /// La lista que se está leyendo en otro hilo (carpeta, resultado): recorrer una carpeta grande
+    /// en el hilo de la interfaz la detenía un momento cada pocos segundos.
+    listing: Option<(PathBuf, Receiver<Vec<PathBuf>>)>,
     pub query: String,
     pub results: Vec<Hit>,
     searched: String,
@@ -522,9 +525,27 @@ impl Sidebar {
                         };
                         let now = ctx.input(|i| i.time);
                         // La lista se renueva cada pocos segundos (archivos nuevos o borrados).
+                        if let Some((r, rx)) = self.listing.as_ref()
+                            && let Ok(list) = rx.try_recv()
+                        {
+                            self.files = Some((r.clone(), list, now));
+                            self.listing = None;
+                        }
                         let stale = self.files.as_ref().is_none_or(|(r, _, t)| *r != root || now - t > 5.0);
-                        if stale {
-                            self.files = Some((root.clone(), list_docs(&root), now));
+                        if stale && self.listing.as_ref().is_none_or(|(r, _)| *r != root) {
+                            let (tx, rx) = std::sync::mpsc::channel();
+                            let dir = root.clone();
+                            std::thread::spawn(move || {
+                                let _ = tx.send(list_docs(&dir));
+                            });
+                            self.listing = Some((root.clone(), rx));
+                        }
+                        if self.listing.is_some() {
+                            ctx.request_repaint_after(std::time::Duration::from_millis(50));
+                        }
+                        // Otra carpeta: no se muestra la lista de la anterior mientras llega la nueva.
+                        if self.files.as_ref().is_some_and(|(r, _, _)| *r != root) {
+                            self.files = None;
                         }
                         if let Some(a) = self.files_header(ui, &root) {
                             act = Some(a);

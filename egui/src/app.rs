@@ -1914,6 +1914,17 @@ mod links_tests {
 mod shot {
     use super::*;
 
+    /// `IUREDITOR_SHOT_SIZE=ANCHOxALTO` (por omisión 1000x700).
+    fn shot_size() -> egui::Vec2 {
+        std::env::var("IUREDITOR_SHOT_SIZE")
+            .ok()
+            .and_then(|s| {
+                let (w, h) = s.split_once('x')?;
+                Some(egui::vec2(w.parse().ok()?, h.parse().ok()?))
+            })
+            .unwrap_or(egui::vec2(1000.0, 700.0))
+    }
+
     #[test]
     #[ignore = "captura para revisar la interfaz"]
     fn shot() {
@@ -2028,7 +2039,7 @@ mod shot {
             )];
         }
         let mut h = egui_kittest::Harness::builder()
-            .with_size(egui::vec2(1000.0, 700.0))
+            .with_size(shot_size())
             .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app);
         // `IUREDITOR_SHOT_LIGHT=1`: tema claro (como las capturas de la 1.x).
         if std::env::var_os("IUREDITOR_SHOT_LIGHT").is_some() {
@@ -2039,6 +2050,23 @@ mod shot {
             iurefficient_ui::theme::apply(&h.ctx, iurefficient_ui::theme::ThemeMode::Light, Default::default());
         }
         h.run_steps(4);
+        // `IUREDITOR_SHOT_NOSIDE=1`: sin panel lateral; `IUREDITOR_SHOT_SCROLL=<px>`: desplazado.
+        if std::env::var_os("IUREDITOR_SHOT_NOSIDE").is_some() {
+            h.state_mut().side.open = false;
+            h.run_steps(2);
+        }
+        if let Some(px) = std::env::var("IUREDITOR_SHOT_SCROLL").ok().and_then(|p| p.parse::<f32>().ok()) {
+            let r = h.ctx.content_rect();
+            h.event(egui::Event::PointerMoved(r.center()));
+            h.event(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -px),
+                modifiers: egui::Modifiers::NONE,
+                phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Wheel,
+            });
+            h.run_steps(4);
+        }
         // Los diagramas llegan de otro hilo: se espera a que estén dibujados.
         for _ in 0..600 {
             h.step();
@@ -2128,5 +2156,60 @@ mod shot {
         }
         let img = h.render().unwrap();
         img.save(out).unwrap();
+    }
+}
+
+/// Tiempo por cuadro al escribir en un documento grande:
+/// `IUREDITOR_PERF_FILE=<ruta> cargo test --release perf_typing -- --ignored --nocapture`.
+#[cfg(test)]
+mod perf {
+    use super::*;
+
+    #[test]
+    #[ignore = "medición"]
+    fn perf_typing() {
+        let Some(f) = std::env::var_os("IUREDITOR_PERF_FILE") else { return };
+        let text = std::fs::read_to_string(&f).unwrap_or_default();
+        let doc = Doc { path: Some(std::path::PathBuf::from(&f)), saved: text.clone(), text, mtime: None };
+        let app = EditorApp::new(doc, None);
+        let mut h = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1400.0, 900.0))
+            .build_ui_state(|ui, a: &mut EditorApp| a.ui(ui), app);
+        let t = std::time::Instant::now();
+        h.run_steps(3);
+        eprintln!("abrir (3 cuadros): {:?}", t.elapsed());
+        let mut idle = Vec::new();
+        for _ in 0..20 {
+            let t = std::time::Instant::now();
+            h.step();
+            idle.push(t.elapsed().as_secs_f64() * 1000.0);
+        }
+        eprintln!("en reposo (ms): {:?}", idle.iter().map(|x| x.round() as i64).collect::<Vec<_>>());
+        // Clic en el texto y escribir.
+        let r = h.ctx.content_rect();
+        let p = egui::pos2(r.center().x, r.top() + 220.0);
+        h.event(egui::Event::PointerMoved(p));
+        h.event(egui::Event::PointerButton {
+            pos: p,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Default::default(),
+        });
+        h.event(egui::Event::PointerButton {
+            pos: p,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        });
+        h.run_steps(3);
+        let mut keys = Vec::new();
+        for ch in "escribiendo una frase de prueba ".chars() {
+            h.event(egui::Event::Text(ch.to_string()));
+            let t = std::time::Instant::now();
+            h.step();
+            keys.push(t.elapsed().as_secs_f64() * 1000.0);
+        }
+        eprintln!("por tecla (ms): {:?}", keys.iter().map(|x| x.round() as i64).collect::<Vec<_>>());
+        eprintln!("cambió: {}", h.state().doc().text != h.state().doc().saved);
     }
 }

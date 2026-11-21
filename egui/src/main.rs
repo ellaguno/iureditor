@@ -75,6 +75,7 @@ fn main() -> ExitCode {
             // Barra de título propia (pestañas, menú ☰, botones de la ventana), como la 1.x; con
             // IUREDITOR_SYSTEM_TITLEBAR=1, la del sistema.
             .with_decorations(system_titlebar()),
+        wgpu_options: wgpu_options(),
         ..Default::default()
     };
     let result = eframe::run_native(
@@ -160,6 +161,21 @@ fn system_titlebar() -> bool {
 
 struct Window(app::EditorApp);
 
+/// Presentación sin espera de vsync (como el BUG-FREEZE de IureDesk): con FIFO, Wayland + NVIDIA
+/// deja `get_current_texture` bloqueado cuando la ventana está tapada, en otro escritorio o sin
+/// foco, y la app deja de responder un rato (al reabrirla vuelve a ir rápido). `AutoNoVsync`
+/// (Immediate → Mailbox → Fifo) no espera al compositor; como solo se repinta cuando hay cambios,
+/// no gasta más.
+fn wgpu_options() -> eframe::egui_wgpu::WgpuConfiguration {
+    eframe::egui_wgpu::WgpuConfiguration {
+        surface: eframe::egui_wgpu::SurfaceConfig {
+            present_mode: eframe::wgpu::PresentMode::AutoNoVsync,
+            desired_maximum_frame_latency: Some(2),
+        },
+        ..Default::default()
+    }
+}
+
 impl eframe::App for Window {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.0.ui(ui);
@@ -168,5 +184,14 @@ impl eframe::App for Window {
     /// El fondo del tema (el de eframe es casi negro y se asomaba en modo claro).
     fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
         visuals.panel_fill.to_normalized_gamma_f32()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn surfaces_never_wait_for_vsync() {
+        // Con vsync, Wayland + NVIDIA congelaba la ventana tapada o sin foco.
+        assert_eq!(super::wgpu_options().surface.present_mode, eframe::wgpu::PresentMode::AutoNoVsync);
     }
 }
