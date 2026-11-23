@@ -173,10 +173,10 @@ fn action_def(a: edit::Action) -> iure_doc_ui::ActionDef {
                 iure_doc_ui::ActionInput::Text { prompt: pick(prompt.0, prompt.1).to_string(), initial }
             }
             edit::Input::Choice(options) => {
-                iure_doc_ui::ActionInput::Choice(options.iter().map(|o| pick(o.0, o.1).to_string()).collect())
+                iure_doc_ui::ActionInput::Choice(options.iter().map(|o| pick(&o.0, &o.1).to_string()).collect())
             }
             edit::Input::ChoiceText { options, prompt } => iure_doc_ui::ActionInput::ChoiceText {
-                options: options.iter().map(|o| pick(o.0, o.1).to_string()).collect(),
+                options: options.iter().map(|o| pick(&o.0, &o.1).to_string()).collect(),
                 prompt: pick(prompt.0, prompt.1).to_string(),
             },
             edit::Input::OtherSpot(prompt) => iure_doc_ui::ActionInput::OtherSpot(pick(prompt.0, prompt.1).to_string()),
