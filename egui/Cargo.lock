@@ -3077,7 +3077,7 @@ dependencies = [
 [[package]]
 name = "iuredesk-html-view"
 version = "0.1.0-beta.3"
-source = "git+https://github.com/ellaguno/iuredesk?rev=674076f377d0d29ee30565af91a92b7ba5aa3a9d#674076f377d0d29ee30565af91a92b7ba5aa3a9d"
+source = "git+https://github.com/ellaguno/iuredesk?rev=696e5ad84b48dbad4bc4f18bd1a2b7aca00c82f3#696e5ad84b48dbad4bc4f18bd1a2b7aca00c82f3"
 dependencies = [
  "anyrender",
  "anyrender_vello_cpu",

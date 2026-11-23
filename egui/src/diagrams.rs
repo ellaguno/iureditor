@@ -164,6 +164,7 @@ fn action_def(a: edit::Action) -> iure_doc_ui::ActionDef {
             edit::IconKind::Delete => Icon::Trash,
             edit::IconKind::Connect => Icon::Link,
             edit::IconKind::Shape => Icon::Network,
+            edit::IconKind::Reverse => Icon::Redo,
         },
         label: pick(a.label.0, a.label.1).to_string(),
         input: match a.input {

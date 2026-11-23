@@ -52,7 +52,7 @@ getrandom = "0.3"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Diagramas dibujados en su lugar con el mismo motor que IureDesk (mermaid-svg, mapas mentales,
 # Blitz; Rust puro). Fijado a un commit de IureDesk (público).
-iuredesk-html-view = { git = "https://github.com/ellaguno/iuredesk", rev = "674076f377d0d29ee30565af91a92b7ba5aa3a9d" }
+iuredesk-html-view = { git = "https://github.com/ellaguno/iuredesk", rev = "696e5ad84b48dbad4bc4f18bd1a2b7aca00c82f3" }
 
 # Llavero (la sesión compartida de la suite, como IureDesk): Secret Service por D-Bus con zbus y
 # cifrado RustCrypto (Rust puro, sin libdbus); administrador de credenciales en Windows; llavero en
