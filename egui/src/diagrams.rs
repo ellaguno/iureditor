@@ -89,7 +89,10 @@ impl iure_doc_ui::DiagramRenderer for Diagrams {
         };
         let data = match data {
             iure_doc_ui::ActionData::Text(t) => edit::Data::Text(t),
-            _ => edit::Data::None,
+            iure_doc_ui::ActionData::Choice(k) => edit::Data::Choice(k),
+            iure_doc_ui::ActionData::ChoiceText(k, t) => edit::Data::ChoiceText(k, t),
+            iure_doc_ui::ActionData::Spot(n) => edit::Data::Spot(n),
+            iure_doc_ui::ActionData::None => edit::Data::None,
         };
         edit::apply(block, &self.style, target, action, data).map(|b| (b, None))
     }
@@ -159,6 +162,8 @@ fn action_def(a: edit::Action) -> iure_doc_ui::ActionDef {
             edit::IconKind::Add => Icon::Plus,
             edit::IconKind::Rename => Icon::Rename,
             edit::IconKind::Delete => Icon::Trash,
+            edit::IconKind::Connect => Icon::Link,
+            edit::IconKind::Shape => Icon::Network,
         },
         label: pick(a.label.0, a.label.1).to_string(),
         input: match a.input {
@@ -166,6 +171,14 @@ fn action_def(a: edit::Action) -> iure_doc_ui::ActionDef {
             edit::Input::Text { prompt, initial } => {
                 iure_doc_ui::ActionInput::Text { prompt: pick(prompt.0, prompt.1).to_string(), initial }
             }
+            edit::Input::Choice(options) => {
+                iure_doc_ui::ActionInput::Choice(options.iter().map(|o| pick(o.0, o.1).to_string()).collect())
+            }
+            edit::Input::ChoiceText { options, prompt } => iure_doc_ui::ActionInput::ChoiceText {
+                options: options.iter().map(|o| pick(o.0, o.1).to_string()).collect(),
+                prompt: pick(prompt.0, prompt.1).to_string(),
+            },
+            edit::Input::OtherSpot(prompt) => iure_doc_ui::ActionInput::OtherSpot(pick(prompt.0, prompt.1).to_string()),
         },
     }
 }
