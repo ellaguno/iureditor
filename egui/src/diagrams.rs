@@ -7,6 +7,7 @@ use std::hash::{Hash, Hasher};
 use iuredesk_html_view::diagram;
 use iuredesk_html_view::diagram::{ColorRole, DiagramTheme};
 use iuredesk_html_view::markdown::NoteStyle;
+use iuredesk_html_view::mermaid_edit::actions as edit;
 use iuredesk_html_view::mindmap::{self, Layout, Palette, RootSize, Shape};
 use iurefficient_ui::lang::pick;
 
@@ -56,9 +57,45 @@ impl iure_doc_ui::DiagramRenderer for Diagrams {
             height: px.height as usize,
             rgba: px.rgba,
             points: [px.points.0, px.points.1],
-            // Cada nodo, pulsable: su número es su línea del bloque.
-            hotspots: px.boxes.iter().map(|b| iure_doc_ui::Hotspot { id: b.line, rect: b.rect }).collect(),
+            // Cada nodo, pulsable: su número es su línea del bloque. S1.33: los puntos de un
+            // cuadrante, además, se arrastran.
+            hotspots: px
+                .boxes
+                .iter()
+                .map(|b| iure_doc_ui::Hotspot { id: b.line, rect: b.rect, draggable: false })
+                .chain(px.spots.iter().map(|s| iure_doc_ui::Hotspot { id: s.id, rect: s.rect, draggable: s.draggable }))
+                .collect(),
         })
+    }
+
+    fn spot_actions(&self, block: &str, id: usize) -> Vec<iure_doc_ui::ActionDef> {
+        edit::spot_actions(block, id).into_iter().map(action_def).collect()
+    }
+
+    fn canvas_actions(&self, block: &str, at: [f32; 2]) -> Vec<iure_doc_ui::ActionDef> {
+        edit::canvas_actions(block, at, &self.style).into_iter().map(action_def).collect()
+    }
+
+    fn apply(
+        &self,
+        block: &str,
+        target: iure_doc_ui::Target,
+        action: u32,
+        data: iure_doc_ui::ActionData,
+    ) -> Option<(String, Option<usize>)> {
+        let target = match target {
+            iure_doc_ui::Target::Spot(n) => edit::Target::Spot(n),
+            iure_doc_ui::Target::Canvas(p) => edit::Target::Canvas(p),
+        };
+        let data = match data {
+            iure_doc_ui::ActionData::Text(t) => edit::Data::Text(t),
+            _ => edit::Data::None,
+        };
+        edit::apply(block, &self.style, target, action, data).map(|b| (b, None))
+    }
+
+    fn drag(&self, block: &str, id: usize, to: [f32; 2]) -> Option<String> {
+        edit::drag(block, &self.style, id, to)
     }
 
     fn node_action(&self, block: &str, id: usize, action: iure_doc_ui::NodeAction) -> Option<(String, Option<usize>)> {
@@ -110,6 +147,26 @@ impl iure_doc_ui::DiagramRenderer for Diagrams {
             changed = true;
         }
         changed.then(|| fence_with(block, &diagram::set_options(&code, &opts)))
+    }
+}
+
+/// Una acción del dibujo (`html-view`) como la pide el editor de la suite.
+fn action_def(a: edit::Action) -> iure_doc_ui::ActionDef {
+    use iurefficient_ui::icons::Icon;
+    iure_doc_ui::ActionDef {
+        id: a.id,
+        icon: match a.icon {
+            edit::IconKind::Add => Icon::Plus,
+            edit::IconKind::Rename => Icon::Rename,
+            edit::IconKind::Delete => Icon::Trash,
+        },
+        label: pick(a.label.0, a.label.1).to_string(),
+        input: match a.input {
+            edit::Input::None => iure_doc_ui::ActionInput::None,
+            edit::Input::Text { prompt, initial } => {
+                iure_doc_ui::ActionInput::Text { prompt: pick(prompt.0, prompt.1).to_string(), initial }
+            }
+        },
     }
 }
 
@@ -505,6 +562,27 @@ mod tests {
         let w = mindmap::set_options(b, 0, &o).unwrap();
         assert!(w.contains("layout-both") && w.contains("palette-pastel"), "{w}");
         assert_eq!(fence_with("~~~mermaid\nx\n~~~", "pie\n"), "~~~mermaid\npie\n~~~");
+    }
+
+    /// S1.33: los puntos de un cuadrante se arrastran y un hueco de la gráfica ofrece agregar.
+    #[test]
+    fn quadrant_points_are_edited_from_the_drawing() {
+        use iure_doc_ui::DiagramRenderer;
+        let d = Diagrams { style: NoteStyle::default(), background: [255, 255, 255] };
+        let block = "```mermaid\nquadrantChart\n    title T\n    Uno: [0.3, 0.6]\n```\n";
+        let img = d.render(block, 1.0).unwrap();
+        let spot = img.hotspots.iter().find(|h| h.draggable).copied().unwrap();
+        let [x0, y0, x1, y1] = spot.rect;
+        let moved = d.drag(block, spot.id, [(x0 + x1) / 2.0 + 40.0, (y0 + y1) / 2.0]).unwrap();
+        assert!(moved.contains("    Uno: [") && !moved.contains("[0.3, 0.6]"), "{moved}");
+        let at = [(x0 + x1) / 2.0 + 30.0, (y0 + y1) / 2.0 + 30.0];
+        let add = d.canvas_actions(block, at);
+        assert_eq!(add.len(), 1);
+        let out = d
+            .apply(block, iure_doc_ui::Target::Canvas(at), add[0].id, iure_doc_ui::ActionData::Text("Dos".into()))
+            .unwrap()
+            .0;
+        assert!(out.contains("    Uno: [0.3, 0.6]\n    Dos: ["), "{out}");
     }
 
     #[test]
