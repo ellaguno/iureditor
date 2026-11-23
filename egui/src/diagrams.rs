@@ -101,6 +101,14 @@ impl iure_doc_ui::DiagramRenderer for Diagrams {
         edit::drag(block, &self.style, id, to)
     }
 
+    fn spot_label(&self, block: &str, id: usize) -> Option<String> {
+        edit::spot_label(block, id)
+    }
+
+    fn drag_hint(&self, block: &str, id: usize, to: [f32; 2]) -> Option<String> {
+        edit::drag_hint(block, &self.style, id, to)
+    }
+
     fn node_action(&self, block: &str, id: usize, action: iure_doc_ui::NodeAction) -> Option<(String, Option<usize>)> {
         mindmap::find(block).into_iter().next()?;
         node_edit(block, id, action)
