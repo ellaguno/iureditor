@@ -3035,8 +3035,8 @@ checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
 
 [[package]]
 name = "iure-doc"
-version = "0.35.0"
-source = "git+https://github.com/ellaguno/iure-doc?tag=v0.35.0#f2da59af98c0d3a7ed321f674d71ff747e78ab2e"
+version = "0.35.1"
+source = "git+https://github.com/ellaguno/iure-doc?tag=v0.35.1#6e0d70a4470e5da693c5cab5fab081825998e45f"
 dependencies = [
  "html5ever",
  "pulldown-cmark",
@@ -3045,8 +3045,8 @@ dependencies = [
 
 [[package]]
 name = "iure-doc-export"
-version = "0.35.0"
-source = "git+https://github.com/ellaguno/iure-doc?tag=v0.35.0#f2da59af98c0d3a7ed321f674d71ff747e78ab2e"
+version = "0.35.1"
+source = "git+https://github.com/ellaguno/iure-doc?tag=v0.35.1#6e0d70a4470e5da693c5cab5fab081825998e45f"
 dependencies = [
  "image",
  "iure-doc",
@@ -3061,8 +3061,8 @@ dependencies = [
 
 [[package]]
 name = "iure-doc-ui"
-version = "0.35.0"
-source = "git+https://github.com/ellaguno/iure-doc?tag=v0.35.0#f2da59af98c0d3a7ed321f674d71ff747e78ab2e"
+version = "0.35.1"
+source = "git+https://github.com/ellaguno/iure-doc?tag=v0.35.1#6e0d70a4470e5da693c5cab5fab081825998e45f"
 dependencies = [
  "arboard",
  "egui",
