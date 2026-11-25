@@ -4,6 +4,16 @@ on:
   push:
     tags:
       - 'v*'
+  # A mano (Actions → Release → Run workflow): sólo compila y sube los artefactos de la
+  # ejecución (entre ellos los MSIX); no crea release, no firma con SignPath ni genera
+  # latest.json. Por omisión sólo Windows, para probar el paquete de Microsoft Store.
+  workflow_dispatch:
+    inputs:
+      plataformas:
+        description: 'Plataformas a compilar'
+        type: choice
+        options: [windows, todas]
+        default: windows
 
 jobs:
   build:
@@ -12,18 +22,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # `asset`: sufijo con el que se publican los instaladores. GitHub los lista
-          # por nombre (orden ASCII): el número deja Windows, macOS y Linux en ese orden.
-          - platform: ubuntu-22.04
-            args: ''
-            asset: 3-linux-x64
-          - platform: windows-latest
-            args: ''
-            asset: 1-windows-x64
-          - platform: macos-latest
-            args: '--target universal-apple-darwin'
-            asset: 2-macos-universal
+        # `asset`: sufijo con el que se publican los instaladores. GitHub los lista
+        # por nombre (orden ASCII): el número deja Windows, macOS y Linux en ese orden.
+        # Lanzado a mano con «windows», sólo la entrada de Windows.
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.plataformas == 'windows' && '[{"platform":"windows-latest","args":"","asset":"1-windows-x64"}]' || '[{"platform":"ubuntu-22.04","args":"","asset":"3-linux-x64"},{"platform":"windows-latest","args":"","asset":"1-windows-x64"},{"platform":"macos-latest","args":"--target universal-apple-darwin","asset":"2-macos-universal"}]') }}
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v5
@@ -139,6 +141,122 @@ jobs:
         with:
           args: ${{ matrix.args }}
 
+      # --- Paquete MSIX para Microsoft Store (Windows) --------------------------------
+      # La Store lo firma: se sube sin firmar (artefacto msix-store, para Partner Center).
+      # La identidad sale de Partner Center (Identidad del producto) y va en variables del
+      # repo; sin ellas se usan valores de prueba. Lleva lo mismo que instala el NSIS: el
+      # .exe (con el frontend embebido) y, si los hubiera, DLL y la carpeta de recursos.
+      # Además una copia firmada con un certificado de prueba (msix-prueba, con su .cer)
+      # que se instala aquí mismo, se abre y se desinstala, para probar el paquete.
+      # Va antes de SignPath: el .exe del paquete es el que compiló tauri-action.
+      - name: Paquete MSIX (Microsoft Store)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          MSIX_IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME }}
+          MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER }}
+          MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:MSIX_IDENTITY_NAME -or -not $env:MSIX_PUBLISHER -or -not $env:MSIX_PUBLISHER_DISPLAY_NAME) {
+            Write-Output "::warning::Faltan las variables MSIX_IDENTITY_NAME, MSIX_PUBLISHER o MSIX_PUBLISHER_DISPLAY_NAME: el .msix lleva una identidad de prueba y Partner Center lo rechazará."
+          }
+          $identity = if ($env:MSIX_IDENTITY_NAME) { $env:MSIX_IDENTITY_NAME } else { 'Iurefficient.IureEditor' }
+          $publisher = if ($env:MSIX_PUBLISHER) { $env:MSIX_PUBLISHER } else { 'CN=Iurefficient' }
+          $display = if ($env:MSIX_PUBLISHER_DISPLAY_NAME) { $env:MSIX_PUBLISHER_DISPLAY_NAME } else { 'Iurefficient' }
+          # Primer número +1 y cuarto en 0 (como iureapps e IureProject): 1.19.2 → 2.19.2.0.
+          # Siempre crece y la Store exige el último número en 0.
+          $appVersion = (Get-Content src-tauri\tauri.conf.json -Raw | ConvertFrom-Json).version
+          $parts = ($appVersion -replace '[-+].*$', '').Split('.')
+          $version = "$([int]$parts[0] + 1).$($parts[1]).$($parts[2]).0"
+          Write-Output "Versión de la app: $appVersion → versión del paquete: $version"
+          # Los valores van dentro de atributos XML.
+          $identity = [System.Security.SecurityElement]::Escape($identity)
+          $publisher = [System.Security.SecurityElement]::Escape($publisher)
+          $display = [System.Security.SecurityElement]::Escape($display)
+
+          $sdk = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Directory |
+            Where-Object { $_.Name -match '^10\.' -and (Test-Path "$($_.FullName)\x64\makeappx.exe") } |
+            Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+          $tools = "$($sdk.FullName)\x64"
+          Write-Output "Windows SDK: $tools"
+
+          $release = 'src-tauri\target\release'
+          $root = 'msix\paquete'
+          New-Item -ItemType Directory -Force $root, msix\store, msix\prueba | Out-Null
+          Copy-Item -Recurse assets\windows\msix\Assets "$root\Assets"
+          Copy-Item "$release\iureditor.exe" "$root\iureditor.exe"
+          # Lo demás que el NSIS copiaría junto al .exe (hoy no hay: WebView2Loader va enlazado).
+          Get-ChildItem "$release\*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination $root
+          if (Test-Path "$release\resources") { Copy-Item -Recurse "$release\resources" "$root\resources" }
+          $manifest = Get-Content assets\windows\msix\AppxManifest.xml -Raw
+          $manifest = $manifest.Replace('@IDENTITY_NAME@', $identity).Replace('@PUBLISHER@', $publisher)
+          $manifest = $manifest.Replace('@PUBLISHER_DISPLAY_NAME@', $display).Replace('@VERSION@', $version)
+          Set-Content "$root\AppxManifest.xml" $manifest -Encoding utf8
+          Get-ChildItem -Recurse $root | Select-Object FullName, Length | Format-Table -AutoSize | Out-String -Width 200 | Write-Output
+
+          # resources.pri: idiomas del paquete y los iconos sin fondo (altform-unplated) de la barra de tareas.
+          & "$tools\makepri.exe" createconfig /cf msix\priconfig.xml /dq es-MX_en-US /o
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$tools\makepri.exe" new /pr $root /cf msix\priconfig.xml /mn "$root\AppxManifest.xml" /of "$root\resources.pri" /o
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$tools\makeappx.exe" pack /d $root /p msix\store\iureditor-windows-x64.msix /o
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          # Copia de prueba: certificado autofirmado con el mismo Publisher.
+          $cert = New-SelfSignedCertificate -Type Custom -Subject $publisher -KeyUsage DigitalSignature `
+            -FriendlyName 'iureditor (prueba)' -CertStoreLocation Cert:\CurrentUser\My `
+            -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}')
+          $pass = ConvertTo-SecureString -String 'prueba' -Force -AsPlainText
+          Export-PfxCertificate -Cert $cert -FilePath msix\prueba.pfx -Password $pass | Out-Null
+          Export-Certificate -Cert $cert -FilePath msix\prueba\iureditor-prueba.cer | Out-Null
+          Copy-Item msix\store\iureditor-windows-x64.msix msix\prueba\iureditor-windows-x64-prueba.msix
+          & "$tools\signtool.exe" sign /fd SHA256 /f msix\prueba.pfx /p prueba msix\prueba\iureditor-windows-x64-prueba.msix
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Remove-Item msix\prueba.pfx
+
+          # Prueba: instalar la copia firmada, abrirla desde el menú Inicio (AUMID), comprobar
+          # que corre desde WindowsApps y sigue viva unos segundos, cerrarla y desinstalar.
+          Import-Certificate -FilePath msix\prueba\iureditor-prueba.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
+          Add-AppxPackage -Path msix\prueba\iureditor-windows-x64-prueba.msix
+          $pkg = Get-AppxPackage | Where-Object { $_.Name -eq $identity } | Select-Object -First 1
+          if (-not $pkg) { Write-Output "::error::El paquete no quedó instalado"; exit 1 }
+          Write-Output "Instalado: $($pkg.PackageFullName) en $($pkg.InstallLocation)"
+          Start-Process "shell:AppsFolder\$($pkg.PackageFamilyName)!IureEditor"
+          $proc = $null
+          for ($i = 0; $i -lt 30 -and -not $proc; $i++) {
+            Start-Sleep -Seconds 1
+            $proc = Get-Process iureditor -ErrorAction SilentlyContinue | Select-Object -First 1
+          }
+          $ok = $false
+          if ($proc) {
+            Start-Sleep -Seconds 10
+            $vivo = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
+            Write-Output "Proceso: $($proc.Id) $($proc.Path) (vivo tras 10 s: $([bool]$vivo))"
+            $ok = [bool]$vivo -and ("$($proc.Path)" -like '*\WindowsApps\*')
+          } else {
+            Write-Output "iureditor no arrancó dentro del paquete"
+          }
+          Get-Process iureditor -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 2
+          Remove-AppxPackage -Package $pkg.PackageFullName
+          if (-not $ok) { Write-Output "::error::iureditor no se ejecutó correctamente desde el paquete MSIX"; exit 1 }
+          Get-ChildItem msix\store, msix\prueba
+
+      - name: Subir el MSIX para la Store
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: msix-store
+          path: msix/store/*
+
+      - name: Subir el MSIX de prueba
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: msix-prueba
+          path: msix/prueba/*
+
       # Comprueba lo que verá Gatekeeper: el .app suelto, el del .dmg y el del
       # .app.tar.gz (lo que instala el actualizador) firmados, notarizados y engrapados.
       - name: Comprobar firma y notarización (macOS)
@@ -176,7 +294,7 @@ jobs:
       # así que la firma minisign del actualizador (.sig) se rehace después.
       - name: Instaladores de Windows por firmar
         id: sin_firmar
-        if: runner.os == 'Windows' && env.SIGNPATH_API_TOKEN != ''
+        if: runner.os == 'Windows' && env.SIGNPATH_API_TOKEN != '' && startsWith(github.ref, 'refs/tags/')
         shell: bash
         env:
           SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -236,6 +354,7 @@ jobs:
           echo "$n instaladores firmados"
 
       - name: Publicar en la release
+        if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -279,6 +398,7 @@ jobs:
   # firma de su instalador. macOS es universal: la misma entrada para ambas arquitecturas.
   manifest:
     needs: build
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-22.04
     permissions:
       contents: write

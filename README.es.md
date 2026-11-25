@@ -86,6 +86,8 @@ Los archivos `.sig`, el `.app.tar.gz` y `latest.json` los usa el actualizador in
 
 Unos segundos después de arrancar, iureditor revisa los releases de este repositorio en GitHub por si hay una versión nueva y pregunta antes de descargar nada (también se puede revisar desde Ayuda → Buscar actualizaciones…). Las actualizaciones se verifican con la firma del actualizador del proyecto antes de instalarse. En Linux, una instalación por `.deb` se actualiza con el paquete `.deb` (pide la contraseña de administrador) y un AppImage con el AppImage.
 
+La copia instalada desde Microsoft Store no busca actualizaciones por su cuenta: la actualiza la Store.
+
 ### Solución de problemas en Linux
 
 Si la ventana aparece en blanco o parpadea (NVIDIA/Wayland), prueba:
@@ -144,6 +146,40 @@ Construido con [Tauri v2](https://tauri.app), React y [TipTap](https://tiptap.de
 
 </details>
 
+## Microsoft Store (MSIX)
+
+El job de Windows de `release.yml` genera, además del instalador, dos artefactos de la
+ejecución (no van a la release):
+
+- `msix-store`: `iureditor-windows-x64.msix`, sin firmar, para subir a Partner Center (la
+  Store lo firma).
+- `msix-prueba`: el mismo paquete firmado con un certificado de prueba y su `.cer`. Para
+  instalarlo a mano: importar el `.cer` en *Equipo local → Personas de confianza* y abrir el
+  `.msix`. En CI esa copia se instala, se abre, se comprueba que corre desde `WindowsApps` y
+  se desinstala.
+
+Para generarlos sin publicar nada: *Actions → Release → Run workflow* (por omisión sólo
+Windows). Así no se crea release, no se firma con SignPath ni se genera `latest.json`.
+
+La identidad del paquete sale de Partner Center (*Identidad del producto*) y va en tres
+variables del repo (*Settings → Secrets and variables → Actions → Variables*):
+`MSIX_IDENTITY_NAME` (`Package/Identity/Name`), `MSIX_PUBLISHER` (`Package/Identity/Publisher`,
+`CN=…`) y `MSIX_PUBLISHER_DISPLAY_NAME` (`Package/Properties/PublisherDisplayName`). Sin ellas
+el paquete lleva una identidad de prueba que Partner Center rechaza. El nombre visible
+(`DisplayName`) es «IureEditor», el reservado en Partner Center.
+
+El manifiesto (`assets/windows/msix/AppxManifest.xml`) declara sólo `runFullTrust` e
+`internetClient`, las asociaciones de `.md` y `.markdown`, el esquema `iureditor://` y el
+alias `iureditor.exe` para la terminal. Instalado desde la Store, iureditor no se actualiza
+solo ni avisa de versiones nuevas (lo detecta con `GetCurrentPackageFullName`): lo actualiza
+la Store. Fuera de la Store todo sigue igual.
+
+La versión del paquete es la de `tauri.conf.json` con el primer número más 1 y un `.0` al
+final (`1.19.2` → `2.19.2.0`), porque la Store exige el cuarto número en 0; es el mismo
+esquema que iureapps e IureProject. Cada envío necesita una versión mayor que la anterior.
+
+Política de privacidad para la ficha de la Store: [PRIVACY.md](PRIVACY.md).
+
 ## Code signing policy
 
 - **Windows:** por ahora los instaladores **no** tienen firma Authenticode, así que SmartScreen puede advertir de un editor desconocido («Más información → Ejecutar de todas formas»).
@@ -163,8 +199,8 @@ Specifically, iureditor connects only to:
   signs in or opens, saves or lists documents there;
 - GitHub (`github.com`, the `latest.json` file of this repository's releases), once
   a few seconds after start-up and when the user chooses Help → Check for updates,
-  to check whether a newer release exists. Nothing is downloaded or installed
-  without asking first;
+  to check whether a newer release exists (not in the Microsoft Store copy, which
+  the Store updates). Nothing is downloaded or installed without asking first;
 - `api.github.com`, only when the user opens the Iurefficient side panel (or
   refreshes its list of apps), to show the latest version of the Iurefficient
   desktop apps.
@@ -172,6 +208,8 @@ Specifically, iureditor connects only to:
 It collects no telemetry and no usage statistics. Documents are edited locally.
 Credentials are stored in the operating system keychain, never in configuration
 files.
+
+Full policy (English and Spanish): [PRIVACY.md](PRIVACY.md).
 
 *Política de privacidad: este programa no transfiere información a otros sistemas
 en red salvo que lo pida expresamente el usuario o quien lo instala u opera. Sólo

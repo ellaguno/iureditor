@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Paquete MSIX de iureditor para Microsoft Store. release.yml sustituye los @…@:
+    @IDENTITY_NAME@, @PUBLISHER@, @PUBLISHER_DISPLAY_NAME@: los de Partner Center
+      (Administración de productos → Identidad del producto), en las variables del repo
+      MSIX_IDENTITY_NAME, MSIX_PUBLISHER y MSIX_PUBLISHER_DISPLAY_NAME.
+    @VERSION@: la de tauri.conf.json con el primer número +1 y .0 al final
+      (1.19.2 → 2.19.2.0; la Store exige el último número en 0).
+
+  DisplayName debe ser exactamente el nombre reservado en Partner Center («IureEditor»).
+
+  Sin unvirtualizedResources: iureditor sólo escribe su configuración (AppData) y los
+  documentos que el usuario elige; lo primero puede quedar virtualizado dentro del paquete.
+  Las credenciales de Iurefficient van al Administrador de credenciales de Windows, que no
+  se virtualiza y sigue compartido con las demás apps de Iurefficient.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap3 desktop rescap">
+
+  <Identity
+    Name="@IDENTITY_NAME@"
+    Publisher="@PUBLISHER@"
+    Version="@VERSION@"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>IureEditor</DisplayName>
+    <PublisherDisplayName>@PUBLISHER_DISPLAY_NAME@</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="es-MX" />
+    <Resource Language="en-US" />
+  </Resources>
+
+  <Applications>
+    <Application Id="IureEditor" Executable="iureditor.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="IureEditor"
+        Description="Editor WYSIWYG de Markdown con diagramas Mermaid en vivo y exportación a PDF y DOCX"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png" />
+      <Extensions>
+        <!-- Abrir .md y .markdown con iureditor (las mismas que registra el instalador NSIS). -->
+        <uap3:Extension Category="windows.fileTypeAssociation">
+          <uap3:FileTypeAssociation Name="markdown" Parameters="&quot;%1&quot;">
+            <uap:DisplayName>Documento Markdown</uap:DisplayName>
+            <uap:SupportedFileTypes>
+              <uap:FileType ContentType="text/markdown">.md</uap:FileType>
+              <uap:FileType ContentType="text/markdown">.markdown</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap3:FileTypeAssociation>
+        </uap3:Extension>
+        <!-- Enlaces iureditor://… (abrir un archivo o documento de Iurefficient, dictado de
+             IureVoz). Fuera de la Store los registra la app al arrancar. -->
+        <uap3:Extension Category="windows.protocol">
+          <uap3:Protocol Name="iureditor" Parameters="&quot;%1&quot;">
+            <uap:DisplayName>iureditor</uap:DisplayName>
+          </uap3:Protocol>
+        </uap3:Extension>
+        <!-- `iureditor archivo.md` en la terminal; las demás apps de Iurefficient lo
+             encuentran en el PATH. -->
+        <uap3:Extension Category="windows.appExecutionAlias" Executable="iureditor.exe" EntryPoint="Windows.FullTrustApplication">
+          <uap3:AppExecutionAlias>
+            <desktop:ExecutionAlias Alias="iureditor.exe" />
+          </uap3:AppExecutionAlias>
+        </uap3:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <Capability Name="internetClient" />
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>
