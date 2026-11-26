@@ -3,6 +3,7 @@ import { Download, ExternalLink, RefreshCw } from 'lucide-react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { apps, type AppId, type AppStatus } from '../lib/iurefficient';
 import { t, useLang } from '../lib/i18n';
+import { isStoreInstall } from '../lib/updater';
 
 const REPOS: Record<AppId, string> = {
   transcribe: 'https://github.com/ellaguno/iuretranscribe',
@@ -18,6 +19,11 @@ export const IureAppsSection = ({ version }: { version?: string }) => {
   const [list, setList] = useState<AppStatus[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Copia de Microsoft Store: sin aviso de versión nueva de iureditor (la Store la actualiza).
+  const [storeInstall, setStoreInstall] = useState(false);
+  useEffect(() => {
+    void isStoreInstall().then(setStoreInstall);
+  }, []);
 
   const load = async (withNetwork: boolean) => {
     setLoading(true);
@@ -60,7 +66,7 @@ export const IureAppsSection = ({ version }: { version?: string }) => {
                 <span className="text-gray-800 dark:text-gray-100">{a.name}</span>
                 <span className="text-gray-400">
                   {a.id === 'editor' ? `${t('apps.thisApp')}${version ? ` ${version}` : ''}` : a.installed ? t('apps.installed') : t('apps.notInstalled')}
-                  {a.latestVersion ? t('apps.latest', { version: a.latestVersion }) : ''}
+                  {a.latestVersion && !(storeInstall && a.id === 'editor') ? t('apps.latest', { version: a.latestVersion }) : ''}
                 </span>
               </span>
               {a.id !== 'editor' &&

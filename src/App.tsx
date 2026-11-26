@@ -87,7 +87,7 @@ import {
   readTemplate,
   openTemplatesFolder,
 } from './lib/templates';
-import { checkForUpdates } from './lib/updater';
+import { checkForUpdates, isStoreInstall } from './lib/updater';
 import { exportToPdf } from './lib/exportPdf';
 import { HELP_MARKDOWN } from './lib/help';
 import { markdownToHtml } from './lib/markdown';
@@ -2048,6 +2048,12 @@ export default function App() {
   }, []);
 
   // ---------- chequeo de actualizaciones (silencioso, tras el arranque) ----------
+  // La copia de Microsoft Store no busca actualizaciones ni ofrece el menú (la Store la actualiza).
+  const [storeInstall, setStoreInstall] = useState(false);
+  useEffect(() => {
+    if (!isTauri) return;
+    void isStoreInstall().then(setStoreInstall);
+  }, []);
   useEffect(() => {
     if (!isTauri) return;
     const timer = setTimeout(() => void checkForUpdates(true), 6000);
@@ -2183,7 +2189,7 @@ export default function App() {
         { id: 'system', label: `${t('menu.theme')}: ${t('menu.themeSystem')}`, run: () => handleThemeChange('system') },
         { id: 'spell', label: t('menu.spellcheck'), run: () => handleSpellcheckChange(!spellcheck) },
         { id: 'help', label: t('menu.appHelp'), shortcut: 'F1', run: handleOpenHelp },
-        { id: 'updates', label: t('menu.checkUpdates'), run: () => void checkForUpdates(false) },
+        ...(storeInstall ? [] : [{ id: 'updates', label: t('menu.checkUpdates'), run: () => void checkForUpdates(false) }]),
       ]
     : [];
 
@@ -2229,7 +2235,7 @@ export default function App() {
             onZoomIn: handleZoomIn,
             onZoomOut: handleZoomOut,
             onZoomReset: handleZoomReset,
-            onCheckUpdates: () => void checkForUpdates(false),
+            onCheckUpdates: storeInstall ? undefined : () => void checkForUpdates(false),
             onOpenHelp: handleOpenHelp,
             onQuickSwitcher: () => setPalette('files'),
             onCommandPalette: () => setPalette('commands'),

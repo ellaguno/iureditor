@@ -86,6 +86,8 @@ The `.sig` files, the `.app.tar.gz` and `latest.json` are used by the built-in u
 
 A few seconds after start-up, iureditor checks this repository's releases on GitHub for a newer version and asks before downloading anything (you can also check from Help → Check for updates…). Updates are verified against the project's updater signature before they are installed. On Linux, a `.deb` installation is updated with the `.deb` package (it asks for the administrator password) and an AppImage with the AppImage.
 
+A copy installed from Microsoft Store does not check for updates itself: the Store updates it.
+
 ### Troubleshooting on Linux
 
 If the window shows up blank or flickers (NVIDIA/Wayland), try:
@@ -144,6 +146,38 @@ Built with [Tauri v2](https://tauri.app), React and [TipTap](https://tiptap.dev)
 
 </details>
 
+## Microsoft Store (MSIX)
+
+Besides the installer, the Windows job of `release.yml` produces two run artifacts (they
+are not attached to the release):
+
+- `msix-store`: `iureditor-windows-x64.msix`, unsigned, to upload to Partner Center (the Store
+  signs it).
+- `msix-prueba`: the same package signed with a test certificate, plus its `.cer`. To install
+  it by hand: import the `.cer` into *Local Machine → Trusted People* and open the `.msix`. In
+  CI that copy is installed, opened, checked to run from `WindowsApps`, and uninstalled.
+
+To build them without publishing anything: *Actions → Release → Run workflow* (Windows only
+by default). That creates no release, skips SignPath and does not generate `latest.json`.
+
+The package identity comes from Partner Center (*Product identity*) and lives in three repo
+variables (*Settings → Secrets and variables → Actions → Variables*): `MSIX_IDENTITY_NAME`,
+`MSIX_PUBLISHER` (`CN=…`) and `MSIX_PUBLISHER_DISPLAY_NAME`. Without them the package carries
+a test identity that Partner Center rejects. The display name is "IureEditor", the name
+reserved in Partner Center.
+
+The manifest (`assets/windows/msix/AppxManifest.xml`) declares only `runFullTrust` and
+`internetClient`, the `.md` and `.markdown` associations, the `iureditor://` scheme and an
+`iureditor.exe` alias for the terminal. Installed from the Store, iureditor does not update
+itself or announce new versions (it detects this with `GetCurrentPackageFullName`): the Store
+updates it. Outside the Store nothing changes.
+
+The package version is the one in `tauri.conf.json` with the first number plus 1 and a
+trailing `.0` (`1.19.2` → `2.19.2.0`), because the Store requires the fourth number to be 0;
+the same scheme as iureapps and IureProject. Each submission needs a higher version.
+
+Privacy policy for the Store listing: [PRIVACY.md](PRIVACY.md).
+
 ## Code signing policy
 
 - **Windows:** the installers are currently **not** Authenticode-signed, so SmartScreen may warn about an unknown publisher ("More info → Run anyway").
@@ -163,8 +197,8 @@ Specifically, iureditor connects only to:
   signs in or opens, saves or lists documents there;
 - GitHub (`github.com`, the `latest.json` file of this repository's releases), once
   a few seconds after start-up and when the user chooses Help → Check for updates,
-  to check whether a newer release exists. Nothing is downloaded or installed
-  without asking first;
+  to check whether a newer release exists (not in the Microsoft Store copy, which
+  the Store updates). Nothing is downloaded or installed without asking first;
 - `api.github.com`, only when the user opens the Iurefficient side panel (or
   refreshes its list of apps), to show the latest version of the Iurefficient
   desktop apps.
@@ -172,6 +206,8 @@ Specifically, iureditor connects only to:
 It collects no telemetry and no usage statistics. Documents are edited locally.
 Credentials are stored in the operating system keychain, never in configuration
 files.
+
+Full policy (English and Spanish): [PRIVACY.md](PRIVACY.md).
 
 ## License
 

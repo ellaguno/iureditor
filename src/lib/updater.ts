@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core';
 import { ask, message } from '@tauri-apps/plugin-dialog';
 import { t } from './i18n';
 
@@ -7,7 +8,21 @@ import { t } from './i18n';
 // plugin elige la del tipo de paquete instalado. Con .deb/.rpm la instalación
 // pide la contraseña de administrador.
 
+// Instalada desde Microsoft Store (paquete MSIX): la Store la actualiza y su política
+// no permite que se actualice sola, así que no se busca, avisa ni descarga nada.
+let storeInstall: Promise<boolean> | null = null;
+export const isStoreInstall = (): Promise<boolean> => {
+  storeInstall ??= invoke<boolean>('is_store_install').catch(() => false);
+  return storeInstall;
+};
+
 export const checkForUpdates = async (silent: boolean): Promise<void> => {
+  if (await isStoreInstall()) {
+    if (!silent) {
+      await message(t('update.store'), { title: 'iureditor', kind: 'info' });
+    }
+    return;
+  }
   try {
     const { check } = await import('@tauri-apps/plugin-updater');
     const update = await check();

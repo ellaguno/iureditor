@@ -114,6 +114,31 @@ fn get_cli_iure_doc() -> Option<IureDocLink> {
     std::env::args().skip(1).find_map(|a| iure_doc_link(&a))
 }
 
+/// ¿Corre instalada desde Microsoft Store (paquete MSIX)? Entonces la Store la
+/// actualiza: el actualizador propio y los avisos de versión nueva se apagan (política
+/// de la Store). Un proceso empaquetado tiene nombre de paquete; uno suelto (NSIS) no.
+pub(crate) fn from_store() -> bool {
+    #[cfg(windows)]
+    {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetCurrentPackageFullName(length: *mut u32, name: *mut u16) -> i32;
+        }
+        const APPMODEL_ERROR_NO_PACKAGE: i32 = 15700;
+        let mut len = 0u32;
+        // Con paquete devuelve ERROR_INSUFFICIENT_BUFFER (el búfer vacío no alcanza).
+        let r = unsafe { GetCurrentPackageFullName(&mut len, std::ptr::null_mut()) };
+        r != APPMODEL_ERROR_NO_PACKAGE
+    }
+    #[cfg(not(windows))]
+    false
+}
+
+#[tauri::command]
+fn is_store_install() -> bool {
+    from_store()
+}
+
 /// Apps de escritorio de Iurefficient en este equipo y su última versión publicada.
 #[tauri::command]
 async fn apps_status(with_network: bool) -> Vec<iurefficient_connect::apps::AppStatus> {
@@ -366,7 +391,6 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(
             // Restaurar sólo tamaño/posición/maximizado: si restaurase
@@ -384,6 +408,7 @@ pub fn run() {
             allow_asset_dir,
             get_cli_file,
             get_cli_iure_doc,
+            is_store_install,
             apps_status,
             launch_app,
             print_webview,
@@ -411,12 +436,20 @@ pub fn run() {
         .setup(|app| {
             // Primero el idioma: los mensajes posteriores ya salen traducidos.
             settings::init(app)?;
+            // Actualizador propio sólo fuera de Microsoft Store (la Store la actualiza y su
+            // política no permite que se actualice sola). Sin el plugin, `check()` del
+            // frontend falla y nada se descarga aunque se llame.
+            if !from_store() {
+                app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+            }
             #[cfg(target_os = "linux")]
             enable_spellcheck(app);
             // Esquema `iureditor://` (Linux y Windows lo registran en tiempo de
-            // ejecución; en macOS va en el Info.plist del bundle).
+            // ejecución; en macOS va en el Info.plist del bundle). En el paquete de la
+            // Store lo declara el AppxManifest (uap:Protocol): el registro quedaría
+            // virtualizado dentro del paquete y no serviría.
             #[cfg(any(windows, target_os = "linux"))]
-            {
+            if !from_store() {
                 use tauri_plugin_deep_link::DeepLinkExt;
                 if let Err(e) = app.deep_link().register_all() {
                     eprintln!("no se pudo registrar el esquema iureditor://: {e}");

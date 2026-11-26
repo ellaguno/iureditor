@@ -54,7 +54,8 @@ export interface TitleBarActions {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onZoomReset: () => void;
-  onCheckUpdates: () => void;
+  /** Ausente en la copia de Microsoft Store (la Store la actualiza). */
+  onCheckUpdates?: () => void;
   onOpenHelp: () => void;
   onQuickSwitcher: () => void;
   onCommandPalette: () => void;
@@ -684,10 +685,12 @@ export const TitleBar = ({
                 <MenuItem key={url} label={key ? t(key) : label} onClick={closeAnd(() => void openUrl(url))} />
               ))}
               <MenuSeparator />
-              <MenuItem
-                label={t('menu.checkUpdates')}
-                onClick={closeAnd(actions.onCheckUpdates)}
-              />
+              {actions.onCheckUpdates && (
+                <MenuItem
+                  label={t('menu.checkUpdates')}
+                  onClick={closeAnd(actions.onCheckUpdates)}
+                />
+              )}
               {version && (
                 <>
                   <MenuSeparator />
