@@ -1,4 +1,4 @@
-//! Una sola ventana: un segundo `iureditor2` (abierto por el sistema con un `.md` o un enlace
+//! Una sola ventana: un segundo `iureditor` (abierto por el sistema con un `.md` o un enlace
 //! `iureditor://`, o por IureVoz al dictar) le pasa sus argumentos a la ventana abierta y termina.
 //! Es lo que hacía el complemento *single-instance* de la versión Tauri.
 //!
@@ -170,7 +170,7 @@ impl Drop for Listener {
     }
 }
 
-/// Empieza a escuchar; `on_open` recibe los argumentos de cada segundo `iureditor2` (lista vacía:
+/// Empieza a escuchar; `on_open` recibe los argumentos de cada segundo `iureditor` (lista vacía:
 /// solo traer la ventana al frente).
 pub fn listen(dir: &Path, on_open: impl Fn(Vec<String>) + Send + 'static) -> std::io::Result<Listener> {
     private_dir(dir)?;

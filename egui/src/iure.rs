@@ -530,6 +530,8 @@ pub(crate) struct IurePanel {
     data: Option<PathBuf>,
     /// Para despertar la ventana cuando responde la red (se toma al dibujar el panel).
     ctx: Option<egui::Context>,
+    /// Un documento que pidió un enlace `iureditor://iurefficient/doc`: se abre al estar conectado.
+    pending_open: Option<Req>,
     /// Apps de la suite: (estado, si ya trae la última versión) y la lectura en curso.
     pub(crate) apps: Option<(Vec<iurefficient_connect::apps::AppStatus>, bool)>,
     /// Respuestas del asistente que aún no recogió su pestaña.
@@ -576,6 +578,18 @@ impl IurePanel {
     /// Lo que llegó para el asistente (y se olvida).
     pub(crate) fn take_chat(&mut self) -> Vec<Rep> {
         std::mem::take(&mut self.chat)
+    }
+
+    /// Abre un documento de la instancia (enlace de otra app de la suite) en cuanto haya conexión.
+    pub(crate) fn open_remote(
+        &mut self,
+        case_id: Option<String>,
+        case_title: Option<String>,
+        doc_id: String,
+        file_name: String,
+    ) {
+        let case_title = case_title.unwrap_or_else(|| iurefficient_ui::pick("General", "General").to_string());
+        self.pending_open = Some(Req::Open { case_id, case_title, doc_id, file_name });
     }
 
     /// El proyecto del documento activo (si es un espejo de un proyecto): (id, título).
@@ -652,6 +666,11 @@ impl IurePanel {
     /// Recoge las respuestas del hilo de red.
     pub(crate) fn poll(&mut self) -> Option<IureAct> {
         let mut act = None;
+        if self.ready()
+            && let Some(r) = self.pending_open.take()
+        {
+            self.send(r);
+        }
         let reps: Vec<Rep> = match &self.link {
             Some((_, rx)) => rx.try_iter().take(50).collect(),
             None => Vec::new(),

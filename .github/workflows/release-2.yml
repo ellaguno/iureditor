@@ -1,0 +1,330 @@
+# IureEditor 2.0 (Rust + egui, egui/) con los instaladores de la 1.x: con una etiqueta `v2.*`
+# compila el binario `iureditor` y lo empaqueta con `tauri bundle` (sin compilar la 1.x) usando la
+# configuración de src-tauri/ más egui/bundle/tauri.conf.json: mismo nombre, identificador
+# (com.ellaguno.iureditor), asociación de .md, esquema iureditor:// y clave del actualizador
+# (KEY_8F1B). Así el actualizador de la 1.x y el de la 2.0 instalan estos paquetes como uno más
+# (docs/transicion-2.0.md).
+#
+# - `v2.0.0-rc.N` (con guion): Release **preliminar** (no «Latest»): ni la 1.x ni iureapps la ven;
+#   se instala a mano.
+# - `v2.0.0` (sin guion): Release normal y, por lo tanto, «Latest»: todas las 1.x se actualizan.
+#
+# Firma de Apple, notarización y SignPath: los mismos secretos y pasos que release.yml.
+name: Release 2.0
+
+on:
+  push:
+    tags:
+      - 'v2.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            runner: ubuntu-22.04
+            asset: 3-linux-x64
+            bundles: deb,rpm,appimage
+          - os: windows
+            runner: windows-latest
+            asset: 1-windows-x64
+            bundles: nsis
+          # Intel: a las arm64 de macos-latest a menudo no les toca máquina; compila las dos
+          # arquitecturas igual y el .app es universal.
+          - os: macos
+            runner: macos-15-intel
+            asset: 2-macos-universal
+            bundles: app,dmg
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      # El kit de interfaz de la suite es una dependencia por ruta (`../iurefficient-ui`).
+      - name: Kit de interfaz junto al repositorio
+        run: git clone --depth 1 https://github.com/ellaguno/iurefficient-ui ../iurefficient-ui
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: egui
+
+      - name: Dependencias de Linux
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev file libgtk-3-dev librsvg2-dev
+
+      # Solo el CLI de Tauri (empaquetar); el frontend de la 1.x no se compila.
+      - run: npm ci
+
+      - name: Versión
+        id: v
+        run: |
+          VERSION=$(grep -m1 '^version' egui/Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_NAME}" != "v$VERSION" ]; then
+            echo "La etiqueta ${GITHUB_REF_NAME} no coincide con la versión $VERSION de egui/Cargo.toml" >&2
+            exit 1
+          fi
+
+      - name: Compilar
+        working-directory: egui
+        run: |
+          if [ "${{ matrix.os }}" = "macos" ]; then
+            cargo build --release --target aarch64-apple-darwin
+            cargo build --release --target x86_64-apple-darwin
+          else
+            cargo build --release
+          fi
+
+      - name: Probar que arranca sin ventana
+        if: matrix.os != 'macos'
+        working-directory: egui
+        run: |
+          printf '# Prueba\n\n- [x] hecho\n' > prueba.md
+          ./target/release/iureditor --export prueba.md prueba.html
+          grep -q '<h1>Prueba</h1>' prueba.html
+
+      # Donde `tauri bundle` busca el programa (el nombre de producto de la 1.x).
+      - name: El binario en el lugar de la 1.x
+        run: |
+          case "${{ matrix.os }}" in
+            linux)
+              mkdir -p src-tauri/target/release
+              cp egui/target/release/iureditor src-tauri/target/release/iureditor
+              strip src-tauri/target/release/iureditor ;;
+            windows)
+              mkdir -p src-tauri/target/release
+              cp egui/target/release/iureditor.exe src-tauri/target/release/iureditor.exe ;;
+            macos)
+              mkdir -p src-tauri/target/universal-apple-darwin/release
+              lipo -create -output src-tauri/target/universal-apple-darwin/release/iureditor \
+                egui/target/aarch64-apple-darwin/release/iureditor \
+                egui/target/x86_64-apple-darwin/release/iureditor ;;
+          esac
+
+      # --- Firma Developer ID y notarización (macOS), como release.yml ---------------
+      - name: Firma de Apple (keychain temporal)
+        if: runner.os == 'macOS'
+        id: apple
+        env:
+          DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          DEVELOPER_ID_PASSWORD: ${{ secrets.DEVELOPER_ID_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DEVELOPER_ID_P12_BASE64" ] || [ -z "$DEVELOPER_ID_PASSWORD" ] || [ -z "$KEYCHAIN_PASSWORD" ]; then
+            echo "::warning::Sin DEVELOPER_ID_P12_BASE64/DEVELOPER_ID_PASSWORD/KEYCHAIN_PASSWORD: el .app y el .dmg salen sin firmar."
+            exit 0
+          fi
+          KC="$RUNNER_TEMP/iureditor-firma.keychain-db"
+          P12="$RUNNER_TEMP/devid.p12"
+          printf '%s' "$DEVELOPER_ID_P12_BASE64" | base64 --decode > "$P12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KC"
+          security import "$P12" -k "$KC" -P "$DEVELOPER_ID_PASSWORD" -f pkcs12 -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$P12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KC" > /dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          IDENTITY="$(security find-identity -v -p codesigning "$KC" | sed -n 's/.*"\(Developer ID Application: .*(\('"$APPLE_TEAM_ID"'\))\)".*/\1/p' | head -n1)"
+          if [ -z "$IDENTITY" ]; then
+            security find-identity -v -p codesigning "$KC"
+            echo "::error::El .p12 no trae una identidad «Developer ID Application» del equipo $APPLE_TEAM_ID."
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "keychain=$KC" >> "$GITHUB_OUTPUT"
+          if [ -n "$ASC_KEY_ID" ] && [ -n "$ASC_ISSUER_ID" ] && [ -n "$ASC_PRIVATE_KEY" ]; then
+            KEY="$RUNNER_TEMP/AuthKey_$ASC_KEY_ID.p8"
+            printf '%s\n' "$ASC_PRIVATE_KEY" > "$KEY"
+            chmod 600 "$KEY"
+            { echo "APPLE_API_KEY=$ASC_KEY_ID"; echo "APPLE_API_ISSUER=$ASC_ISSUER_ID"; echo "APPLE_API_KEY_PATH=$KEY"; } >> "$GITHUB_ENV"
+            echo "notarize=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Sin ASC_KEY_ID/ASC_ISSUER_ID/ASC_PRIVATE_KEY: se firma pero no se notariza (Gatekeeper lo bloqueará)."
+          fi
+
+      - name: Empaquetar (instaladores de la 1.x)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          TARGET=""
+          [ "${{ matrix.os }}" = "macos" ] && TARGET="--target universal-apple-darwin"
+          npx tauri bundle --ci --bundles ${{ matrix.bundles }} $TARGET \
+            -c egui/bundle/tauri.conf.json -c '{"version":"${{ steps.v.outputs.version }}"}'
+
+      - name: Comprobar firma y notarización (macOS)
+        if: runner.os == 'macOS' && steps.apple.outputs.keychain != ''
+        run: |
+          set -euo pipefail
+          BUNDLE="$(find src-tauri/target -type d -path '*/release/bundle/macos' | head -1)"
+          check() {
+            codesign --verify --deep --strict --verbose=2 "$1"
+            codesign -dv --verbose=2 "$1" 2>&1 | grep -E 'Authority=Developer ID Application|flags=.*runtime'
+            if [ "${{ steps.apple.outputs.notarize }}" = true ]; then
+              xcrun stapler validate "$1"
+              spctl --assess --type execute --verbose=4 "$1"
+            fi
+          }
+          check "$BUNDLE/iureditor.app"
+          TGZ="$RUNNER_TEMP/tgz-check"; rm -rf "$TGZ"; mkdir -p "$TGZ"
+          tar -xzf "$BUNDLE/iureditor.app.tar.gz" -C "$TGZ"
+          check "$TGZ/iureditor.app"
+
+      # --- Firma Authenticode (Windows) con SignPath, como release.yml -----------------
+      - name: Instaladores de Windows por firmar
+        id: sin_firmar
+        if: runner.os == 'Windows' && env.SIGNPATH_API_TOKEN != ''
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        run: |
+          mkdir -p sin-firmar
+          find src-tauri/target -path '*/release/bundle/*' -type f -name '*-setup.exe' -exec cp {} sin-firmar/ \;
+          ls -la sin-firmar
+          echo "hay=$(ls sin-firmar | wc -l | tr -d ' ')" >> "$GITHUB_OUTPUT"
+
+      - name: Subir los instaladores como artefacto para SignPath
+        id: artefacto_sin_firmar
+        if: steps.sin_firmar.outputs.hay != '' && steps.sin_firmar.outputs.hay != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sin-firmar-${{ matrix.asset }}
+          path: sin-firmar/*
+          retention-days: 3
+
+      - name: Firmar con SignPath
+        id: signpath
+        if: steps.artefacto_sin_firmar.outputs.artifact-id != ''
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.artefacto_sin_firmar.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: firmados
+
+      - name: Sustituir por los firmados y rehacer la firma del actualizador
+        if: steps.signpath.outcome == 'success'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          n=0
+          for firmado in $(find firmados -type f -name '*.exe'); do
+            nombre="$(basename "$firmado")"
+            destino="$(find src-tauri/target -path '*/release/bundle/*' -type f -name "$nombre" | head -1)"
+            if [ -z "$destino" ]; then
+              echo "::error::SignPath devolvió $nombre pero no existe en el bundle"
+              exit 1
+            fi
+            cp "$firmado" "$destino"
+            if [ -f "$destino.sig" ]; then
+              npx tauri signer sign -k "$TAURI_SIGNING_PRIVATE_KEY" -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$destino"
+            fi
+            n=$((n + 1))
+          done
+          [ "$n" -gt 0 ] || { echo "::error::SignPath no devolvió ningún instalador"; exit 1; }
+
+      - name: Publicar en la release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.v.outputs.version }}"
+          TAG="$GITHUB_REF_NAME"
+          mkdir -p dist-release
+          # iureditor_<versión>_<orden>-<plataforma>.<ext>, como la 1.x.
+          find src-tauri/target -path '*/release/bundle/*' -type f \
+            \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.dmg' -o -name '*-setup.exe' \
+               -o -name '*.sig' -o -name '*.app.tar.gz' \) -print | while read -r f; do
+            base="$(basename "$f")"
+            case "$base" in
+              *.app.tar.gz.sig) ext="app.tar.gz.sig" ;;
+              *.app.tar.gz)     ext="app.tar.gz" ;;
+              *.AppImage.sig)   ext="AppImage.sig" ;;
+              *-setup.exe.sig)  ext="exe.sig" ;;
+              *.deb.sig)        ext="deb.sig" ;;
+              *.rpm.sig)        ext="rpm.sig" ;;
+              *)                ext="${base##*.}" ;;
+            esac
+            cp "$f" "dist-release/iureditor_${VERSION}_${{ matrix.asset }}.${ext}"
+          done
+          ls -la dist-release
+          NOTES="egui/notas/$TAG.md"
+          [ -f "$NOTES" ] || NOTES=/dev/null
+          PRE=""
+          case "$VERSION" in *-*) PRE="--prerelease" ;; esac
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" $PRE \
+            --title "IureEditor $VERSION" --notes-file "$NOTES" || true
+          gh release upload "$TAG" dist-release/* --clobber
+
+      - name: Borrar el keychain temporal y la clave de App Store Connect
+        if: always() && runner.os == 'macOS'
+        run: |
+          if [ -n "${{ steps.apple.outputs.keychain }}" ]; then
+            security delete-keychain "${{ steps.apple.outputs.keychain }}" || true
+          fi
+          rm -f "$RUNNER_TEMP"/AuthKey_*.p8 "$RUNNER_TEMP"/devid.p12
+
+  # latest.json con el formato de la 1.x (una entrada por instalador, con su firma).
+  manifest:
+    needs: build
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Generar y subir latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p firmas && cd firmas
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern '*.sig' || true
+          cd ..
+          python3 - <<'PY'
+          import json, os, glob, datetime
+          tag = os.environ["GITHUB_REF_NAME"]; version = tag.lstrip("v")
+          base = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/"
+          platforms = {}
+          for sig in glob.glob("firmas/*.sig"):
+              asset = os.path.basename(sig)[:-4]
+              entry = {"url": base + asset, "signature": open(sig).read().strip()}
+              if asset.endswith(".AppImage"):
+                  platforms["linux-x86_64"] = entry
+              elif asset.endswith(".deb"):
+                  platforms["linux-x86_64-deb"] = entry
+              elif asset.endswith(".rpm"):
+                  platforms["linux-x86_64-rpm"] = entry
+              elif asset.endswith(".exe"):
+                  platforms["windows-x86_64"] = entry
+              elif asset.endswith(".app.tar.gz"):
+                  platforms["darwin-aarch64"] = entry
+                  platforms["darwin-x86_64"] = entry
+          manifest = {"version": version, "notes": f"IureEditor {version}",
+                      "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                      "platforms": platforms}
+          json.dump(manifest, open("latest.json", "w"), indent=2)
+          print(json.dumps(manifest, indent=2))
+          PY
+          gh release upload "$GITHUB_REF_NAME" latest.json --repo "$GITHUB_REPOSITORY" --clobber

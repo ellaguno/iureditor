@@ -2,8 +2,11 @@
 //! Markdown con el editor de documentos de la suite (`DocEditor` por bloques, el mismo de las notas
 //! de IureDesk y de IureProject). Convive con IureEditor Tauri hasta la paridad.
 //!
-//! Uso: `iureditor2 [archivo.md…]`; sin ventana, `iureditor2 --export entrada.md salida.(html|docx|pdf)`
-//! o `iureditor2 --mcp` (servidor MCP por stdio: exportar, convertir, plantillas).
+//! Uso: `iureditor [archivo.md…]`; sin ventana, `iureditor --export entrada.md salida.(html|docx|pdf)`
+//! o `iureditor --mcp` (servidor MCP por stdio: exportar, convertir, plantillas).
+
+// Sin consola en Windows (MCP por stdio sigue funcionando: el cliente pasa sus tuberías).
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod app;
 mod assistant;
@@ -18,6 +21,7 @@ mod instance;
 mod iure;
 mod links;
 mod mcp;
+mod migrate;
 mod notes;
 mod palette;
 mod sidebar;
@@ -25,6 +29,16 @@ mod templates;
 mod updates;
 
 use std::process::ExitCode;
+
+/// El icono de la ventana (el de la 1.x; en Linux manda el del `.desktop`).
+fn window_icon() -> std::sync::Arc<egui::IconData> {
+    let png = include_bytes!("../../src-tauri/icons/128x128.png");
+    let icon = image::load_from_memory_with_format(png, image::ImageFormat::Png).map(|i| {
+        let rgba = i.into_rgba8();
+        egui::IconData { width: rgba.width(), height: rgba.height(), rgba: rgba.into_raw() }
+    });
+    std::sync::Arc::new(icon.unwrap_or_default())
+}
 
 fn main() -> ExitCode {
     iurefficient_ui::lang::set_lang(iurefficient_ui::lang::detect());
@@ -62,6 +76,12 @@ fn main() -> ExitCode {
             Err(e) => notice = Some(e.human(&path)),
         }
     }
+    // Primer arranque de la 2.0: lo de la 1.x (recientes, sesión, borradores) y el aviso.
+    if let Some(m) = migrate::run()
+        && notice.is_none()
+    {
+        notice = Some(migrate::notice(&m));
+    }
     let mut active = docs.len().saturating_sub(1);
     if docs.is_empty()
         && let Some(f) = drafts::session_file()
@@ -73,8 +93,9 @@ fn main() -> ExitCode {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("IureEditor")
-            .with_app_id("iureditor2")
+            .with_app_id("iureditor")
             .with_inner_size([1000.0, 760.0])
+            .with_icon(window_icon())
             // Barra de título propia (pestañas, menú ☰, botones de la ventana), como la 1.x; con
             // IUREDITOR_SYSTEM_TITLEBAR=1, la del sistema.
             .with_decorations(system_titlebar()),
@@ -93,7 +114,7 @@ fn main() -> ExitCode {
             if !system_titlebar() {
                 app.chrome = Some(iurefficient_ui::window::WindowChrome::detect());
             }
-            // Escucha a las siguientes `iureditor2` (abrir, dictar).
+            // Escucha a las siguientes `iureditor` (abrir, dictar).
             if let Some(dir) = &runtime {
                 let (tx, rx) = std::sync::mpsc::channel();
                 let ctx = cc.egui_ctx.clone();
@@ -124,7 +145,7 @@ fn main() -> ExitCode {
 fn export_cli(input: Option<&std::ffi::OsString>, output: Option<&std::ffi::OsString>) -> ExitCode {
     use iurefficient_ui::lang::pick;
     let (Some(input), Some(output)) = (input, output) else {
-        eprintln!("{} iureditor2 --export entrada.md salida.(html|docx|pdf)", pick("usage:", "uso:"));
+        eprintln!("{} iureditor --export entrada.md salida.(html|docx|pdf)", pick("usage:", "uso:"));
         return ExitCode::FAILURE;
     };
     let (input, output) = (std::path::PathBuf::from(input), std::path::PathBuf::from(output));

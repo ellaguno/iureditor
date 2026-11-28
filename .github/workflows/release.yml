@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'v1.*'
   # A mano (Actions → Release → Run workflow): sólo compila y sube los artefactos de la
   # ejecución (entre ellos los MSIX); no crea release, no firma con SignPath ni genera
   # latest.json. Por omisión sólo Windows, para probar el paquete de Microsoft Store.

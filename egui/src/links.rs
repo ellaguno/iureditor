@@ -5,6 +5,8 @@
 //!   dictar; entra aunque la ventana no tenga el foco, que GNOME en Wayland no le da a otra app).
 //! - `iureditor://edit?action=<delete-word|delete-line|undo>&path=<ruta opcional>`: edición
 //!   mínima por voz.
+//! - `iureditor://iurefficient/doc?case=<id>&title=<proyecto>&doc=<id>&name=<archivo>`: abrir un
+//!   documento de la instancia (IureDesk, IureProject) como espejo local, como la 1.x.
 //!
 //! Un enlace solo abre o escribe en un documento ya abierto por el usuario (o el que pide abrir):
 //! nunca guarda, borra archivos ni ejecuta nada.
@@ -20,6 +22,7 @@ pub enum Link {
     Open(PathBuf),
     Insert { text: String, path: Option<PathBuf> },
     Edit { action: iure_doc_ui::ExternalEdit, path: Option<PathBuf> },
+    IureDoc { case_id: Option<String>, case_title: Option<String>, doc_id: String, file_name: String },
 }
 
 /// Un argumento de la línea de órdenes (ruta o enlace). `None` si no se entiende.
@@ -50,6 +53,12 @@ pub fn parse(arg: &str) -> Option<Link> {
             };
             Some(Link::Edit { action, path })
         }
+        "iurefficient/doc" => Some(Link::IureDoc {
+            case_id: get("case"),
+            case_title: get("title"),
+            doc_id: get("doc")?,
+            file_name: get("name").unwrap_or_else(|| iurefficient_ui::pick("document.md", "documento.md").into()),
+        }),
         _ => None,
     }
 }
@@ -58,6 +67,20 @@ pub fn parse(arg: &str) -> Option<Link> {
 mod tests {
     use super::*;
     use iure_doc_ui::ExternalEdit;
+
+    #[test]
+    fn instance_documents() {
+        assert_eq!(
+            parse("iureditor://iurefficient/doc?case=c1&title=Caso%20A&doc=d9&name=nota.md"),
+            Some(Link::IureDoc {
+                case_id: Some("c1".into()),
+                case_title: Some("Caso A".into()),
+                doc_id: "d9".into(),
+                file_name: "nota.md".into()
+            })
+        );
+        assert_eq!(parse("iureditor://iurefficient/doc?case=c1"), None, "sin documento");
+    }
 
     #[test]
     fn links_like_the_tauri_version() {
@@ -78,7 +101,6 @@ mod tests {
             "iureditor://edit?action=rm-rf",
             "iureditor://open?path=relativa.md",
             "iureditor://borrar?path=%2Ftmp%2Fa.md",
-            "iureditor://iurefficient/doc?doc=1",
             "--mcp",
             "",
         ] {

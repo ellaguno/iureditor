@@ -1,4 +1,4 @@
-//! `iureditor2 --mcp` (S1.8): IureEditor sin ventana, por MCP sobre stdio (protocolo de
+//! `iureditor --mcp` (S1.8): IureEditor sin ventana, por MCP sobre stdio (protocolo de
 //! `iurefficient_connect::mcp_server`). Para IureDesk, IureVoz, Claude Desktop o Copilot:
 //!
 //! - `exportar_documento`: un `.md` a PDF, Word o HTML (con imágenes y diagramas).
@@ -27,7 +27,7 @@ pub struct EditorMcp {
     templates: Option<PathBuf>,
 }
 
-/// `iureditor2 --mcp`: atiende hasta que el cliente cierre. Stdout es del protocolo.
+/// `iureditor --mcp`: atiende hasta que el cliente cierre. Stdout es del protocolo.
 pub fn run_stdio() -> i32 {
     serve(EditorMcp { templates: templates::dir() })
 }

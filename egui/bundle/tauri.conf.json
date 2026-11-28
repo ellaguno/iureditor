@@ -1,0 +1,15 @@
+{
+  "build": {
+    "beforeBuildCommand": "",
+    "beforeBundleCommand": ""
+  },
+  "bundle": {
+    "shortDescription": "Editor de documentos Markdown",
+    "longDescription": "Editor de documentos Markdown de la suite Iurefficient: diagramas, mapas mentales, fórmulas y exportación a PDF, Word y HTML.",
+    "windows": {
+      "webviewInstallMode": {
+        "type": "skip"
+      }
+    }
+  }
+}

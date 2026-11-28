@@ -82,7 +82,7 @@ pub struct EditorApp {
     pub(crate) chrome: Option<iurefficient_ui::window::WindowChrome>,
     /// Exportación en curso (dibuja diagramas en otro hilo): el archivo o el error.
     exporting: Option<mpsc::Receiver<Result<PathBuf, String>>>,
-    /// Argumentos que manda un segundo `iureditor2` (rutas y enlaces `iureditor://`).
+    /// Argumentos que manda un segundo `iureditor` (rutas y enlaces `iureditor://`).
     incoming: Option<mpsc::Receiver<Vec<String>>>,
     /// La escucha de esas instancias (se detiene al cerrar).
     _listener: Option<crate::instance::Listener>,
@@ -140,6 +140,15 @@ pub struct EditorApp {
     /// Ayuda › Buscar actualizaciones: la búsqueda en curso y su resultado.
     updating: Option<mpsc::Receiver<crate::updates::Check>>,
     update: Option<crate::updates::Check>,
+    /// La búsqueda automática (a los 6 s de abrir, como la 1.x) ya se lanzó; y si fue ella (sin
+    /// novedad no se muestra nada).
+    auto_checked: bool,
+    quiet_check: bool,
+    /// La actualización que se está instalando y su resultado.
+    installing: Option<mpsc::Receiver<crate::updates::Installed>>,
+    installed: Option<crate::updates::Installed>,
+    /// Al cerrar, volver a abrir la app (ya actualizada).
+    restart: Option<crate::updates::Relaunch>,
 }
 
 /// Espera tras el último cambio antes de escribir el borrador (como IureEditor Tauri).
@@ -235,6 +244,11 @@ impl EditorApp {
             about: false,
             updating: None,
             update: None,
+            auto_checked: cfg!(test),
+            quiet_check: false,
+            installing: None,
+            installed: None,
+            restart: None,
         }
     }
 
@@ -402,7 +416,7 @@ impl EditorApp {
         self.picker = Some(rx);
     }
 
-    /// Recibe los argumentos de un segundo `iureditor2`.
+    /// Recibe los argumentos de un segundo `iureditor`.
     pub(crate) fn set_incoming(&mut self, rx: mpsc::Receiver<Vec<String>>, listener: crate::instance::Listener) {
         self.incoming = Some(rx);
         self._listener = Some(listener);
@@ -427,6 +441,14 @@ impl EditorApp {
                     self.external(ctx, path.as_deref(), iure_doc_ui::ExternalEdit::Insert(text));
                 }
                 Some(crate::links::Link::Edit { action, path }) => self.external(ctx, path.as_deref(), action),
+                Some(crate::links::Link::IureDoc { case_id, case_title, doc_id, file_name }) => {
+                    focus = true;
+                    // La pestaña Iurefficient retoma la sesión de la suite (o pide entrar) y abre
+                    // el documento al quedar conectada.
+                    self.side.open = true;
+                    self.side.tab = crate::sidebar::SideTab::Iurefficient;
+                    self.side.iure.open_remote(case_id, case_title, doc_id, file_name);
+                }
                 None => {
                     self.notice = Some(format!(
                         "{} «{arg}».",
@@ -597,6 +619,9 @@ impl EditorApp {
                 }
                 for i in 0..self.tabs.len() {
                     self.clear_draft(i);
+                }
+                if let Some(r) = self.restart.take() {
+                    crate::updates::relaunch(&r);
                 }
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
@@ -972,10 +997,12 @@ impl EditorApp {
             },
             MenuAct::Url(u) => ctx.open_url(egui::OpenUrl::new_tab(u)),
             MenuAct::CheckUpdates => {
-                if self.updating.is_none() {
+                if self.updating.is_none() && self.installing.is_none() {
                     self.update = None;
+                    self.installed = None;
                     self.updating = Some(crate::updates::start());
                 }
+                self.quiet_check = false;
                 self.about = true;
             }
         }
@@ -1048,9 +1075,34 @@ impl EditorApp {
                 self.template_ask = Some((name, fields));
             }
         }
+        if !self.auto_checked && ctx.input(|i| i.time) > 6.0 {
+            self.auto_checked = true;
+            if self.updating.is_none() {
+                self.quiet_check = true;
+                self.updating = Some(crate::updates::start());
+            }
+        }
+        if let Some(rx) = &self.installing {
+            match rx.try_recv() {
+                Ok(r) => {
+                    self.installing = None;
+                    if r == crate::updates::Installed::Quit {
+                        // Windows: el instalador cierra y vuelve a abrir la app.
+                        self.run(ctx, Then::Close);
+                    }
+                    self.installed = Some(r);
+                }
+                Err(mpsc::TryRecvError::Disconnected) => self.installing = None,
+                Err(mpsc::TryRecvError::Empty) => ctx.request_repaint_after(std::time::Duration::from_millis(200)),
+            }
+        }
         if let Some(rx) = &self.updating {
             match rx.try_recv() {
                 Ok(c) => {
+                    // La búsqueda automática solo avisa si hay una versión nueva.
+                    if std::mem::take(&mut self.quiet_check) && matches!(c, crate::updates::Check::Newer(..)) {
+                        self.about = true;
+                    }
                     self.update = Some(c);
                     self.updating = None;
                 }
@@ -1105,6 +1157,8 @@ impl EditorApp {
             let mut open = true;
             let mut download = false;
             let mut check = false;
+            let mut install = None;
+            let mut restart = false;
             egui::Window::new(pick("About IureEditor", "Acerca de IureEditor"))
                 .id(egui::Id::unique("iureditor-about"))
                 .open(&mut open)
@@ -1129,35 +1183,72 @@ impl EditorApp {
                         ui.label("© Eduardo Llaguno Velasco · Apache-2.0");
                         ui.hyperlink_to("iurefficient.com", "https://iurefficient.com");
                         ui.add_space(8.0);
-                        use crate::updates::Check;
-                        match (&self.updating, &self.update) {
-                            (Some(_), _) => {
-                                ui.horizontal(|ui| {
-                                    ui.spinner();
-                                    ui.label(pick("Checking for updates…", "Buscando actualizaciones…"));
-                                });
-                            }
-                            (None, Some(Check::UpToDate)) => {
-                                ui.label(pick("You have the latest version.", "Tienes la versión más reciente."));
-                            }
-                            (None, Some(Check::Newer(v))) => {
-                                ui.label(
-                                    egui::RichText::new(format!(
-                                        "{} {v}.",
-                                        pick("A new version is available:", "Hay una versión nueva:")
-                                    ))
-                                    .strong(),
-                                );
-                                if ui.button(pick("Download…", "Descargar…")).clicked() {
-                                    download = true;
+                        use crate::updates::{Check, Installed};
+                        if self.installing.is_some() {
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label(pick("Downloading and installing…", "Descargando e instalando…"));
+                            });
+                        } else if let Some(r) = &self.installed {
+                            match r {
+                                Installed::Restart(_) | Installed::Quit => {
+                                    ui.label(
+                                        egui::RichText::new(pick(
+                                            "The update is installed.",
+                                            "La actualización quedó instalada.",
+                                        ))
+                                        .strong(),
+                                    );
+                                    if matches!(r, Installed::Restart(_))
+                                        && ui.button(pick("Restart now", "Reiniciar ahora")).clicked()
+                                    {
+                                        restart = true;
+                                    }
+                                }
+                                Installed::Failed(e) => {
+                                    ui.label(egui::RichText::new(e.as_str()).color(c.text_muted));
+                                    if ui.button(pick("Download…", "Descargar…")).clicked() {
+                                        download = true;
+                                    }
                                 }
                             }
-                            (None, Some(Check::Failed(e))) => {
-                                ui.label(egui::RichText::new(e.as_str()).color(c.text_muted));
-                            }
-                            (None, None) => {
-                                if ui.button(pick("Check for updates…", "Buscar actualizaciones…")).clicked() {
-                                    check = true;
+                        } else {
+                            match (&self.updating, &self.update) {
+                                (Some(_), _) => {
+                                    ui.horizontal(|ui| {
+                                        ui.spinner();
+                                        ui.label(pick("Checking for updates…", "Buscando actualizaciones…"));
+                                    });
+                                }
+                                (None, Some(Check::UpToDate)) => {
+                                    ui.label(pick("You have the latest version.", "Tienes la versión más reciente."));
+                                }
+                                (None, Some(Check::Newer(v, pkg))) => {
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "{} {v}.",
+                                            pick("A new version is available:", "Hay una versión nueva:")
+                                        ))
+                                        .strong(),
+                                    );
+                                    ui.horizontal(|ui| {
+                                        if let Some(p) = pkg
+                                            && ui.button(pick("Update", "Actualizar")).clicked()
+                                        {
+                                            install = Some(p.clone());
+                                        }
+                                        if ui.button(pick("Download…", "Descargar…")).clicked() {
+                                            download = true;
+                                        }
+                                    });
+                                }
+                                (None, Some(Check::Failed(e))) => {
+                                    ui.label(egui::RichText::new(e.as_str()).color(c.text_muted));
+                                }
+                                (None, None) => {
+                                    if ui.button(pick("Check for updates…", "Buscar actualizaciones…")).clicked() {
+                                        check = true;
+                                    }
                                 }
                             }
                         }
@@ -1168,6 +1259,15 @@ impl EditorApp {
             }
             if check {
                 self.menu_act(ctx, crate::chrome::MenuAct::CheckUpdates);
+            }
+            if let Some(p) = install {
+                self.installing = Some(crate::updates::install(p));
+            }
+            if restart && let Some(crate::updates::Installed::Restart(r)) = self.installed.take() {
+                // Cerrar como siempre (pregunta por los cambios) y volver a abrir.
+                self.restart = Some(r);
+                self.about = false;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
             if !open || ctx.input(|i| i.key_pressed(Key::Escape)) {
                 self.about = false;

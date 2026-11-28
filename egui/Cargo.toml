@@ -3,7 +3,7 @@
 # (`src-tauri/`) hasta la paridad; ver `docs/plan-2.0.md`.
 [package]
 name = "iureditor-egui"
-version = "2.0.0-alpha.7"
+version = "2.0.0-rc.1"
 edition = "2024"
 rust-version = "1.91"
 license = "Apache-2.0"
@@ -11,7 +11,7 @@ description = "IureEditor 2.0: editor de documentos Markdown en Rust + egui"
 publish = false
 
 [[bin]]
-name = "iureditor2"
+name = "iureditor"
 path = "src/main.rs"
 
 # Proyecto propio, fuera del de Tauri.
@@ -44,6 +44,9 @@ keyring = { version = "3", default-features = false }
 # Ayuda › Buscar actualizaciones (el `latest.json` de GitHub; rustls, el mismo que trae
 # iurefficient-connect).
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+# Verificar la firma minisign de las actualizaciones (la clave de la 1.x).
+minisign-verify = "0.2"
+base64 = "0.22"
 # Plantillas: carpeta de datos (la de la versión Tauri) y la fecha local.
 dirs = "6"
 # Enlaces `iureditor://` y una sola ventana (token del socket local).
@@ -72,6 +75,10 @@ keyring = { version = "3", default-features = false, features = ["async-secret-s
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal", "wayland"] }
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 rfd = { version = "0.17", default-features = false }
+
+# El icono del .exe (el instalador y los accesos directos lo toman de ahí).
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
 
 [dev-dependencies]
 tempfile = "3"

@@ -133,7 +133,6 @@ nitidez; recordado); en la lista de un mapa mental (dentro de la cita `> `) Intr
 imagen o tabla («Clic para escribir aquí»); **vista previa** del diagrama debajo de su código al
 editarlo (queda el último dibujo bueno mientras se redibuja); líneas **curvas** en el mapa radial.
 
-**Alfas** (cuando se cumpla lo anterior; convive con la 1.x): etiqueta `egui-vX.Y.Z-alpha.N` → `release-egui.yml`
-compila Linux (`.tar.gz` con `instalar.sh`), Windows (`.zip`) y macOS universal (`.app` en
-`.zip`) con `egui/scripts/package.sh` y deja una Release **borrador y preliminar** (no «Latest»:
-el actualizador de la 1.x no la ve). Notas en `egui/notas/<etiqueta>.md`.
+**Candidatas y lanzamiento**: ver [`transicion-2.0.md`](transicion-2.0.md). Etiqueta `vX.Y.Z-rc.N` →
+`release-2.yml` (instaladores de la 1.x, preliminar); `v2.0.0` → «Latest». Notas en
+`egui/notas/<etiqueta>.md`. (Las alfas `egui-v…` y `release-egui.yml` se retiraron.)
